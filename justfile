@@ -63,5 +63,8 @@ viewer-web-dev:
 viewer-web-build:
     npm --prefix viewer/web run build
 
+viewer-web-lint:
+    npm --prefix viewer/web run lint
+
 viewer-web-typecheck:
     npm --prefix viewer/web run typecheck

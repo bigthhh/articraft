@@ -33,6 +33,12 @@ repos:
         language: system
         pass_filenames: true
         types_or: [python, pyi]
+      - id: viewer-lint
+        name: viewer lint
+        entry: npm --prefix viewer/web run lint
+        language: system
+        pass_filenames: false
+        files: ^viewer/web/
       - id: viewer-typecheck
         name: viewer typecheck
         entry: npm --prefix viewer/web run typecheck

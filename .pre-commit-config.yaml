@@ -1,0 +1,47 @@
+default_install_hook_types:
+  - pre-commit
+  - pre-push
+minimum_pre_commit_version: 3.7.0
+repos:
+  - repo: local
+    hooks:
+      - id: forbid-sensitive-paths
+        name: prevent sensitive/local file commits
+        entry: uv run python scripts/pre_commit_hooks.py forbidden-paths
+        language: system
+        pass_filenames: true
+      - id: scan-staged-secrets
+        name: scan staged content for secrets
+        entry: uv run python scripts/pre_commit_hooks.py secrets
+        language: system
+        pass_filenames: true
+      - id: check-text-hygiene
+        name: check text hygiene
+        entry: uv run python scripts/pre_commit_hooks.py hygiene
+        language: system
+        pass_filenames: true
+        types: [text]
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format
+        language: system
+        pass_filenames: true
+        types_or: [python, pyi]
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check --fix
+        language: system
+        pass_filenames: true
+        types_or: [python, pyi]
+      - id: viewer-typecheck
+        name: viewer typecheck
+        entry: npm --prefix viewer/web run typecheck
+        language: system
+        pass_filenames: false
+        files: ^viewer/web/
+      - id: smoke-tests
+        name: smoke tests
+        entry: uv run python scripts/pre_commit_hooks.py smoke-tests
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

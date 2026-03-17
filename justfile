@@ -6,18 +6,22 @@ port := "8765"
 
 setup:
     uv sync
+    uv run articraft-dataset --repo-root . init-storage
+    uv run articraft-workbench --repo-root . init-storage
+    uv run articraft-dataset --repo-root . validate
+    uv run articraft-dataset --repo-root . build-manifest
 
 dataset-validate:
-    uv run articraft-dataset validate --repo-root .
+    uv run articraft-dataset --repo-root . validate
 
 dataset-manifest:
-    uv run articraft-dataset build-manifest --repo-root .
+    uv run articraft-dataset --repo-root . build-manifest
 
 viewer:
     #!/usr/bin/env bash
     set -euo pipefail
-    uv run articraft-dataset validate --repo-root .
-    uv run articraft-dataset build-manifest --repo-root .
+    uv run articraft-dataset --repo-root . validate
+    uv run articraft-dataset --repo-root . build-manifest
     (
       for _ in {1..60}; do
         if curl -fsS http://{{host}}:{{port}}/health >/dev/null; then

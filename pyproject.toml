@@ -23,8 +23,8 @@ dependencies = [
 ]
 
 [project.scripts]
-articraft-dataset = "dataset.cli:main"
-articraft-workbench = "workbench.cli:main"
+articraft-dataset = "cli.dataset:main"
+articraft-workbench = "cli.workbench:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -36,8 +36,6 @@ packages = [
     "cli",
     "store",
     "prompting",
-    "dataset",
-    "workbench",
     "viewer",
     "sdk",
     "sdk_hybrid",

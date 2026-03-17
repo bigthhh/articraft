@@ -8,14 +8,12 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 
-from dataset.cli import main as dataset_main
-from cli.dataset import main as dataset_cli_main
+from cli.dataset import main as dataset_main
 from store.repo import StoreRepo
 
 
 def main() -> None:
     assert callable(dataset_main)
-    assert callable(dataset_cli_main)
     repo = StoreRepo(Path.cwd())
     assert repo.layout.records_root.name == "records"
 

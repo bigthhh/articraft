@@ -25,13 +25,11 @@ function withinTimeFilter(createdAt: string | null, filter: TimeFilter): boolean
 }
 
 function withinCostFilter(totalCostUsd: number | null, filter: CostFilter): boolean {
-  if (filter === "any") return true;
-  if (filter === "missing") return totalCostUsd == null;
+  if (filter.min == null && filter.max == null) return true;
   if (totalCostUsd == null) return false;
-  if (filter === "lt_0_01") return totalCostUsd <= 0.01;
-  if (filter === "lt_0_05") return totalCostUsd <= 0.05;
-  if (filter === "lt_0_10") return totalCostUsd <= 0.1;
-  return totalCostUsd >= 0.1;
+  if (filter.min != null && totalCostUsd < filter.min) return false;
+  if (filter.max != null && totalCostUsd > filter.max) return false;
+  return true;
 }
 
 function withinRatingFilter(rating: number | null, filter: RatingFilter): boolean {
@@ -47,6 +45,7 @@ export function RecordList(): JSX.Element {
     sourceFilter,
     timeFilter,
     modelFilter,
+    categoryFilters,
     costFilter,
     ratingFilter,
     selectedRunId,
@@ -77,6 +76,7 @@ export function RecordList(): JSX.Element {
       runId: selectedRunId,
       timeFilter,
       modelFilter,
+      categoryFilters: sourceFilter === "dataset" ? categoryFilters : [],
       costFilter,
       ratingFilter,
       limit: 200,
@@ -97,7 +97,7 @@ export function RecordList(): JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [costFilter, deferredSearchQuery, modelFilter, ratingFilter, selectedRunId, sourceFilter, timeFilter]);
+  }, [categoryFilters, costFilter, deferredSearchQuery, modelFilter, ratingFilter, selectedRunId, sourceFilter, timeFilter]);
 
   const records = useMemo(() => {
     if (!bootstrap) return [];
@@ -129,6 +129,11 @@ export function RecordList(): JSX.Element {
       list = list.filter((r) => r.run_id === selectedRunId);
     }
 
+    if (sourceFilter === "dataset" && categoryFilters.length > 0) {
+      const selectedCategories = new Set(categoryFilters);
+      list = list.filter((record) => record.category_slug && selectedCategories.has(record.category_slug));
+    }
+
     if (!deferredSearchQuery) {
       list = list.filter((record) => withinTimeFilter(record.created_at, timeFilter));
       list = list.filter((record) => withinCostFilter(record.total_cost_usd, costFilter));
@@ -149,6 +154,7 @@ export function RecordList(): JSX.Element {
     return list;
   }, [
     bootstrap,
+    categoryFilters,
     costFilter,
     deferredSearchQuery,
     modelFilter,

@@ -7,7 +7,7 @@ export function Tabs({
   className,
   ...props
 }: React.ComponentProps<typeof TabsPrimitive.Root>): React.JSX.Element {
-  return <TabsPrimitive.Root className={cn("flex flex-col gap-0", className)} {...props} />;
+  return <TabsPrimitive.Root className={cn("flex min-w-0 flex-col gap-0", className)} {...props} />;
 }
 
 export function TabsList({
@@ -41,5 +41,5 @@ export function TabsContent({
   className,
   ...props
 }: React.ComponentProps<typeof TabsPrimitive.Content>): React.JSX.Element {
-  return <TabsPrimitive.Content className={cn("outline-none", className)} {...props} />;
+  return <TabsPrimitive.Content className={cn("min-w-0 outline-none", className)} {...props} />;
 }

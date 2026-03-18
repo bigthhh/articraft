@@ -70,6 +70,45 @@ dataset-validate:
 dataset-manifest:
     uv run articraft-dataset --repo-root . build-manifest
 
+dataset-delete-category-preview category_slug:
+    uv run articraft-dataset --repo-root . delete-category --category-slug {{ quote(category_slug) }}
+
+dataset-delete-category category_slug:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    category_slug={{ quote(category_slug) }}
+    uv run articraft-dataset --repo-root . delete-category --category-slug "$category_slug"
+    printf "\nType the category slug '%s' to permanently delete it: " "$category_slug"
+    read -r confirm_slug
+    if [ "$confirm_slug" != "$category_slug" ]; then
+      echo "Confirmation mismatch. Aborting."
+      exit 1
+    fi
+    exec uv run articraft-dataset --repo-root . delete-category \
+      --category-slug "$category_slug" \
+      --execute \
+      --confirm-slug "$confirm_slug"
+
+dataset-delete-record-preview record_path:
+    uv run articraft-dataset --repo-root . delete-record --record-path {{ quote(record_path) }}
+
+dataset-delete-record record_path:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    record_path={{ quote(record_path) }}
+    uv run articraft-dataset --repo-root . delete-record --record-path "$record_path"
+    record_id="$(basename "$record_path")"
+    printf "\nType the record ID '%s' to permanently delete it: " "$record_id"
+    read -r confirm_record_id
+    if [ "$confirm_record_id" != "$record_id" ]; then
+      echo "Confirmation mismatch. Aborting."
+      exit 1
+    fi
+    exec uv run articraft-dataset --repo-root . delete-record \
+      --record-path "$record_path" \
+      --execute \
+      --confirm-record-id "$confirm_record_id"
+
 search-index:
     uv run articraft-workbench --repo-root . rebuild-search-index
 

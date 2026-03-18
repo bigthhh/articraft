@@ -69,21 +69,17 @@ def _within_time_filter(created_at: str | None, filter_value: str | None) -> boo
     return (now - created_at_dt).total_seconds() <= seconds
 
 
-def _within_cost_filter(total_cost_usd: float | None, filter_value: str | None) -> bool:
-    if filter_value in {None, "", "any"}:
+def _within_cost_filter(
+    total_cost_usd: float | None, min_cost_usd: float | None, max_cost_usd: float | None
+) -> bool:
+    if min_cost_usd is None and max_cost_usd is None:
         return True
-    if filter_value == "missing":
-        return total_cost_usd is None
     if total_cost_usd is None:
         return False
-    if filter_value == "lt_0_01":
-        return total_cost_usd <= 0.01
-    if filter_value == "lt_0_05":
-        return total_cost_usd <= 0.05
-    if filter_value == "lt_0_10":
-        return total_cost_usd <= 0.1
-    if filter_value == "gte_0_10":
-        return total_cost_usd >= 0.1
+    if min_cost_usd is not None and total_cost_usd < min_cost_usd:
+        return False
+    if max_cost_usd is not None and total_cost_usd > max_cost_usd:
+        return False
     return True
 
 
@@ -96,6 +92,14 @@ def _within_rating_filter(rating: int | None, filter_value: str | None) -> bool:
         return rating == int(filter_value)
     except ValueError:
         return True
+
+
+def _within_category_filters(category_slug: str | None, filter_values: list[str] | None) -> bool:
+    if not filter_values:
+        return True
+    if not category_slug:
+        return False
+    return category_slug in {value for value in filter_values if value}
 
 
 class ViewerStore:
@@ -343,12 +347,16 @@ class ViewerStore:
         run_id: str | None = None,
         time_filter: str | None = None,
         model_filter: str | None = None,
-        cost_filter: str | None = None,
+        category_filters: list[str] | None = None,
+        cost_min: float | None = None,
+        cost_max: float | None = None,
         rating_filter: str | None = None,
         limit: int = 200,
     ) -> list[RecordSummaryResponse]:
         if not query.strip():
             return []
+        if cost_min is not None and cost_max is not None and cost_min > cost_max:
+            cost_min, cost_max = cost_max, cost_min
 
         record_ids = self.search.search_record_ids(
             query,
@@ -365,7 +373,9 @@ class ViewerStore:
                 continue
             if model_filter and summary.model_id != model_filter:
                 continue
-            if not _within_cost_filter(summary.total_cost_usd, cost_filter):
+            if not _within_category_filters(summary.category_slug, category_filters):
+                continue
+            if not _within_cost_filter(summary.total_cost_usd, cost_min, cost_max):
                 continue
             if not _within_rating_filter(summary.rating, rating_filter):
                 continue

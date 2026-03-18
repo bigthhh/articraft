@@ -5,7 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
@@ -100,7 +100,9 @@ def create_app(*, repo_root: Path | None = None) -> FastAPI:
         run_id: str | None = None,
         time: str | None = None,
         model: str | None = None,
-        cost: str | None = None,
+        category: list[str] | None = Query(default=None),
+        cost_min: float | None = None,
+        cost_max: float | None = None,
         rating: str | None = None,
         limit: int = 200,
     ) -> list[RecordSummaryResponse]:
@@ -110,7 +112,9 @@ def create_app(*, repo_root: Path | None = None) -> FastAPI:
             run_id=run_id,
             time_filter=time,
             model_filter=model,
-            cost_filter=cost,
+            category_filters=category,
+            cost_min=cost_min,
+            cost_max=cost_max,
             rating_filter=rating,
             limit=limit,
         )

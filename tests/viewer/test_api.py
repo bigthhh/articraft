@@ -191,6 +191,11 @@ def main() -> None:
             dataset_id="hinge_dataset_001",
             promoted_at="2026-03-17T20:21:03Z",
         )
+        datasets.promote_record(
+            record_id="rec_dj_001",
+            dataset_id="dj_dataset_001",
+            promoted_at="2026-03-17T20:21:04Z",
+        )
 
         runs = RunStore(repo)
         runs.write_run(
@@ -229,7 +234,7 @@ def main() -> None:
         bootstrap = client.get("/api/bootstrap").json()
         assert bootstrap["repo_root"] == repo_root.resolve().as_posix()
         assert len(bootstrap["workbench_entries"]) == 3
-        assert len(bootstrap["dataset_entries"]) == 1
+        assert len(bootstrap["dataset_entries"]) == 2
         assert len(bootstrap["runs"]) == 1
 
         workbench = client.get("/api/collections/workbench").json()
@@ -239,7 +244,7 @@ def main() -> None:
         assert workbench_by_id["rec_001"]["record"]["rating"] is None
 
         dataset = client.get("/api/collections/dataset").json()
-        assert dataset[0]["dataset_id"] == "hinge_dataset_001"
+        assert [item["dataset_id"] for item in dataset] == ["dj_dataset_001", "hinge_dataset_001"]
 
         run_summaries = client.get("/api/runs").json()
         assert run_summaries[0]["run_id"] == "run_001"
@@ -253,6 +258,31 @@ def main() -> None:
 
         search_results = client.get("/api/records/search?q=dj&source=workbench").json()
         assert [item["record_id"] for item in search_results] == ["rec_dj_001"]
+
+        dataset_category_search = client.get(
+            "/api/records/search?q=dj&source=dataset&category=dj_equipment"
+        ).json()
+        assert [item["record_id"] for item in dataset_category_search] == ["rec_dj_001"]
+
+        mismatched_dataset_category_search = client.get(
+            "/api/records/search?q=dj&source=dataset&category=hinges"
+        ).json()
+        assert mismatched_dataset_category_search == []
+
+        multi_category_search = client.get(
+            "/api/records/search?q=dj&source=dataset&category=hinges&category=dj_equipment"
+        ).json()
+        assert [item["record_id"] for item in multi_category_search] == ["rec_dj_001"]
+
+        cost_range_search = client.get(
+            "/api/records/search?q=hinge&source=workbench&cost_min=0.04&cost_max=0.06"
+        ).json()
+        assert [item["record_id"] for item in cost_range_search] == ["rec_001"]
+
+        cost_range_excludes_missing = client.get(
+            "/api/records/search?q=dj&source=workbench&cost_min=0.00&cost_max=0.10"
+        ).json()
+        assert cost_range_excludes_missing == []
 
         update_rating = client.put("/api/records/rec_001/rating", json={"rating": 4})
         assert update_rating.status_code == 200
@@ -285,8 +315,12 @@ def main() -> None:
 
         bootstrap_after_delete = client.get("/api/bootstrap").json()
         assert len(bootstrap_after_delete["workbench_entries"]) == 2
-        assert bootstrap_after_delete["dataset_entries"] == []
-        assert repo.read_json(repo.layout.dataset_manifest_path()) == {"generated": []}
+        assert [item["record_id"] for item in bootstrap_after_delete["dataset_entries"]] == [
+            "rec_dj_001"
+        ]
+        assert repo.read_json(repo.layout.dataset_manifest_path()) == {
+            "generated": [{"name": "dj_dataset_001", "record_id": "rec_dj_001"}]
+        }
 
         missing = client.get("/api/runs/run_missing")
         assert missing.status_code == 404

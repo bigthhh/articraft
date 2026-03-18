@@ -8,10 +8,12 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 
+from storage.categories import CategoryStore
 from storage.collections import CollectionStore
 from storage.datasets import DatasetStore
 from storage.materialize import MaterializationStore, build_materialization_fingerprint
 from storage.models import (
+    CategoryRecord,
     CompileReport,
     DisplayMetadata,
     EnvironmentSettings,
@@ -47,6 +49,16 @@ def main() -> None:
         assert workbench is not None
         assert workbench["entries"][0]["record_id"] == "rec_123"
         assert repo.layout.local_workbench_path().exists()
+
+        categories = CategoryStore(repo)
+        categories.save(
+            CategoryRecord(
+                schema_version=1,
+                slug="hinges",
+                title="Hinges",
+            )
+        )
+        assert repo.layout.category_metadata_path("hinges").exists()
 
         record_store = RecordStore(repo)
         record = Record(
@@ -123,6 +135,7 @@ def main() -> None:
         )
         record_store.write_provenance("rec_123", provenance)
         assert (repo.layout.record_dir("rec_123") / "provenance.json").exists()
+        assert categories.load("hinges") is not None
 
         materialize = MaterializationStore(repo)
         status = materialize.asset_status("rec_123")
@@ -158,6 +171,8 @@ def main() -> None:
         runs.append_result("run_123", {"record_id": "rec_123", "status": "success"})
         results = repo.layout.run_results_path("run_123").read_text(encoding="utf-8")
         assert '"record_id": "rec_123"' in results
+        assert categories.delete("hinges")
+        assert not repo.layout.category_dir("hinges").exists()
 
 
 if __name__ == "__main__":

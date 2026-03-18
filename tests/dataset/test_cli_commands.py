@@ -11,9 +11,20 @@ if __package__ in {None, ""}:
 
 
 from cli.dataset import main as dataset_main
-from storage.models import DisplayMetadata, Record, RecordArtifacts, SourceRef
+from storage.categories import CategoryStore
+from storage.collections import CollectionStore
+from storage.datasets import DatasetStore
+from storage.models import (
+    CategoryRecord,
+    DisplayMetadata,
+    Record,
+    RecordArtifacts,
+    RunRecord,
+    SourceRef,
+)
 from storage.records import RecordStore
 from storage.repo import StorageRepo
+from storage.runs import RunStore
 
 
 def main() -> None:
@@ -21,6 +32,13 @@ def main() -> None:
         repo_root = Path(tmpdir)
         repo = StorageRepo(repo_root)
         repo.ensure_layout()
+        CategoryStore(repo).save(
+            CategoryRecord(
+                schema_version=1,
+                slug="hinges",
+                title="Hinges",
+            )
+        )
 
         record = Record(
             schema_version=1,
@@ -48,6 +66,27 @@ def main() -> None:
             collections=["workbench"],
         )
         RecordStore(repo).write_record(record)
+        CollectionStore(repo).append_workbench_entry(
+            record_id="rec_cli",
+            added_at="2026-03-18T00:00:30Z",
+            label="CLI entry",
+        )
+        RunStore(repo).write_run(
+            RunRecord(
+                schema_version=1,
+                run_id="run_cli",
+                run_mode="dataset_single",
+                collection="dataset",
+                created_at="2026-03-18T00:00:00Z",
+                updated_at="2026-03-18T00:00:01Z",
+                provider="openai",
+                model_id="gpt-5.4",
+                sdk_package="sdk",
+                status="success",
+                category_slug="hinges",
+                prompt_count=1,
+            )
+        )
 
         output = io.StringIO()
         with redirect_stdout(output):
@@ -70,10 +109,126 @@ def main() -> None:
             assert dataset_main(["--repo-root", str(repo_root), "validate"]) == 0
             assert dataset_main(["--repo-root", str(repo_root), "build-manifest"]) == 0
             assert dataset_main(["--repo-root", str(repo_root), "status"]) == 0
+            assert (
+                dataset_main(
+                    [
+                        "--repo-root",
+                        str(repo_root),
+                        "delete-record",
+                        "--record-path",
+                        str(repo.layout.record_dir("rec_cli")),
+                    ]
+                )
+                == 0
+            )
+            assert repo.layout.record_metadata_path("rec_cli").exists()
+            assert (
+                dataset_main(
+                    [
+                        "--repo-root",
+                        str(repo_root),
+                        "delete-record",
+                        "--record-path",
+                        str(repo.layout.record_dir("rec_cli")),
+                        "--execute",
+                        "--confirm-record-id",
+                        "wrong-record-id",
+                    ]
+                )
+                == 1
+            )
+            assert repo.layout.record_metadata_path("rec_cli").exists()
+            assert (
+                dataset_main(
+                    [
+                        "--repo-root",
+                        str(repo_root),
+                        "delete-record",
+                        "--record-path",
+                        str(repo.layout.record_dir("rec_cli")),
+                        "--execute",
+                        "--confirm-record-id",
+                        "rec_cli",
+                    ]
+                )
+                == 0
+            )
+            assert not repo.layout.record_dir("rec_cli").exists()
+            assert repo.layout.run_metadata_path("run_cli").exists()
+            assert repo.layout.search_index_path().exists()
+            assert (CollectionStore(repo).load_workbench() or {}).get("entries", []) == []
+            assert DatasetStore(repo).list_entries() == []
+
+        category_output = io.StringIO()
+        with redirect_stdout(category_output):
+            assert (
+                dataset_main(
+                    [
+                        "--repo-root",
+                        str(repo_root),
+                        "delete-category",
+                        "--category-slug",
+                        "hinges",
+                    ]
+                )
+                == 0
+            )
+            assert repo.layout.category_metadata_path("hinges").exists()
+            assert (
+                dataset_main(
+                    [
+                        "--repo-root",
+                        str(repo_root),
+                        "delete-category",
+                        "--category-slug",
+                        "hinges",
+                        "--execute",
+                        "--confirm-slug",
+                        "wrong-slug",
+                    ]
+                )
+                == 1
+            )
+            assert repo.layout.category_metadata_path("hinges").exists()
+            assert (
+                dataset_main(
+                    [
+                        "--repo-root",
+                        str(repo_root),
+                        "delete-category",
+                        "--category-slug",
+                        "hinges",
+                        "--execute",
+                        "--confirm-slug",
+                        "hinges",
+                    ]
+                )
+                == 0
+            )
 
         manifest = repo.layout.dataset_manifest_path().read_text(encoding="utf-8")
-        assert '"name": "cli_dataset_001"' in manifest
+        assert '"generated": []' in manifest
         assert "dataset_entries=1" in output.getvalue()
+        assert (
+            "Preview only. Re-run with --execute --confirm-record-id rec_cli" in output.getvalue()
+        )
+        assert "Refusing to delete record" in output.getvalue()
+        assert (
+            "Deleted record_id=rec_cli category_slug=hinges run_id_retained=run_cli"
+            in output.getvalue()
+        )
+        assert "record_dir=" in output.getvalue()
+        assert "in_workbench=yes" in output.getvalue()
+        assert (
+            "Preview only. Re-run with --execute --confirm-slug hinges"
+            in category_output.getvalue()
+        )
+        assert "Refusing to delete category" in category_output.getvalue()
+        assert (
+            "Deleted category_slug=hinges records_deleted=0 run_cache_entries_retained=1"
+            in category_output.getvalue()
+        )
+        assert not repo.layout.category_dir("hinges").exists()
 
 
 if __name__ == "__main__":

@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parent
 SECTIONS_DIR = ROOT / "sections"
 GENERATED_DIR = ROOT / "generated"
@@ -23,7 +22,6 @@ PROMPT_VARIANTS: tuple[PromptVariant, ...] = (
         sections=(
             SECTIONS_DIR / "designer_common.md",
             SECTIONS_DIR / "provider_openai.md",
-            SECTIONS_DIR / "feedback_rules.md",
             SECTIONS_DIR / "sdk_base.md",
         ),
         output=GENERATED_DIR / "designer_system_prompt_openai.txt",
@@ -34,7 +32,6 @@ PROMPT_VARIANTS: tuple[PromptVariant, ...] = (
         sections=(
             SECTIONS_DIR / "designer_common.md",
             SECTIONS_DIR / "provider_openai.md",
-            SECTIONS_DIR / "feedback_rules.md",
             SECTIONS_DIR / "sdk_hybrid.md",
         ),
         output=GENERATED_DIR / "designer_system_prompt_openai_hybrid.txt",

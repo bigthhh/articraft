@@ -22,5 +22,29 @@ class StorageQueries:
             return []
         return sorted(path.name for path in categories_root.iterdir() if path.is_dir())
 
+    def list_record_ids_for_category(self, category_slug: str) -> list[str]:
+        record_ids: list[str] = []
+        for record_id in self.list_record_ids():
+            record = self.repo.read_json(self.repo.layout.record_metadata_path(record_id))
+            if not isinstance(record, dict):
+                continue
+            if str(record.get("category_slug") or "") == category_slug:
+                record_ids.append(record_id)
+        return record_ids
+
+    def list_run_ids_for_category(self, category_slug: str) -> list[str]:
+        runs_root = self.repo.layout.runs_root
+        if not runs_root.exists():
+            return []
+
+        run_ids: list[str] = []
+        for run_dir in sorted(path for path in runs_root.iterdir() if path.is_dir()):
+            run = self.repo.read_json(self.repo.layout.run_metadata_path(run_dir.name))
+            if not isinstance(run, dict):
+                continue
+            if str(run.get("category_slug") or "") == category_slug:
+                run_ids.append(run_dir.name)
+        return run_ids
+
     def record_dir(self, record_id: str) -> Path:
         return self.repo.layout.record_dir(record_id)

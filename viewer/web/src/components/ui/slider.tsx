@@ -11,6 +11,8 @@ export function Slider({
   max = 100,
   ...props
 }: React.ComponentProps<typeof SliderPrimitive.Root>): React.JSX.Element {
+  const thumbCount = value?.length ?? defaultValue?.length ?? 1;
+
   return (
     <SliderPrimitive.Root
       data-slot="slider"
@@ -24,7 +26,12 @@ export function Slider({
       <SliderPrimitive.Track className="relative h-[3px] w-full grow overflow-hidden rounded-full bg-[var(--surface-3)]">
         <SliderPrimitive.Range className="absolute h-full bg-[var(--accent)]" />
       </SliderPrimitive.Track>
-      <SliderPrimitive.Thumb className="block size-3 rounded-full border-[1.5px] border-[var(--accent)] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)] transition-all duration-150 hover:shadow-[0_1px_4px_rgba(12,140,233,0.25)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-soft)]" />
+      {Array.from({ length: thumbCount }, (_, index) => (
+        <SliderPrimitive.Thumb
+          key={index}
+          className="block size-3 rounded-full border-[1.5px] border-[var(--accent)] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)] transition-all duration-150 hover:shadow-[0_1px_4px_rgba(12,140,233,0.25)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-soft)]"
+        />
+      ))}
     </SliderPrimitive.Root>
   );
 }

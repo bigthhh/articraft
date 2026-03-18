@@ -51,6 +51,7 @@ def _build_synthetic_final_10k(source_root: Path) -> None:
 
     top_level_manifest: list[dict[str, str]] = []
     summary_categories: list[dict[str, object]] = []
+    ratings: dict[str, dict[str, object]] = {}
 
     with (source_root / "10k_dataset_tracker.csv").open(
         "w", encoding="utf-8", newline=""
@@ -210,6 +211,10 @@ def _build_synthetic_final_10k(source_root: Path) -> None:
                         "created_at": f"2026-03-16T01:{index % 60:02d}:{item_index:02d}Z",
                     },
                 )
+                ratings[item_id] = {
+                    "rating": 3 + ((index + item_index) % 3),
+                    "updated_at": f"2026-03-17T10:{index % 60:02d}:{item_index:02d}Z",
+                }
 
                 result_rows.append(
                     {
@@ -362,6 +367,13 @@ def _build_synthetic_final_10k(source_root: Path) -> None:
         },
     )
     _write_json(source_root / "manifest.json", {"generated": top_level_manifest})
+    _write_json(
+        source_root / "reviews" / "ratings.json",
+        {
+            "updated_at": "2026-03-17T17:54:54Z",
+            "ratings": ratings,
+        },
+    )
     _write_text(source_root / "README.md", "# Synthetic Final 10k\n")
     _write_text(source_root / "CATEGORY_PROMPT_WRITING_GUIDANCE.md", "Synthetic guidance.\n")
     _write_text(source_root / "CATEGORY_SELECTION_REQUIREMENTS.md", "Synthetic requirements.\n")
@@ -422,12 +434,14 @@ def main() -> None:
         )
         assert missing_mesh_record is not None
         assert missing_mesh_record["derived_assets"]["materialization_status"] == "missing"
+        assert missing_mesh_record["rating"] == 4
 
         available_mesh_record = repo.read_json(
             repo.layout.record_metadata_path("rec_category_001_0001")
         )
         assert available_mesh_record is not None
         assert available_mesh_record["derived_assets"]["materialization_status"] == "available"
+        assert available_mesh_record["rating"] == 5
         assert repo.layout.record_asset_meshes_dir("rec_category_001_0001").exists()
         rewritten_cache_manifest = (
             repo.layout.record_asset_meshes_dir("rec_category_001_0001")

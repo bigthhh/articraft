@@ -372,39 +372,11 @@ export function InspectPanel({
   }
 
   return (
-    <ScrollArea className="h-full">
-      <div className="space-y-5 pb-3">
+    <ScrollArea className="h-full min-w-0">
+      <div className="min-w-0 space-y-5 pb-3">
         {/* Prompt */}
-        <section className="space-y-2">
+        <section>
           <SectionLabel>Prompt</SectionLabel>
-          <div className="flex items-center gap-1.5 overflow-hidden rounded-md bg-[var(--surface-1)] px-2 py-1.5">
-            <p
-              className="min-w-0 flex-1 truncate font-mono text-[9.5px] text-[var(--text-tertiary)]"
-              title={recordPath ?? undefined}
-            >
-              {recordPath ?? "Object path unavailable"}
-            </p>
-            <div className="flex shrink-0 items-center gap-0.5">
-              <button
-                type="button"
-                aria-label={copyState === "copied" ? "Copied object path" : "Copy object path"}
-                title={copyState === "copied" ? "Copied object path" : copyState === "error" ? "Copy failed" : "Copy object path"}
-                className="flex size-5 items-center justify-center rounded-md text-[var(--text-quaternary)] transition-colors duration-100 hover:bg-[var(--surface-0)] hover:text-[var(--text-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-soft)]"
-                onClick={() => void handleCopyRecordPath()}
-              >
-                <Copy className={`size-3 ${copyState === "copied" ? "text-[var(--success)]" : ""}`} />
-              </button>
-              <button
-                type="button"
-                aria-label={openState === "opened" ? "Opened object folder" : "Open object folder"}
-                title={openState === "opened" ? "Opened object folder" : openState === "error" ? "Open failed" : "Open object folder"}
-                className="flex size-5 items-center justify-center rounded-md text-[var(--text-quaternary)] transition-colors duration-100 hover:bg-[var(--surface-0)] hover:text-[var(--text-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-soft)]"
-                onClick={() => void handleOpenRecordFolder()}
-              >
-                <FolderOpen className={`size-3 ${openState === "opened" ? "text-[var(--success)]" : ""}`} />
-              </button>
-            </div>
-          </div>
           {promptStatus === "idle" || promptStatus === "loading" ? (
             <div className="space-y-1.5">
               <Skeleton className="h-3 w-full" />
@@ -464,22 +436,57 @@ export function InspectPanel({
         {/* Record context */}
         <section>
           <SectionLabel>Info</SectionLabel>
-          <div className="space-y-0">
-            <div className="prop-row">
-              <span className="prop-label">SDK</span>
-              <span className="prop-value font-mono text-[10px]">{record.sdk_package || "--"}</span>
+          <div className="space-y-3">
+            <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] px-3 py-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] font-medium uppercase tracking-[0.05em] text-[var(--text-tertiary)]">
+                  Path
+                </span>
+                <div className="flex shrink-0 items-center gap-0.5">
+                  <button
+                    type="button"
+                    aria-label={copyState === "copied" ? "Copied object path" : "Copy object path"}
+                    title={copyState === "copied" ? "Copied object path" : copyState === "error" ? "Copy failed" : "Copy object path"}
+                    className="flex size-5 cursor-pointer items-center justify-center rounded-md text-[var(--text-quaternary)] transition-colors duration-100 hover:bg-[var(--surface-0)] hover:text-[var(--text-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-soft)]"
+                    onClick={() => void handleCopyRecordPath()}
+                  >
+                    <Copy className={`size-3 ${copyState === "copied" ? "text-[var(--success)]" : ""}`} />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={openState === "opened" ? "Opened object folder" : "Open object folder"}
+                    title={openState === "opened" ? "Opened object folder" : openState === "error" ? "Open failed" : "Open object folder"}
+                    className="flex size-5 cursor-pointer items-center justify-center rounded-md text-[var(--text-quaternary)] transition-colors duration-100 hover:bg-[var(--surface-0)] hover:text-[var(--text-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-soft)]"
+                    onClick={() => void handleOpenRecordFolder()}
+                  >
+                    <FolderOpen className={`size-3 ${openState === "opened" ? "text-[var(--success)]" : ""}`} />
+                  </button>
+                </div>
+              </div>
+              <p
+                className="mt-2 break-all font-mono text-[10px] leading-[1.5] text-[var(--text-secondary)]"
+                title={recordPath ?? undefined}
+              >
+                {recordPath ?? "--"}
+              </p>
             </div>
-            <div className="prop-row">
-              <span className="prop-label">Provider</span>
-              <span className="prop-value">{record.provider || "--"}</span>
-            </div>
-            <div className="prop-row">
-              <span className="prop-label">Model</span>
-              <span className="prop-value font-mono text-[10px]">{record.model_id || "--"}</span>
-            </div>
-            <div className="prop-row">
-              <span className="prop-label">Category</span>
-              <span className="prop-value">{record.category_slug || "--"}</span>
+            <div className="space-y-0">
+              <div className="prop-row">
+                <span className="prop-label">SDK</span>
+                <span className="prop-value font-mono text-[10px]">{record.sdk_package || "--"}</span>
+              </div>
+              <div className="prop-row">
+                <span className="prop-label">Provider</span>
+                <span className="prop-value">{record.provider || "--"}</span>
+              </div>
+              <div className="prop-row">
+                <span className="prop-label">Model</span>
+                <span className="prop-value font-mono text-[10px]">{record.model_id || "--"}</span>
+              </div>
+              <div className="prop-row">
+                <span className="prop-label">Category</span>
+                <span className="prop-value">{record.category_slug || "--"}</span>
+              </div>
             </div>
           </div>
         </section>

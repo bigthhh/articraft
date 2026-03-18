@@ -83,6 +83,7 @@ class LegacyItem:
     canonical_record_id: str
     canonical_dataset_id: str
     created_at: str
+    rating: int | None
     prompt_text: str
     prompt_index: int
     provider: str
@@ -187,6 +188,29 @@ def _parse_int(value: Any, *, field_name: str) -> int:
     if not isinstance(value, int):
         raise MigrationError(f"Expected integer for {field_name}, got {value!r}")
     return value
+
+
+def _load_ratings(source_root: Path) -> dict[str, int]:
+    ratings_path = source_root / "reviews" / "ratings.json"
+    if not ratings_path.exists():
+        return {}
+
+    payload = _load_json(ratings_path)
+    raw_ratings = payload.get("ratings")
+    if not isinstance(raw_ratings, dict):
+        raise MigrationError(f"Invalid ratings payload: {ratings_path}")
+
+    ratings: dict[str, int] = {}
+    for item_id, entry in raw_ratings.items():
+        if not isinstance(item_id, str) or not item_id.strip():
+            raise MigrationError(f"Invalid rating item id in {ratings_path}: {item_id!r}")
+        if not isinstance(entry, dict):
+            raise MigrationError(f"Invalid rating entry for {item_id!r} in {ratings_path}")
+        rating = entry.get("rating")
+        if not isinstance(rating, int):
+            raise MigrationError(f"Invalid rating value for {item_id!r} in {ratings_path}")
+        ratings[item_id] = rating
+    return ratings
 
 
 def _parse_item_sequence(item_id: str) -> int:
@@ -363,6 +387,7 @@ def _collect_items(
     seen_run_ids: set[str],
     seen_record_ids: set[str],
     seen_dataset_ids: set[str],
+    ratings_by_item_id: dict[str, int],
 ) -> list[LegacyItem]:
     items_dir = category_dir / "items"
     if not items_dir.exists():
@@ -462,6 +487,7 @@ def _collect_items(
                 canonical_record_id=record_id,
                 canonical_dataset_id=dataset_id,
                 created_at=str(item_payload.get("created_at", "")),
+                rating=ratings_by_item_id.get(item_id),
                 prompt_text=prompt_text,
                 prompt_index=prompt_index,
                 provider=str(item_payload.get("provider", "")),
@@ -497,6 +523,7 @@ def collect_legacy_dataset(source_root: Path) -> LegacyDataset:
 
     summary_payload = _load_json(source_root / "summary.json")
     manifest_payload = _load_json(source_root / "manifest.json")
+    ratings_by_item_id = _load_ratings(source_root)
 
     category_dirs = sorted(path for path in categories_root.iterdir() if path.is_dir())
     if len(category_dirs) != EXPECTED_CATEGORY_COUNT:
@@ -568,6 +595,7 @@ def collect_legacy_dataset(source_root: Path) -> LegacyDataset:
             seen_run_ids=seen_run_ids,
             seen_record_ids=seen_record_ids,
             seen_dataset_ids=seen_dataset_ids,
+            ratings_by_item_id=ratings_by_item_id,
         )
 
         current_count = _parse_int(
@@ -903,7 +931,7 @@ def _import_item(
         record_id=item.canonical_record_id,
         created_at=item.created_at,
         updated_at=item.created_at,
-        rating=None,
+        rating=item.rating,
         kind="generated_model",
         prompt_kind="single_prompt",
         category_slug=item.category_slug,
@@ -1041,6 +1069,29 @@ def import_legacy_dataset(
         "categories": len(dataset.categories),
         "accepted_items": len(dataset.items),
         "runs": len(dataset.runs),
+    }
+
+
+def backfill_ratings_for_repo(dataset: LegacyDataset, *, repo_root: Path) -> dict[str, int]:
+    repo = StorageRepo(repo_root)
+    records = RecordStore(repo)
+
+    updated = 0
+    missing_rating = 0
+    missing_record = 0
+    for item in dataset.items:
+        if item.rating is None:
+            missing_rating += 1
+            continue
+        if records.update_rating(item.canonical_record_id, item.rating) is None:
+            missing_record += 1
+            continue
+        updated += 1
+
+    return {
+        "updated": updated,
+        "missing_rating": missing_rating,
+        "missing_record": missing_record,
     }
 
 

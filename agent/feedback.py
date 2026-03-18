@@ -4,11 +4,16 @@ import linecache
 import re
 import traceback
 
-
 CODE_PATTERN = re.compile(
-    r'```(?:python)?\s*\n'
-    r'|^(?:from\s+\w+\s+import\s|import\s+\w+|def\s+\w+\s*\(|class\s+\w+)',
+    r"```(?:python)?\s*\n"
+    r"|^(?:from\s+\w+\s+import\s|import\s+\w+|def\s+\w+\s*\(|class\s+\w+)",
     re.MULTILINE,
+)
+LOFT_PROFILE_AREA_ERROR = "Loft profile area must be non-zero"
+LOFT_PROFILE_AREA_HINT = (
+    "Hint: LoftGeometry checks profile area in the XY projection. "
+    "Use closed loops like `(x_i, y_i, z_const)`. "
+    "If you need an XZ/YZ section, author it in XY first and rotate the mesh afterward."
 )
 
 
@@ -17,6 +22,12 @@ def contains_code_in_text(text: str) -> bool:
     if not text:
         return False
     return bool(CODE_PATTERN.search(text))
+
+
+def _compile_hint_lines(detail_lines: list[str]) -> list[str]:
+    if any(LOFT_PROFILE_AREA_ERROR in line for line in detail_lines):
+        return [LOFT_PROFILE_AREA_HINT]
+    return []
 
 
 def format_compile_exception(exc: BaseException, *, max_detail_lines: int = 40) -> str:
@@ -52,6 +63,11 @@ def format_compile_exception(exc: BaseException, *, max_detail_lines: int = 40) 
         omitted = len(detail_lines) - max_detail_lines
         detail_lines = detail_lines[:max_detail_lines]
         detail_lines.append(f"... ({omitted} more lines)")
+
+    for hint in _compile_hint_lines(detail_lines):
+        if hint not in seen:
+            detail_lines.append(hint)
+            seen.add(hint)
 
     extracted = traceback.extract_tb(exc.__traceback__) if exc.__traceback__ else []
     location = ""

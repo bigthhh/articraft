@@ -39,9 +39,7 @@ def _mat4_mul(a: Mat4, b: Mat4) -> Mat4:
     for i in range(4):
         row = []
         for j in range(4):
-            row.append(
-                sum(float(a[i][k]) * float(b[k][j]) for k in range(4))
-            )
+            row.append(sum(float(a[i][k]) * float(b[k][j]) for k in range(4)))
         rows.append((row[0], row[1], row[2], row[3]))
     return (rows[0], rows[1], rows[2], rows[3])
 
@@ -284,14 +282,15 @@ def _sample_catmull_rom_spline(
         return out
 
     if len(dedup) == 2:
-        out = [
-            _tuple_lerp(dedup[0], dedup[1], float(j) / float(steps))
-            for j in range(steps)
-        ]
+        out = [_tuple_lerp(dedup[0], dedup[1], float(j) / float(steps)) for j in range(steps)]
         out.append(dedup[-1])
         return out
 
-    extended = [_tuple_extrapolate(dedup[0], dedup[1]), *dedup, _tuple_extrapolate(dedup[-1], dedup[-2])]
+    extended = [
+        _tuple_extrapolate(dedup[0], dedup[1]),
+        *dedup,
+        _tuple_extrapolate(dedup[-1], dedup[-2]),
+    ]
     out = []
     for i in range(len(dedup) - 1):
         seg = _sample_catmull_rom_segment(
@@ -803,7 +802,7 @@ def resample_side_sections(
     min_h = max(1e-9, float(min_height))
     min_w = max(1e-9, float(min_width))
     out: List[Tuple[float, float, float, float]] = []
-    for (y, z0, z1, w) in dense:
+    for y, z0, z1, w in dense:
         low = float(min(z0, z1))
         high = float(max(z0, z1))
         if high - low < min_h:
@@ -899,10 +898,10 @@ def rounded_rect_profile(
 
     # Start on +X edge (bottom-right corner) and go CCW.
     pts: List[Vec2] = []
-    pts.extend(arc(hw - r, -hh + r, -pi / 2.0, 0.0))          # bottom-right
-    pts.extend(arc(hw - r, hh - r, 0.0, pi / 2.0)[1:])        # top-right
-    pts.extend(arc(-hw + r, hh - r, pi / 2.0, pi)[1:])        # top-left
-    pts.extend(arc(-hw + r, -hh + r, pi, 3.0 * pi / 2.0)[1:]) # bottom-left
+    pts.extend(arc(hw - r, -hh + r, -pi / 2.0, 0.0))  # bottom-right
+    pts.extend(arc(hw - r, hh - r, 0.0, pi / 2.0)[1:])  # top-right
+    pts.extend(arc(-hw + r, hh - r, pi / 2.0, pi)[1:])  # top-left
+    pts.extend(arc(-hw + r, -hh + r, pi, 3.0 * pi / 2.0)[1:])  # bottom-left
     return pts
 
 
@@ -911,11 +910,7 @@ def _points_match_2d(a: Vec2, b: Vec2, *, tol: float = 1e-9) -> bool:
 
 
 def _points_match_3d(a: Vec3, b: Vec3, *, tol: float = 1e-9) -> bool:
-    return (
-        abs(a[0] - b[0]) <= tol
-        and abs(a[1] - b[1]) <= tol
-        and abs(a[2] - b[2]) <= tol
-    )
+    return abs(a[0] - b[0]) <= tol and abs(a[1] - b[1]) <= tol and abs(a[2] - b[2]) <= tol
 
 
 def _polygon_area(points: List[Vec2]) -> float:
@@ -972,9 +967,7 @@ def _point_in_triangle(p: Vec2, a: Vec2, b: Vec2, c: Vec2) -> bool:
     c1 = _cross_z(a, b, p)
     c2 = _cross_z(b, c, p)
     c3 = _cross_z(c, a, p)
-    return (c1 > eps and c2 > eps and c3 > eps) or (
-        c1 < -eps and c2 < -eps and c3 < -eps
-    )
+    return (c1 > eps and c2 > eps and c3 > eps) or (c1 < -eps and c2 < -eps and c3 < -eps)
 
 
 def _manifold_triangulate_polygons(polygons: Sequence[List[Vec2]]) -> Optional[List[Face]]:
@@ -987,8 +980,7 @@ def _manifold_triangulate_polygons(polygons: Sequence[List[Vec2]]) -> Optional[L
     except Exception:
         return None
     return [
-        (int(tri[0]), int(tri[1]), int(tri[2]))
-        for tri in np.asarray(triangles, dtype=np.int64)
+        (int(tri[0]), int(tri[1]), int(tri[2])) for tri in np.asarray(triangles, dtype=np.int64)
     ]
 
 
@@ -1015,9 +1007,7 @@ def _triangulate_polygon_earclip(points: List[Vec2]) -> List[Face]:
             for j in indices:
                 if j in (i_prev, i_curr, i_next):
                     continue
-                if _point_in_triangle(
-                    points[j], points[i_prev], points[i_curr], points[i_next]
-                ):
+                if _point_in_triangle(points[j], points[i_prev], points[i_curr], points[i_next]):
                     ear = False
                     break
 
@@ -1110,7 +1100,7 @@ def _polygon_centroid(points: List[Vec2]) -> Vec2:
     sx = 0.0
     sy = 0.0
     n = max(1, len(points))
-    for (x, y) in points:
+    for x, y in points:
         sx += x
         sy += y
     return (sx / float(n), sy / float(n))
@@ -1232,12 +1222,7 @@ def _bridge_hole_into_outer(
     hp2 = (hp[0] + hole_eps_dir[0] * _BRIDGE_EPSILON, hp[1] + hole_eps_dir[1] * _BRIDGE_EPSILON)
     op2 = (op[0] + eps_dir[0] * _BRIDGE_EPSILON, op[1] + eps_dir[1] * _BRIDGE_EPSILON)
 
-    merged = (
-        list(outer_ring[: oi + 1])
-        + list(hole_path)
-        + [hp2, op2]
-        + list(outer_ring[oi + 1 :])
-    )
+    merged = list(outer_ring[: oi + 1]) + list(hole_path) + [hp2, op2] + list(outer_ring[oi + 1 :])
     return _reduce_redundant_vertices(merged)
 
 
@@ -1303,16 +1288,12 @@ class MeshGeometry:
     def merge(self, other: "MeshGeometry") -> "MeshGeometry":
         offset = len(self.vertices)
         self.vertices.extend(other.vertices)
-        self.faces.extend(
-            (a + offset, b + offset, c + offset) for (a, b, c) in other.faces
-        )
+        self.faces.extend((a + offset, b + offset, c + offset) for (a, b, c) in other.faces)
         _clear_primitive_provenance(self)
         return self
 
     def translate(self, dx: float, dy: float, dz: float) -> "MeshGeometry":
-        self.vertices = [
-            (x + dx, y + dy, z + dz) for (x, y, z) in self.vertices
-        ]
+        self.vertices = [(x + dx, y + dy, z + dz) for (x, y, z) in self.vertices]
         _prepend_primitive_transform(
             self,
             (
@@ -1346,9 +1327,7 @@ class MeshGeometry:
     def rotate_x(self, angle: float) -> "MeshGeometry":
         c = cos(angle)
         s = sin(angle)
-        self.vertices = [
-            (x, y * c - z * s, y * s + z * c) for (x, y, z) in self.vertices
-        ]
+        self.vertices = [(x, y * c - z * s, y * s + z * c) for (x, y, z) in self.vertices]
         _prepend_primitive_transform(
             self,
             (
@@ -1363,9 +1342,7 @@ class MeshGeometry:
     def rotate_y(self, angle: float) -> "MeshGeometry":
         c = cos(angle)
         s = sin(angle)
-        self.vertices = [
-            (x * c + z * s, y, -x * s + z * c) for (x, y, z) in self.vertices
-        ]
+        self.vertices = [(x * c + z * s, y, -x * s + z * c) for (x, y, z) in self.vertices]
         _prepend_primitive_transform(
             self,
             (
@@ -1380,9 +1357,7 @@ class MeshGeometry:
     def rotate_z(self, angle: float) -> "MeshGeometry":
         c = cos(angle)
         s = sin(angle)
-        self.vertices = [
-            (x * c - y * s, x * s + y * c, z) for (x, y, z) in self.vertices
-        ]
+        self.vertices = [(x * c - y * s, x * s + y * c, z) for (x, y, z) in self.vertices]
         _prepend_primitive_transform(
             self,
             (
@@ -1396,9 +1371,11 @@ class MeshGeometry:
 
     def to_obj(self) -> str:
         lines = ["o mesh"]
-        for (x, y, z) in self.vertices:
-            lines.append(f"v {x:.{_OBJ_COORD_DECIMALS}f} {y:.{_OBJ_COORD_DECIMALS}f} {z:.{_OBJ_COORD_DECIMALS}f}")
-        for (a, b, c) in self.faces:
+        for x, y, z in self.vertices:
+            lines.append(
+                f"v {x:.{_OBJ_COORD_DECIMALS}f} {y:.{_OBJ_COORD_DECIMALS}f} {z:.{_OBJ_COORD_DECIMALS}f}"
+            )
+        for a, b, c in self.faces:
             lines.append(f"f {a + 1} {b + 1} {c + 1}")
         lines.append("")
         return "\n".join(lines)
@@ -1430,12 +1407,18 @@ class BoxGeometry(MeshGeometry):
         ]
         self.vertices = verts
         faces = [
-            (0, 1, 2), (0, 2, 3),
-            (4, 6, 5), (4, 7, 6),
-            (0, 4, 5), (0, 5, 1),
-            (1, 5, 6), (1, 6, 2),
-            (2, 6, 7), (2, 7, 3),
-            (3, 7, 4), (3, 4, 0),
+            (0, 1, 2),
+            (0, 2, 3),
+            (4, 6, 5),
+            (4, 7, 6),
+            (0, 4, 5),
+            (0, 5, 1),
+            (1, 5, 6),
+            (1, 6, 2),
+            (2, 6, 7),
+            (2, 7, 3),
+            (3, 7, 4),
+            (3, 4, 0),
         ]
         self.faces = faces
 
@@ -1611,7 +1594,7 @@ class LatheGeometry(MeshGeometry):
             theta = 2 * pi * i / segments
             c = cos(theta)
             s = sin(theta)
-            for (r, z) in points:
+            for r, z in points:
                 x = r * c
                 y = r * s
                 self.add_vertex(x, y, z)
@@ -1651,7 +1634,10 @@ class LoftGeometry(MeshGeometry):
         profile_xy = [(x, y) for (x, y, _z) in profile_list[0]]
         base_area = _polygon_area(profile_xy)
         if abs(base_area) <= 1e-9:
-            raise ValueError("Loft profile area must be non-zero")
+            raise ValueError(
+                "Loft profile area must be non-zero in XY projection; "
+                "profiles should usually be closed XY loops at constant z"
+            )
 
         if base_area < 0:
             profile_list = [list(reversed(profile)) for profile in profile_list]
@@ -1660,12 +1646,15 @@ class LoftGeometry(MeshGeometry):
         for idx, profile in enumerate(profile_list):
             area = _polygon_area([(x, y) for (x, y, _z) in profile])
             if abs(area) <= 1e-9:
-                raise ValueError("Loft profile area must be non-zero")
+                raise ValueError(
+                    "Loft profile area must be non-zero in XY projection; "
+                    "profiles should usually be closed XY loops at constant z"
+                )
             if area * base_area < 0:
                 profile_list[idx] = list(reversed(profile))
 
         for profile in profile_list:
-            for (x, y, z) in profile:
+            for x, y, z in profile:
                 self.add_vertex(x, y, z)
 
         segment_count = ring_count if closed else ring_count - 1
@@ -1700,12 +1689,12 @@ class LoftGeometry(MeshGeometry):
                 raise ValueError("Loft caps require planar profiles")
 
             triangles = _triangulate_polygon(first_xy)
-            for (a, b, c) in triangles:
+            for a, b, c in triangles:
                 self.add_face(c, b, a)
 
             offset_last = (len(profile_list) - 1) * ring_count
             triangles = _triangulate_polygon(last_xy)
-            for (a, b, c) in triangles:
+            for a, b, c in triangles:
                 self.add_face(offset_last + a, offset_last + b, offset_last + c)
 
 
@@ -1838,7 +1827,7 @@ class ExtrudeWithHolesGeometry(MeshGeometry):
         bottom_idx = [self.add_vertex(x, y, z0) for (x, y) in cap_ring]
         top_idx = [self.add_vertex(x, y, z1) for (x, y) in cap_ring]
 
-        for (a, b, c) in cap_triangles:
+        for a, b, c in cap_triangles:
             # Bottom points downward, top points upward.
             self.add_face(bottom_idx[c], bottom_idx[b], bottom_idx[a])
             self.add_face(top_idx[a], top_idx[b], top_idx[c])
@@ -1903,7 +1892,9 @@ class LouverPanelGeometry(MeshGeometry):
         slot_h = min(gap * 0.9, inner_h * 0.8)
         slot_w = inner_w * 0.95
         slot_radius = min(slot_h * 0.45, slot_w * 0.1, corner_radius * 0.75)
-        base_slot = rounded_rect_profile(slot_w, slot_h, radius=max(0.0, slot_radius), corner_segments=4)
+        base_slot = rounded_rect_profile(
+            slot_w, slot_h, radius=max(0.0, slot_radius), corner_segments=4
+        )
 
         hole_profiles: List[List[Vec2]] = []
         y = -inner_h * 0.5 + pitch * 0.5
@@ -1954,16 +1945,11 @@ class SweepGeometry(MeshGeometry):
         if not closed:
             cap = False
 
-        path_points = [
-            (float(x), float(y), float(z)) for (x, y, z) in path
-        ]
+        path_points = [(float(x), float(y), float(z)) for (x, y, z) in path]
         if len(path_points) < 2:
             raise ValueError("Sweep requires at least two path points")
 
-        profiles = [
-            [(x + px, y + py, pz) for (x, y) in points]
-            for (px, py, pz) in path_points
-        ]
+        profiles = [[(x + px, y + py, pz) for (x, y) in points] for (px, py, pz) in path_points]
         self.merge(LoftGeometry(profiles, cap=cap, closed=closed))
 
 
@@ -2254,7 +2240,9 @@ class PipeGeometry(MeshGeometry):
             cap = False
 
         tangents = _compute_path_tangents(path_points)
-        n0, b0 = _initial_frame(tangents[0], (float(up_hint[0]), float(up_hint[1]), float(up_hint[2])))
+        n0, b0 = _initial_frame(
+            tangents[0], (float(up_hint[0]), float(up_hint[1]), float(up_hint[2]))
+        )
         normals: List[Vec3] = [n0]
         binormals: List[Vec3] = [b0]
         for i in range(1, len(path_points)):
@@ -2282,7 +2270,7 @@ class PipeGeometry(MeshGeometry):
             n = normals[i]
             b = binormals[i]
             ring: List[Vec3] = []
-            for (x, y) in points:
+            for x, y in points:
                 ring.append(
                     (
                         p[0] + x * n[0] + y * b[0],
@@ -2298,7 +2286,7 @@ class PipeGeometry(MeshGeometry):
         ring_indices: List[List[int]] = []
         for ring in profiles:
             idxs: List[int] = []
-            for (x, y, z) in ring:
+            for x, y, z in ring:
                 idxs.append(self.add_vertex(x, y, z))
             ring_indices.append(idxs)
 
@@ -2458,7 +2446,7 @@ def wire_from_points(
     corner_segments: int = 8,
     up_hint: Tuple[float, float, float] = (0.0, 0.0, 1.0),
     min_segment_length: float = 1e-6,
-    ) -> MeshGeometry:
+) -> MeshGeometry:
     """Build one tube/wire mesh from a centerline path and radius."""
     return WirePolylineGeometry(
         points=points,
@@ -2632,7 +2620,9 @@ def wire_capsules_from_points(
             )
         )
 
-    node_points = centerline[:-1] if _v_norm(_v_sub(centerline[0], centerline[-1])) <= _EPS else centerline
+    node_points = (
+        centerline[:-1] if _v_norm(_v_sub(centerline[0], centerline[-1])) <= _EPS else centerline
+    )
     for i, point in enumerate(node_points):
         collisions.append(
             Collision(
@@ -2659,7 +2649,9 @@ def _coerce_tube_network_paths(paths: Iterable[Iterable[Vec3]]) -> List[List[Vec
     for path in paths:
         pts = [(float(x), float(y), float(z)) for (x, y, z) in path]
         if len(pts) < 2:
-            raise ValueError("tube_network_from_paths requires each path to contain at least two points")
+            raise ValueError(
+                "tube_network_from_paths requires each path to contain at least two points"
+            )
         out.append(pts)
     if not out:
         raise ValueError("tube_network_from_paths requires at least one path")
@@ -3015,9 +3007,7 @@ def _manifold_from_geometry(geometry: MeshGeometry, *, name: str = "geometry"):
     manifold = _m3d.Manifold(mesh)
     status = manifold.status()
     if status != _m3d.Error.NoError:
-        raise ValueError(
-            f"{name} is not a valid manifold solid for boolean ops (status={status})"
-        )
+        raise ValueError(f"{name} is not a valid manifold solid for boolean ops (status={status})")
     return manifold
 
 

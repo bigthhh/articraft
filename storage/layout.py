@@ -69,6 +69,9 @@ class StorageLayout:
     def record_inputs_dir(self, record_id: str) -> Path:
         return self.record_dir(record_id) / "inputs"
 
+    def record_traces_dir(self, record_id: str) -> Path:
+        return self.record_dir(record_id) / "traces"
+
     def record_assets_dir(self, record_id: str) -> Path:
         return self.record_dir(record_id) / "assets"
 

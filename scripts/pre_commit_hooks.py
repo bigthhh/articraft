@@ -11,6 +11,7 @@ FORBIDDEN_PATHS = (
     re.compile(r"(^|/)\.env(\..*)?$"),
     re.compile(r"^data/cache/"),
     re.compile(r"^data/local/"),
+    re.compile(r"^data/records/[^/]+/model\.urdf$"),
     re.compile(r"^data/records/[^/]+/assets(?:/|$)"),
 )
 SECRET_PATTERNS = (

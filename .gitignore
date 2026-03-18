@@ -206,6 +206,7 @@ cython_debug/
 # Articraft record-local derived assets and transient run state
 data/cache/
 data/local/
+data/records/*/model.urdf
 data/records/*/assets/
 
 # Viewer frontend dependencies/build output

@@ -90,7 +90,7 @@ def main() -> None:
         (asset_meshes_dir / "part.obj").write_text(
             "o tri\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n", encoding="utf-8"
         )
-        trace_dir = repo.layout.run_staging_dir("run_001") / "rec_001" / "traces"
+        trace_dir = repo.layout.record_traces_dir("rec_001")
         trace_dir.mkdir(parents=True, exist_ok=True)
         (trace_dir / "conversation.jsonl").write_text(
             '{"type":"message","message":{"role":"assistant","content":"done"}}\n',

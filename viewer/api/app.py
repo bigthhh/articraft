@@ -252,16 +252,11 @@ def create_app(*, repo_root: Path | None = None) -> FastAPI:
         if not record_dir.exists() or not isinstance(record, dict):
             raise HTTPException(status_code=404, detail=f"Record not found: {record_id}")
 
-        source = record.get("source")
-        run_id = source.get("run_id") if isinstance(source, dict) else None
-        if not isinstance(run_id, str) or not run_id:
-            raise HTTPException(status_code=404, detail=f"Trace not found for record: {record_id}")
-
         requested_path = Path(file_path)
         if requested_path.is_absolute() or ".." in requested_path.parts:
             raise HTTPException(status_code=400, detail="Invalid file path")
 
-        trace_root = (repo.layout.run_staging_dir(run_id) / record_id / "traces").resolve()
+        trace_root = repo.layout.record_traces_dir(record_id).resolve()
         target = (trace_root / requested_path).resolve()
 
         try:

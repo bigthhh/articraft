@@ -306,6 +306,9 @@ def _write_success_record(
         record_store.copy_input_image(context.record_id, image_path)
 
     _copy_if_exists(context.cost_path, context.record_dir / "cost.json")
+    _copytree_if_exists(context.trace_dir, storage_repo.layout.record_traces_dir(context.record_id))
+    if context.trace_dir.exists():
+        shutil.rmtree(context.trace_dir)
     _copytree_if_exists(
         context.staging_dir / "meshes",
         storage_repo.layout.record_asset_meshes_dir(context.record_id),

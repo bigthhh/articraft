@@ -13,6 +13,7 @@ if __package__ in {None, ""}:
 
 from agent import runner
 from agent.models import AgentResult, TerminateReason
+from agent.prompts import DESIGNER_PROMPT_NAME
 
 
 class FakeAgent:
@@ -20,15 +21,17 @@ class FakeAgent:
         self,
         *,
         file_path: str,
+        trace_dir: str | None = None,
         provider: str = "openai",
         model_id: str | None = None,
         **_: object,
     ) -> None:
         self.file_path = Path(file_path)
+        self.trace_dir = Path(trace_dir) if trace_dir else None
         self.provider = provider
         self.loaded_system_prompt_path = str(
             runner.resolve_system_prompt_path(
-                runner.DESIGNER_PROMPT_NAME,
+                DESIGNER_PROMPT_NAME,
                 provider=provider,
                 repo_root=Path(__file__).resolve().parents[2],
             )
@@ -55,6 +58,12 @@ class FakeAgent:
             json.dumps({"total": {"costs_usd": {"total": 0.123456}}}, indent=2),
             encoding="utf-8",
         )
+        if self.trace_dir is not None:
+            self.trace_dir.mkdir(parents=True, exist_ok=True)
+            (self.trace_dir / "conversation.jsonl").write_text(
+                '{"type":"message","message":{"role":"assistant","content":"done"}}\n',
+                encoding="utf-8",
+            )
         return AgentResult(
             success=True,
             reason=TerminateReason.CODE_VALID,
@@ -86,7 +95,7 @@ def main() -> None:
                     provider="openai",
                     thinking_level="high",
                     max_turns=30,
-                    system_prompt_path=runner.DESIGNER_PROMPT_NAME,
+                    system_prompt_path=DESIGNER_PROMPT_NAME,
                     sdk_package="sdk",
                     sdk_docs_mode="full",
                     label="gearbox try",
@@ -106,6 +115,8 @@ def main() -> None:
             assert (record_dir / "compile_report.json").exists()
             assert (record_dir / "provenance.json").exists()
             assert (record_dir / "cost.json").exists()
+            assert (record_dir / "traces").exists()
+            assert (record_dir / "traces" / "conversation.jsonl").exists()
             assert (record_dir / "assets" / "meshes" / "part.obj").exists()
 
             workbench = json.loads(
@@ -123,6 +134,7 @@ def main() -> None:
             results_lines = (run_dirs[0] / "results.jsonl").read_text(encoding="utf-8").splitlines()
             assert len(results_lines) == 1
             assert json.loads(results_lines[0])["record_id"] == record_dir.name
+            assert not (run_dirs[0] / "staging" / record_dir.name / "traces").exists()
 
             assert not (repo_root / "outputs").exists()
 
@@ -138,7 +150,7 @@ def main() -> None:
                     provider="openai",
                     thinking_level="high",
                     max_turns=30,
-                    system_prompt_path=runner.DESIGNER_PROMPT_NAME,
+                    system_prompt_path=DESIGNER_PROMPT_NAME,
                     sdk_package="sdk",
                     sdk_docs_mode="full",
                     collection="dataset",

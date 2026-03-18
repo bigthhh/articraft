@@ -820,6 +820,7 @@ def _import_item(
     _copy_file(item.urdf_source_path, record_dir / "model.urdf")
     _copy_file(item.cost_source_path, record_dir / "cost.json")
     repo.write_text(record_dir / "prompt.txt", item.prompt_text)
+    _copy_tree(item.traces_dir, repo.layout.record_traces_dir(item.canonical_record_id))
 
     if item.meshes_dir is not None:
         destination_meshes_dir = repo.layout.record_asset_meshes_dir(item.canonical_record_id)
@@ -827,10 +828,6 @@ def _import_item(
         _rewrite_collision_cache_manifests(destination_meshes_dir)
 
     runs.ensure_run_dirs(item.canonical_run_id)
-    _copy_tree(
-        item.traces_dir,
-        repo.layout.run_staging_dir(item.canonical_run_id) / item.canonical_record_id / "traces",
-    )
 
     prompt_sha = hashlib.sha256(item.prompt_text.encode("utf-8")).hexdigest()
     model_sha = _sha256_file(record_dir / "model.py")

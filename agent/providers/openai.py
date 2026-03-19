@@ -14,7 +14,6 @@ import logging
 import mimetypes
 import os
 import random
-import threading
 import time
 import uuid
 from pathlib import Path
@@ -63,28 +62,22 @@ class OpenAILLM:
             "OPENAI_WEBSOCKET_MAX_CONNECTION_AGE_SECONDS", 3300.0
         )
         self._api_key: Optional[str] = None
-        self._api_keys: list[str] = []
-        self._clients: list[Any] = []
-        self._client_lock = threading.Lock()
-        self._next_client_index = 0
-        self._previous_response_client_index: Optional[int] = None
         if dry_run:
             self._client = None
             self._client_is_async = False
         else:
             load_dotenv()
-            api_keys = openai_api_keys_from_env()
-            if not api_keys:
-                raise ValueError(
-                    "OPENAI_API_KEYS or OPENAI_API_KEY environment variable is not set"
-                )
-            self._api_keys = api_keys
-            self._api_key = api_keys[0]
+            api_key = os.environ.get("OPENAI_API_KEY")
+            if not api_key:
+                raise ValueError("OPENAI_API_KEY environment variable is not set")
+            self._api_key = api_key
+
+            self._client: Any
             self._client_is_async: bool
             try:
                 from openai import AsyncOpenAI  # type: ignore
 
-                self._clients = [AsyncOpenAI(api_key=api_key) for api_key in api_keys]
+                self._client = AsyncOpenAI(api_key=api_key)
                 self._client_is_async = True
             except Exception:
                 try:
@@ -95,11 +88,8 @@ class OpenAILLM:
                         "Install it (e.g. `uv add openai`), then try again."
                     ) from exc
 
-                self._clients = [OpenAI(api_key=api_key) for api_key in api_keys]
+                self._client = OpenAI(api_key=api_key)
                 self._client_is_async = False
-
-            self._client = self._clients[0]
-            self._next_client_index = random.randrange(len(self._clients))
 
         base_url = os.environ.get("OPENAI_BASE_URL")
         client_base_url = getattr(getattr(self, "_client", None), "base_url", None)
@@ -113,7 +103,6 @@ class OpenAILLM:
         self._last_message_count: int = 0
         self._previous_response_id: Optional[str] = None
         self._websocket: Any = None
-        self._websocket_client_index: Optional[int] = None
         self._websocket_opened_at: Optional[float] = None
 
     def build_request_preview(
@@ -167,36 +156,26 @@ class OpenAILLM:
             tools=converted_tools,
             input_items=self._input_items,
         )
-        request_state: dict[str, Optional[int]] = {"client_index": None}
 
         async def _request_once() -> Any:
-            client_index = self._select_request_client_index(
-                last_attempt_client_index=request_state["client_index"]
-            )
-            request_state["client_index"] = client_index
-            use_incremental_payload = (
-                self._previous_response_id is not None
-                and client_index == self._previous_response_client_index
-            )
-            primary_request_payload = (
-                incremental_request_payload if use_incremental_payload else request_payload
-            )
             try:
                 return await self._request_with_transport(
-                    request_payload=primary_request_payload,
+                    request_payload=request_payload,
+                    incremental_request_payload=incremental_request_payload,
                     fallback_request_payload=fallback_request_payload,
-                    client_index=client_index,
                 )
             except Exception:
-                reasoning = primary_request_payload.get("reasoning")
+                reasoning = request_payload.get("reasoning")
                 if not (isinstance(reasoning, dict) and "summary" in reasoning):
                     raise
                 return await self._request_with_transport(
-                    request_payload=_payload_without_reasoning_summary(primary_request_payload),
+                    request_payload=_payload_without_reasoning_summary(request_payload),
+                    incremental_request_payload=_payload_without_reasoning_summary(
+                        incremental_request_payload
+                    ),
                     fallback_request_payload=_payload_without_reasoning_summary(
                         fallback_request_payload
                     ),
-                    client_index=client_index,
                 )
 
         response = await _async_retry(
@@ -212,23 +191,20 @@ class OpenAILLM:
         # Persist the full response items as the source of truth for future turns.
         self._input_items.extend(self._serialize_response_output(response))
         self._previous_response_id = self._extract_response_id(response)
-        self._previous_response_client_index = request_state["client_index"]
 
         return self._convert_response(response)
 
     async def close(self) -> None:
         await self._close_websocket()
-        seen_clients: set[int] = set()
-        for client in getattr(self, "_clients", []):
-            if client is None or id(client) in seen_clients:
-                continue
-            seen_clients.add(id(client))
-            close_method = getattr(client, "close", None)
-            if close_method is None:
-                continue
-            result = close_method()
-            if asyncio.iscoroutine(result):
-                await result
+        client = getattr(self, "_client", None)
+        if client is None:
+            return None
+        close_method = getattr(client, "close", None)
+        if close_method is None:
+            return None
+        result = close_method()
+        if asyncio.iscoroutine(result):
+            await result
         return None
 
     def _build_request_payload(
@@ -259,34 +235,27 @@ class OpenAILLM:
             request_payload["previous_response_id"] = previous_response_id
         return request_payload
 
-    async def _request_with_http(
-        self,
-        request_payload: dict[str, Any],
-        *,
-        client_index: int,
-    ) -> Any:
-        if not self._clients:
+    async def _request_with_http(self, request_payload: dict[str, Any]) -> Any:
+        if self._client is None:
             raise RuntimeError("OpenAI HTTP transport is unavailable in dry_run mode")
-        client = self._clients[client_index]
         if self._client_is_async:
-            return await client.responses.create(**request_payload)
-        return await asyncio.to_thread(client.responses.create, **request_payload)
+            return await self._client.responses.create(**request_payload)
+        return await asyncio.to_thread(self._client.responses.create, **request_payload)
 
     async def _request_with_transport(
         self,
         *,
         request_payload: dict[str, Any],
+        incremental_request_payload: dict[str, Any],
         fallback_request_payload: dict[str, Any],
-        client_index: int,
     ) -> Any:
         if self.transport == "websocket":
             request_coro = self._request_with_websocket(
-                request_payload=request_payload,
+                request_payload=incremental_request_payload,
                 fallback_request_payload=fallback_request_payload,
-                client_index=client_index,
             )
         else:
-            request_coro = self._request_with_http(request_payload, client_index=client_index)
+            request_coro = self._request_with_http(request_payload)
 
         if self.request_timeout_seconds and self.request_timeout_seconds > 0:
             return await asyncio.wait_for(
@@ -300,34 +269,24 @@ class OpenAILLM:
         *,
         request_payload: dict[str, Any],
         fallback_request_payload: dict[str, Any],
-        client_index: int,
     ) -> Any:
         try:
-            return await self._send_websocket_request(
-                request_payload=request_payload,
-                client_index=client_index,
-            )
+            return await self._send_websocket_request(request_payload=request_payload)
         except _OpenAIWebSocketError as exc:
             if exc.code == "websocket_connection_limit_reached":
                 try:
                     return await self._send_websocket_request(
-                        request_payload=request_payload,
-                        client_index=client_index,
-                        force_reconnect=True,
+                        request_payload=request_payload, force_reconnect=True
                     )
                 except _OpenAIWebSocketError as retry_exc:
                     if retry_exc.code == "previous_response_not_found":
                         return await self._send_websocket_request(
-                            request_payload=fallback_request_payload,
-                            client_index=client_index,
-                            force_reconnect=True,
+                            request_payload=fallback_request_payload, force_reconnect=True
                         )
                     raise
             if exc.code == "previous_response_not_found":
                 return await self._send_websocket_request(
-                    request_payload=fallback_request_payload,
-                    client_index=client_index,
-                    force_reconnect=True,
+                    request_payload=fallback_request_payload, force_reconnect=True
                 )
             raise
 
@@ -335,41 +294,29 @@ class OpenAILLM:
         self,
         *,
         request_payload: dict[str, Any],
-        client_index: int,
         force_reconnect: bool = False,
     ) -> Any:
-        websocket = await self._ensure_websocket_connection(
-            client_index=client_index,
-            force_reconnect=force_reconnect,
-        )
+        websocket = await self._ensure_websocket_connection(force_reconnect=force_reconnect)
         event = {"type": "response.create", **request_payload}
         await websocket.send(json.dumps(event))
         return await self._receive_websocket_response(websocket)
 
-    async def _ensure_websocket_connection(
-        self,
-        *,
-        client_index: int,
-        force_reconnect: bool = False,
-    ) -> Any:
+    async def _ensure_websocket_connection(self, *, force_reconnect: bool = False) -> Any:
         if (
             not force_reconnect
             and self._websocket is not None
             and not getattr(self._websocket, "closed", False)
-            and self._websocket_client_index == client_index
             and not self._websocket_connection_is_stale()
         ):
             return self._websocket
 
         await self._close_websocket()
-        self._websocket = await self._open_websocket_connection(client_index=client_index)
-        self._websocket_client_index = client_index
+        self._websocket = await self._open_websocket_connection()
         self._websocket_opened_at = time.monotonic()
         return self._websocket
 
-    async def _open_websocket_connection(self, *, client_index: int) -> Any:
-        api_key = self._api_key_for_index(client_index)
-        if not api_key:
+    async def _open_websocket_connection(self) -> Any:
+        if not self._api_key:
             raise RuntimeError("OpenAI websocket transport requires a real API key")
         try:
             import websockets  # type: ignore
@@ -380,7 +327,7 @@ class OpenAILLM:
 
         return await websockets.connect(
             self._responses_websocket_url,
-            additional_headers={"Authorization": f"Bearer {api_key}"},
+            additional_headers={"Authorization": f"Bearer {self._api_key}"},
             open_timeout=self.websocket_open_timeout_seconds,
             max_size=None,
         )
@@ -444,7 +391,6 @@ class OpenAILLM:
     async def _close_websocket(self) -> None:
         websocket = self._websocket
         self._websocket = None
-        self._websocket_client_index = None
         self._websocket_opened_at = None
         if websocket is None:
             return None
@@ -854,36 +800,6 @@ class OpenAILLM:
             return response_id
         return None
 
-    def _select_request_client_index(self, *, last_attempt_client_index: Optional[int]) -> int:
-        if not self._clients:
-            raise RuntimeError("OpenAI client is not initialized")
-        if self.transport == "websocket":
-            if last_attempt_client_index is not None:
-                return last_attempt_client_index
-            if self._previous_response_client_index is not None:
-                return self._previous_response_client_index
-            return self._reserve_next_client_index()
-        if last_attempt_client_index is None and self._previous_response_client_index is not None:
-            return self._previous_response_client_index
-        return self._reserve_next_client_index(avoid=last_attempt_client_index)
-
-    def _reserve_next_client_index(self, *, avoid: Optional[int] = None) -> int:
-        if not self._clients:
-            raise RuntimeError("OpenAI client is not initialized")
-        with self._client_lock:
-            if len(self._clients) == 1:
-                return 0
-            client_index = self._next_client_index
-            if avoid is not None and client_index == avoid:
-                client_index = (client_index + 1) % len(self._clients)
-            self._next_client_index = (client_index + 1) % len(self._clients)
-        return client_index
-
-    def _api_key_for_index(self, client_index: int) -> Optional[str]:
-        if 0 <= client_index < len(self._api_keys):
-            return self._api_keys[client_index]
-        return None
-
 
 def _extract_reasoning_summary(summary: Any) -> str:
     if not summary:
@@ -943,29 +859,6 @@ def _effort_from_thinking_level(thinking_level: str) -> str:
     if level not in {"low", "medium", "high"}:
         level = "medium"
     return level
-
-
-def openai_api_keys_from_env(env: Optional[dict[str, str]] = None) -> list[str]:
-    values = os.environ if env is None else env
-
-    def _split(raw: Optional[str]) -> list[str]:
-        if not raw:
-            return []
-        return [token.strip() for token in raw.replace("\n", ",").split(",") if token.strip()]
-
-    keys = _split(values.get("OPENAI_API_KEYS"))
-    if not keys:
-        keys = _split(values.get("OPENAI_API_KEY"))
-
-    unique_keys: list[str] = []
-    seen: set[str] = set()
-    for key in keys:
-        if key in seen:
-            continue
-        unique_keys.append(key)
-        seen.add(key)
-
-    return unique_keys
 
 
 def _env_float(name: str, default: float) -> float:

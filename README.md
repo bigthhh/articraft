@@ -44,10 +44,8 @@ This does the initial local setup:
 Open `.env` and set one provider key:
 
 ```text
-Set `OPENAI_API_KEYS` to one or more comma-separated OpenAI keys in `.env`
+Set `OPENAI_API_KEY` to your OpenAI key in `.env`
 ```
-
-`OPENAI_API_KEY` is still accepted as a single-key fallback.
 
 or:
 

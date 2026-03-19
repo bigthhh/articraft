@@ -33,7 +33,7 @@ from agent.prompts import (
     load_system_prompt_text,
     resolve_system_prompt_path,
 )
-from agent.providers.gemini import GeminiLLM, gemini_api_keys_from_env
+from agent.providers.gemini import GeminiLLM, gemini_client_config_from_env
 from agent.providers.openai import OpenAILLM, openai_api_keys_from_env
 from agent.tools import (
     build_first_turn_messages as _build_first_turn_messages,
@@ -1750,8 +1750,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.provider == "gemini":
-        if not gemini_api_keys_from_env():
-            print("GEMINI_API_KEYS environment variable is required.", file=sys.stderr)
+        try:
+            gemini_client_config_from_env()
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
             return 1
     elif args.provider == "openai":
         if not openai_api_keys_from_env():

@@ -425,6 +425,15 @@ def test_viewer_api_end_to_end(tmp_path: Path) -> None:
     assert staging_trace.status_code == 200
     assert '"content":"staging"' in staging_trace.text
 
+    delete_staging_response = client.delete("/api/staging/run_live_001/rec_stage_001")
+    assert delete_staging_response.status_code == 200
+    assert delete_staging_response.json() == {
+        "status": "deleted",
+        "run_id": "run_live_001",
+        "record_id": "rec_stage_001",
+    }
+    assert not (repo.layout.run_staging_dir("run_live_001") / "rec_stage_001").exists()
+
     delete_response = client.delete("/api/records/rec_001")
     assert delete_response.status_code == 200
     assert delete_response.json() == {"status": "deleted", "record_id": "rec_001"}
@@ -436,7 +445,7 @@ def test_viewer_api_end_to_end(tmp_path: Path) -> None:
     assert [item["record_id"] for item in bootstrap_after_delete["dataset_entries"]] == [
         "rec_dj_001"
     ]
-    assert len(bootstrap_after_delete["staging_entries"]) == 1
+    assert len(bootstrap_after_delete["staging_entries"]) == 0
     assert repo.read_json(repo.layout.dataset_manifest_path()) == {
         "generated": [{"name": "dj_dataset_001", "record_id": "rec_dj_001"}]
     }

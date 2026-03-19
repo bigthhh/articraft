@@ -14,6 +14,12 @@ class DeleteRecordResponse(BaseModel):
     record_id: str
 
 
+class DeleteStagingResponse(BaseModel):
+    status: str
+    run_id: str
+    record_id: str
+
+
 class OpenRecordFolderResponse(BaseModel):
     status: str
     record_id: str

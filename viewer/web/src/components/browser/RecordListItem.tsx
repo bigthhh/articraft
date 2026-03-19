@@ -356,8 +356,7 @@ export function RecordListItem({ record }: RecordListItemProps): JSX.Element {
                 Delete record?
               </h2>
               <p id={descriptionId} className="text-[12px] leading-5 text-[var(--text-secondary)]">
-                This will permanently remove <span className="font-medium text-[var(--text-primary)]">{record.title}</span> and
-                its stored files from the viewer.
+                This will permanently remove this record and its stored files from the viewer.
               </p>
             </div>
 

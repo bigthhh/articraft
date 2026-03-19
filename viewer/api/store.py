@@ -720,3 +720,14 @@ class ViewerStore:
             self.datasets.write_dataset_manifest()
             self.search.ensure_current()
         return deleted
+
+    def delete_staging_entry(self, run_id: str, record_id: str) -> bool:
+        deleted_any = False
+        for path in (
+            self.repo.layout.run_staging_dir(run_id) / record_id,
+            self.repo.layout.run_failures_dir(run_id) / record_id,
+        ):
+            if path.exists():
+                shutil.rmtree(path)
+                deleted_any = True
+        return deleted_any

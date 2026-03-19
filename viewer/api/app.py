@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse
 from viewer.api.schemas import (
     DatasetEntryResponse,
     DeleteRecordResponse,
+    DeleteStagingResponse,
     HealthResponse,
     OpenRecordFolderResponse,
     OpenStagingFolderResponse,
@@ -245,6 +246,23 @@ def create_app(*, repo_root: Path | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail=f"Record not found: {record_id}")
 
         return DeleteRecordResponse(status="deleted", record_id=record_id)
+
+    @app.delete("/api/staging/{run_id}/{record_id}", response_model=DeleteStagingResponse)
+    async def delete_staging_entry(run_id: str, record_id: str) -> DeleteStagingResponse:
+        resolve_staging_root(run_id, record_id)
+
+        deleted = app.state.viewer_store.delete_staging_entry(run_id, record_id)
+        if not deleted:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Staging entry not found: run_id={run_id} record_id={record_id}",
+            )
+
+        return DeleteStagingResponse(
+            status="deleted",
+            run_id=run_id,
+            record_id=record_id,
+        )
 
     @app.post("/api/records/{record_id}/open-folder", response_model=OpenRecordFolderResponse)
     async def open_record_folder(record_id: str) -> OpenRecordFolderResponse:

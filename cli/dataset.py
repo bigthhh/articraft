@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -41,6 +42,7 @@ class DeleteRecordPreview:
 
 @dataclass(slots=True, frozen=True)
 class PruneCachePreview:
+    failed_staging_dirs: list[Path]
     empty_dirs: list[Path]
 
 
@@ -151,9 +153,43 @@ def _build_prune_cache_preview(repo: StorageRepo) -> PruneCachePreview:
         repo.layout.runs_root.resolve(),
         repo.layout.manifests_root.resolve(),
     }
+    failed_staging_dirs: list[Path] = []
+    failed_staging_dir_set: set[Path] = set()
     empty_dirs: list[Path] = []
 
+    if repo.layout.runs_root.exists():
+        for run_dir in repo.layout.runs_root.iterdir():
+            if not run_dir.is_dir():
+                continue
+            results_path = repo.layout.run_results_path(run_dir.name)
+            if not results_path.exists():
+                continue
+            with results_path.open(encoding="utf-8") as handle:
+                for line in handle:
+                    payload = line.strip()
+                    if not payload:
+                        continue
+                    try:
+                        row = json.loads(payload)
+                    except json.JSONDecodeError:
+                        continue
+                    if not isinstance(row, dict):
+                        continue
+                    if str(row.get("status") or "").lower() != "failed":
+                        continue
+                    record_id = str(row.get("record_id") or "")
+                    if not record_id:
+                        continue
+                    staging_dir = (repo.layout.run_staging_dir(run_dir.name) / record_id).resolve()
+                    if not staging_dir.is_dir() or staging_dir in failed_staging_dir_set:
+                        continue
+                    failed_staging_dir_set.add(staging_dir)
+                    failed_staging_dirs.append(staging_dir)
+
     def visit(path: Path) -> bool:
+        resolved = path.resolve()
+        if resolved in failed_staging_dir_set:
+            return True
         has_persistent_content = False
         for child in path.iterdir():
             if child.is_dir():
@@ -164,34 +200,48 @@ def _build_prune_cache_preview(repo: StorageRepo) -> PruneCachePreview:
                 has_persistent_content = True
         if has_persistent_content:
             return False
-        if path.resolve() not in protected_dirs:
+        if resolved not in protected_dirs:
             empty_dirs.append(path)
             return True
         return False
 
     if cache_root.exists():
         visit(cache_root)
+    failed_staging_dirs.sort(key=lambda path: path.as_posix())
     empty_dirs.sort(key=lambda path: (len(path.relative_to(cache_root).parts), path.as_posix()))
-    return PruneCachePreview(empty_dirs=empty_dirs)
+    return PruneCachePreview(failed_staging_dirs=failed_staging_dirs, empty_dirs=empty_dirs)
 
 
 def _print_prune_cache_preview(repo: StorageRepo, preview: PruneCachePreview) -> None:
     cache_root = repo.layout.cache_root.resolve()
     print("Prune cache preview")
     print(f"cache_root={cache_root}")
+    print(f"failed_staging_dirs_to_remove={len(preview.failed_staging_dirs)}")
     print(f"empty_dirs_to_remove={len(preview.empty_dirs)}")
-    if not preview.empty_dirs:
-        print("sample_dirs=(none)")
-        return
-    for path in preview.empty_dirs[:10]:
-        print(f"sample_dir={path.relative_to(cache_root)}")
-    remaining = len(preview.empty_dirs) - 10
-    if remaining > 0:
-        print(f"sample_dirs_remaining={remaining}")
+    if preview.failed_staging_dirs:
+        for path in preview.failed_staging_dirs[:10]:
+            print(f"sample_failed_staging_dir={path.relative_to(cache_root)}")
+        remaining_failed = len(preview.failed_staging_dirs) - 10
+        if remaining_failed > 0:
+            print(f"sample_failed_staging_dirs_remaining={remaining_failed}")
+    else:
+        print("sample_failed_staging_dir=(none)")
+    if preview.empty_dirs:
+        for path in preview.empty_dirs[:10]:
+            print(f"sample_dir={path.relative_to(cache_root)}")
+        remaining = len(preview.empty_dirs) - 10
+        if remaining > 0:
+            print(f"sample_dirs_remaining={remaining}")
+    else:
+        print("sample_dir=(none)")
 
 
 def _prune_cache(repo: StorageRepo, preview: PruneCachePreview) -> int:
     removed = 0
+    for path in preview.failed_staging_dirs:
+        if path.exists() and path.is_dir():
+            shutil.rmtree(path)
+            removed += 1
     for path in sorted(preview.empty_dirs, key=lambda item: len(item.parts), reverse=True):
         if path.exists() and path.is_dir() and not any(path.iterdir()):
             path.rmdir()
@@ -473,11 +523,11 @@ def main(argv: list[str] | None = None) -> int:
         preview = _build_prune_cache_preview(repo)
         _print_prune_cache_preview(repo, preview)
         if not args.execute:
-            print("Preview only. Re-run with --execute to remove these empty cache directories.")
+            print("Preview only. Re-run with --execute to remove these cache paths.")
             return 0
 
         removed = _prune_cache(repo, preview)
-        print(f"Removed empty cache directories: {removed}")
+        print(f"Removed cache paths: {removed}")
         return 0
 
     parser.error(f"Unhandled command: {args.command}")

@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState, type JSX } from "react";
+import { useCallback, useEffect, useMemo, useState, type JSX } from "react";
 import { Copy, FolderOpen, RotateCcw, Star } from "lucide-react";
 
-import { fetchRecordFile, openRecordFolder, saveRecordRating } from "@/lib/api";
+import { fetchRecordFile, fetchStagingFile, openRecordFolder, openStagingFolder, saveRecordRating } from "@/lib/api";
 import { buildRecordPath, copyTextToClipboard } from "@/lib/record-path";
-import { findRecordInBootstrap } from "@/lib/record-summary";
+import { findRecordInBootstrap, findStagingEntryInBootstrap } from "@/lib/record-summary";
 import { useViewer, useViewerDispatch } from "@/lib/viewer-context";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -164,7 +164,7 @@ export function InspectPanel({
   onJointChange,
   onResetAll,
 }: InspectPanelProps): JSX.Element {
-  const { bootstrap, selectedRecordId } = useViewer();
+  const { bootstrap, selectedRecordId, selection } = useViewer();
   const dispatch = useViewerDispatch();
   const [promptText, setPromptText] = useState<string | null>(null);
   const [promptStatus, setPromptStatus] = useState<"idle" | "loading" | "loaded" | "unavailable">("idle");
@@ -174,10 +174,21 @@ export function InspectPanel({
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
   const [openState, setOpenState] = useState<"idle" | "opened" | "error">("idle");
 
+  const isStaging = selection?.kind === "staging";
+  const stagingEntry = isStaging
+    ? findStagingEntryInBootstrap(bootstrap, selection.runId, selection.recordId)
+    : null;
   const record = selectedRecordId ? findRecordInBootstrap(bootstrap, selectedRecordId) : null;
-  const joints = urdfSpec?.joints ?? [];
+  const joints = useMemo(() => urdfSpec?.joints ?? [], [urdfSpec?.joints]);
   const movableJointCount = joints.filter(isMovableJoint).length;
   const recordPath = bootstrap && selectedRecordId ? buildRecordPath(bootstrap.repo_root, selectedRecordId) : null;
+  const stagingSelectionKey =
+    selection?.kind === "staging" ? `${selection.runId}:${selection.recordId}` : null;
+  const recordSelectionKey = selection?.kind === "record" ? selection.recordId : null;
+  const hasSelectedRecord = Boolean(selectedRecordId && record);
+  const stagingRecordId = stagingEntry?.record_id ?? null;
+  const stagingRunId = stagingEntry?.run_id ?? null;
+  const stagingHasPrompt = stagingEntry?.has_prompt ?? false;
 
   const { rootLinks, jointsByParent } = useMemo(() => {
     const nextMap = new Map<string, UrdfJoint[]>();
@@ -193,7 +204,36 @@ export function InspectPanel({
   }, [joints]);
 
   useEffect(() => {
-    if (!selectedRecordId || !record) {
+    if (isStaging && stagingRunId && stagingRecordId) {
+      // Load prompt for staging entry
+      if (!stagingHasPrompt) {
+        setPromptText(null);
+        setPromptStatus("unavailable");
+        return;
+      }
+
+      let cancelled = false;
+      setPromptText(null);
+      setPromptStatus("loading");
+
+      fetchStagingFile(stagingRunId, stagingRecordId, "prompt.txt")
+        .then((text) => {
+          if (cancelled) return;
+          const normalized = text.trim();
+          setPromptText(normalized || null);
+          setPromptStatus(normalized ? "loaded" : "unavailable");
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setPromptText(null);
+            setPromptStatus("unavailable");
+          }
+        });
+
+      return () => { cancelled = true; };
+    }
+
+    if (!selectedRecordId || !hasSelectedRecord) {
       setPromptText(null);
       setPromptStatus("idle");
       return;
@@ -217,12 +257,21 @@ export function InspectPanel({
           setPromptText(null);
           setPromptStatus("unavailable");
         }
-      })
+      });
 
     return () => {
       cancelled = true;
     };
-  }, [selectedRecordId, record]);
+  }, [
+    hasSelectedRecord,
+    isStaging,
+    recordSelectionKey,
+    selectedRecordId,
+    stagingHasPrompt,
+    stagingRecordId,
+    stagingRunId,
+    stagingSelectionKey,
+  ]);
 
   useEffect(() => {
     setHoveredRating(null);
@@ -230,7 +279,7 @@ export function InspectPanel({
     setRatingError(null);
     setCopyState("idle");
     setOpenState("idle");
-  }, [selectedRecordId]);
+  }, [selection]);
 
   useEffect(() => {
     if (copyState === "idle") {
@@ -260,7 +309,7 @@ export function InspectPanel({
     };
   }, [openState]);
 
-  async function handleRatingSelect(nextRating: number): Promise<void> {
+  const handleRatingSelect = useCallback(async (nextRating: number): Promise<void> => {
     if (!selectedRecordId || !record || savingRating) {
       return;
     }
@@ -284,7 +333,7 @@ export function InspectPanel({
       setSavingRating(false);
       setHoveredRating(null);
     }
-  }
+  }, [dispatch, record, savingRating, selectedRecordId]);
 
   async function handleCopyRecordPath(): Promise<void> {
     if (!recordPath) {
@@ -301,6 +350,16 @@ export function InspectPanel({
   }
 
   async function handleOpenRecordFolder(): Promise<void> {
+    if (isStaging && stagingEntry) {
+      try {
+        await openStagingFolder(stagingEntry.run_id, stagingEntry.record_id);
+        setOpenState("opened");
+      } catch {
+        setOpenState("error");
+      }
+      return;
+    }
+
     if (!selectedRecordId) {
       setOpenState("error");
       return;
@@ -315,7 +374,7 @@ export function InspectPanel({
   }
 
   useEffect(() => {
-    if (!selectedRecordId || !record) {
+    if (!hasSelectedRecord) {
       return;
     }
 
@@ -353,8 +412,141 @@ export function InspectPanel({
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [record, selectedRecordId, savingRating]);
+  }, [handleRatingSelect, hasSelectedRecord]);
 
+  if (!selection) {
+    return (
+      <div className="flex h-32 items-center justify-center">
+        <p className="text-[11px] text-[var(--text-quaternary)]">Select a record</p>
+      </div>
+    );
+  }
+
+  // ── Staging inspect view ──
+  if (isStaging && stagingEntry) {
+    return (
+      <ScrollArea className="h-full min-w-0">
+        <div className="min-w-0 space-y-5 pb-3">
+          {/* Prompt */}
+          <section>
+            <SectionLabel>Prompt</SectionLabel>
+            {promptStatus === "idle" || promptStatus === "loading" ? (
+              <div className="space-y-1.5">
+                <Skeleton className="h-3 w-full" />
+                <Skeleton className="h-3 w-[92%]" />
+                <Skeleton className="h-3 w-[85%]" />
+              </div>
+            ) : promptText ? (
+              <p className="whitespace-pre-wrap break-words text-[12px] leading-[1.6] text-[var(--text-secondary)] [overflow-wrap:anywhere]">
+                {promptText}
+              </p>
+            ) : (
+              <p className="text-[11px] text-[var(--text-quaternary)]">Prompt unavailable</p>
+            )}
+          </section>
+
+          {/* Staging info */}
+          <section>
+            <SectionLabel>Info</SectionLabel>
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Badge variant={stagingEntry.status === "failed" ? "destructive" : "success"}>
+                  {stagingEntry.status ?? "unknown"}
+                </Badge>
+              </div>
+              <div className="space-y-0">
+                <div className="prop-row">
+                  <span className="prop-label">Run ID</span>
+                  <span className="prop-value font-mono text-[10px]">{stagingEntry.run_id}</span>
+                </div>
+                <div className="prop-row">
+                  <span className="prop-label">Record ID</span>
+                  <span className="prop-value font-mono text-[10px]">{stagingEntry.record_id}</span>
+                </div>
+                <div className="prop-row">
+                  <span className="prop-label">Provider</span>
+                  <span className="prop-value">{stagingEntry.provider || "--"}</span>
+                </div>
+                <div className="prop-row">
+                  <span className="prop-label">Model</span>
+                  <span className="prop-value font-mono text-[10px]">{stagingEntry.model_id || "--"}</span>
+                </div>
+                <div className="prop-row">
+                  <span className="prop-label">SDK</span>
+                  <span className="prop-value font-mono text-[10px]">{stagingEntry.sdk_package || "--"}</span>
+                </div>
+                <div className="prop-row">
+                  <span className="prop-label">Turns</span>
+                  <span className="prop-value font-mono">{stagingEntry.turn_count != null ? String(stagingEntry.turn_count) : "--"}</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleOpenRecordFolder()}
+                className="flex w-full items-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] px-3 py-2 text-left text-[11px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-0)] hover:text-[var(--text-primary)]"
+              >
+                <FolderOpen className={`size-3.5 ${openState === "opened" ? "text-[var(--success)]" : ""}`} />
+                <span>
+                  {openState === "opened"
+                    ? "Opened staging folder"
+                    : openState === "error"
+                      ? "Open failed"
+                      : "Open staging folder"}
+                </span>
+              </button>
+            </div>
+          </section>
+
+          {/* Kinematic Tree */}
+          <section>
+            <div className="flex items-center justify-between pb-2">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-medium uppercase tracking-[0.05em] text-[var(--text-tertiary)]">Kinematic Tree</span>
+                <div className="h-px flex-1 bg-[var(--border-subtle)]" />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-[9.5px] tabular-nums text-[var(--text-quaternary)]">
+                  {joints.length} joint{joints.length === 1 ? "" : "s"} · {movableJointCount} movable
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={onResetAll}
+                  className="h-5 gap-1 px-1.5 text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                >
+                  <RotateCcw className="size-2.5" />
+                  Reset
+                </Button>
+              </div>
+            </div>
+
+            {joints.length === 0 ? (
+              <div className="flex h-20 items-center justify-center">
+                <p className="text-[11px] text-[var(--text-quaternary)]">
+                  {stagingEntry.has_checkpoint_urdf ? "No joints detected" : "Awaiting first compile"}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {rootLinks.map((rootLink) => (
+                  <LinkBranch
+                    key={rootLink}
+                    linkName={rootLink}
+                    jointsByParent={jointsByParent}
+                    jointValues={jointValues}
+                    onJointChange={onJointChange}
+                    seen={new Set([rootLink])}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      </ScrollArea>
+    );
+  }
+
+  // ── Record inspect view (existing) ──
   if (!selectedRecordId) {
     return (
       <div className="flex h-32 items-center justify-center">

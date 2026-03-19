@@ -20,6 +20,13 @@ class OpenRecordFolderResponse(BaseModel):
     path: str
 
 
+class OpenStagingFolderResponse(BaseModel):
+    status: str
+    run_id: str
+    record_id: str
+    path: str
+
+
 class RecordSummaryResponse(BaseModel):
     record_id: str
     title: str
@@ -56,6 +63,34 @@ class DatasetEntryResponse(BaseModel):
     category_slug: str
     promoted_at: str
     record: RecordSummaryResponse | None = None
+
+
+class StagingEntryResponse(BaseModel):
+    run_id: str
+    record_id: str
+    title: str
+    prompt_preview: str
+    status: str | None = None
+    message: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    collection: str | None = None
+    category_slug: str | None = None
+    provider: str | None = None
+    model_id: str | None = None
+    sdk_package: str | None = None
+    turn_count: int | None = None
+    tool_call_count: int | None = None
+    compile_attempt_count: int | None = None
+    staging_dir: str
+    has_prompt: bool = False
+    has_model_script: bool = False
+    model_script_updated_at: str | None = None
+    has_checkpoint_urdf: bool = False
+    checkpoint_updated_at: str | None = None
+    has_cost: bool = False
+    has_traces: bool = False
+    persisted_record: RecordSummaryResponse | None = None
 
 
 class RunSummaryResponse(BaseModel):
@@ -125,4 +160,25 @@ class ViewerBootstrapResponse(BaseModel):
     generated_at: str
     workbench_entries: list[WorkbenchEntryResponse]
     dataset_entries: list[DatasetEntryResponse]
+    staging_entries: list[StagingEntryResponse]
     runs: list[RunSummaryResponse]
+
+
+class CategoryStatsResponse(BaseModel):
+    count: int
+    average_rating: float | None = None
+    average_cost_usd: float | None = None
+
+
+class RepoStatsResponse(BaseModel):
+    total_records: int
+    workbench_count: int
+    dataset_count: int
+    total_runs: int
+    total_cost_usd: float | None = None
+    data_size_bytes: int | None = None
+    category_counts: dict[str, int] = Field(default_factory=dict)
+    category_stats: dict[str, CategoryStatsResponse] = Field(default_factory=dict)
+    model_counts: dict[str, int] = Field(default_factory=dict)
+    provider_counts: dict[str, int] = Field(default_factory=dict)
+    rating_distribution: dict[str, int] = Field(default_factory=dict)

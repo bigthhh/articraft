@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type JSX } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
 import { LightAsync as SyntaxHighlighter } from "react-syntax-highlighter";
 import python from "react-syntax-highlighter/dist/esm/languages/hljs/python";
 import xml from "react-syntax-highlighter/dist/esm/languages/hljs/xml";
 import { atomOneLight } from "react-syntax-highlighter/dist/esm/styles/hljs";
 
 import { useViewer } from "@/lib/viewer-context";
-import { fetchRecordTextFile } from "@/lib/api";
+import { fetchRecordTextFile, fetchStagingTextFile } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
@@ -79,19 +79,38 @@ function formatBytes(byteCount: number): string {
 }
 
 export function CodePanel(): JSX.Element {
-  const { selectedRecordId } = useViewer();
+  const { bootstrap, selection } = useViewer();
+  const selectedStagingEntry = useMemo(() => {
+    if (!bootstrap || selection?.kind !== "staging") {
+      return null;
+    }
+    return (
+      bootstrap.staging_entries.find(
+        (entry) => entry.run_id === selection.runId && entry.record_id === selection.recordId,
+      ) ?? null
+    );
+  }, [bootstrap, selection]);
+  const stagingRevisionKey = selectedStagingEntry
+    ? `${selectedStagingEntry.model_script_updated_at ?? ""}|${selectedStagingEntry.checkpoint_updated_at ?? ""}`
+    : "";
+  const selectionKey = selection
+    ? selection.kind === "record"
+      ? selection.recordId
+      : `staging:${selection.runId}:${selection.recordId}:${stagingRevisionKey}`
+    : null;
+
   const [activeTab, setActiveTab] = useState<CodeTab>("model.py");
   const [fileStates, setFileStates] = useState<Record<CodeTab, FileState>>(createInitialFileState);
   const requestIdsRef = useRef<Record<CodeTab, number>>({ ...INITIAL_REQUEST_IDS });
-  const currentRecordIdRef = useRef<string | null>(selectedRecordId);
+  const currentSelectionKeyRef = useRef<string | null>(selectionKey);
 
   const loadTab = useCallback(
     async (tab: CodeTab, full = false) => {
-      if (!selectedRecordId) {
+      if (!selection) {
         return;
       }
 
-      const recordId = selectedRecordId;
+      const capturedKey = selectionKey;
       requestIdsRef.current[tab] += 1;
       const requestId = requestIdsRef.current[tab];
 
@@ -105,11 +124,16 @@ export function CodePanel(): JSX.Element {
       }));
 
       try {
-        const payload = await fetchRecordTextFile(recordId, tab, {
-          full,
-          previewBytes: PREVIEW_BYTES,
-        });
-        if (currentRecordIdRef.current !== recordId || requestIdsRef.current[tab] !== requestId) {
+        const payload = selection.kind === "staging"
+          ? await fetchStagingTextFile(selection.runId, selection.recordId, tab, {
+              full,
+              previewBytes: PREVIEW_BYTES,
+            })
+          : await fetchRecordTextFile(selection.recordId, tab, {
+              full,
+              previewBytes: PREVIEW_BYTES,
+            });
+        if (currentSelectionKeyRef.current !== capturedKey || requestIdsRef.current[tab] !== requestId) {
           return;
         }
         setFileStates((prev) => ({
@@ -124,7 +148,7 @@ export function CodePanel(): JSX.Element {
           },
         }));
       } catch (err) {
-        if (currentRecordIdRef.current !== recordId || requestIdsRef.current[tab] !== requestId) {
+        if (currentSelectionKeyRef.current !== capturedKey || requestIdsRef.current[tab] !== requestId) {
           return;
         }
         setFileStates((prev) => ({
@@ -137,17 +161,17 @@ export function CodePanel(): JSX.Element {
         }));
       }
     },
-    [selectedRecordId],
+    [selection, selectionKey],
   );
 
   useEffect(() => {
-    currentRecordIdRef.current = selectedRecordId;
+    currentSelectionKeyRef.current = selectionKey;
     requestIdsRef.current = { ...INITIAL_REQUEST_IDS };
     setFileStates(createInitialFileState());
-  }, [selectedRecordId]);
+  }, [selectionKey]);
 
   useEffect(() => {
-    if (!selectedRecordId) {
+    if (!selection) {
       return;
     }
     const activeState = fileStates[activeTab];
@@ -155,9 +179,9 @@ export function CodePanel(): JSX.Element {
       return;
     }
     void loadTab(activeTab, false);
-  }, [activeTab, fileStates, loadTab, selectedRecordId]);
+  }, [activeTab, fileStates, loadTab, selection]);
 
-  if (!selectedRecordId) {
+  if (!selection) {
     return (
       <div className="flex h-32 items-center justify-center">
         <p className="text-[10px] text-[var(--text-quaternary)]">Select a record</p>

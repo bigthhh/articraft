@@ -1,8 +1,12 @@
 import { type JSX } from "react";
-import { RefreshCw } from "lucide-react";
+import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 
 import { fetchBootstrap } from "@/lib/api";
+import { useRoute } from "@/lib/useRoute";
+import { navigateTo } from "@/lib/router";
 import { useViewer, useViewerDispatch } from "@/lib/viewer-context";
+import { findStagingEntryInBootstrap } from "@/lib/record-summary";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
 const TRAILING_PUNCTUATION = /[\s,.;:!?)]*$/;
@@ -23,6 +27,12 @@ function truncateWithEllipsis(value: string, maxLength = 88): string {
 export function AppHeader(): JSX.Element {
   const state = useViewer();
   const dispatch = useViewerDispatch();
+  const route = useRoute();
+
+  const isStagingSelection = state.selection?.kind === "staging";
+  const stagingEntry = isStagingSelection && state.selection?.kind === "staging"
+    ? findStagingEntryInBootstrap(state.bootstrap, state.selection.runId, state.selection.recordId)
+    : null;
 
   const selectedRecord = (() => {
     if (!state.bootstrap || !state.selectedRecordId) return null;
@@ -40,8 +50,11 @@ export function AppHeader(): JSX.Element {
     return null;
   })();
 
-  const selectedRecordTitleFull = selectedRecord?.title ?? null;
-  const selectedRecordTitle = selectedRecord ? truncateWithEllipsis(selectedRecord.title, 72) : null;
+  const titleSource = isStagingSelection
+    ? stagingEntry?.title ?? null
+    : selectedRecord?.title ?? null;
+  const selectedRecordTitleFull = titleSource;
+  const selectedRecordTitle = titleSource ? truncateWithEllipsis(titleSource, 72) : null;
 
   const handleRefresh = () => {
     dispatch({ type: "SET_LOADING", payload: true });
@@ -57,28 +70,54 @@ export function AppHeader(): JSX.Element {
       });
   };
 
+  const isDashboard = route.page === "dashboard";
+
   return (
     <header className="flex h-11 shrink-0 items-center gap-3 border-b border-[var(--border-default)] bg-[var(--surface-0)] px-4">
       <div className="flex items-center gap-2 text-[12px]">
         <span className="font-semibold tracking-[-0.02em] text-[var(--text-primary)]">Articraft</span>
         <span className="text-[var(--border-strong)]">/</span>
-        <span className="text-[var(--text-tertiary)]">Viewer</span>
+        <span className="text-[var(--text-tertiary)]">{isDashboard ? "Dashboard" : "Viewer"}</span>
       </div>
 
-      <div className="mx-1 flex min-w-0 flex-1 items-center justify-center">
-        {selectedRecordTitle ? (
-          <p
-            className="max-w-full truncate text-[12px] text-[var(--text-secondary)]"
-            title={selectedRecordTitleFull ?? undefined}
-          >
-            {selectedRecordTitle}
-          </p>
-        ) : (
+      <div className="mx-1 flex min-w-0 flex-1 items-center justify-center gap-2">
+        {!isDashboard && selectedRecordTitle ? (
+          <>
+            {isStagingSelection ? <Badge variant="success">STAGING</Badge> : null}
+            <p
+              className="max-w-full truncate text-[12px] text-[var(--text-secondary)]"
+              title={selectedRecordTitleFull ?? undefined}
+            >
+              {selectedRecordTitle}
+            </p>
+          </>
+        ) : !isDashboard ? (
           <p className="text-[12px] text-[var(--text-quaternary)]">No record selected</p>
-        )}
+        ) : null}
       </div>
 
-      <div className="flex items-center">
+      <div className="flex items-center gap-1">
+        {isDashboard ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => navigateTo({ page: "viewer" })}
+            className="h-7 gap-1 rounded-md px-2 text-[11px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+          >
+            Viewer
+            <ChevronRight className="size-3" />
+          </Button>
+        ) : (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => navigateTo({ page: "dashboard" })}
+            className="h-7 gap-1 rounded-md px-2 text-[11px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+          >
+            <ChevronLeft className="size-3" />
+            Dashboard
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="sm"

@@ -69,3 +69,6 @@ def test_harness_injects_important_compile_warnings() -> None:
     assert injected is True
     assert conversation
     assert "IMPORTANT" in conversation[0]["content"]
+    assert "visual and structural sensors" in conversation[0]["content"]
+    assert "wrong geometric representation" in conversation[0]["content"]
+    assert "hero feature" in conversation[0]["content"]

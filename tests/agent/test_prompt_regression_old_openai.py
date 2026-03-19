@@ -1,19 +1,10 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from agent.prompts.compile import compile_prompt_variant
 from agent.prompts.spec import iter_prompt_variants
 
-OLD_OPENAI_PROMPT = Path(
-    "/Users/matthewzhou/particulate-v2/synth-urdf-agent/designer_system_prompt_openai.txt"
-)
 
-
-def test_compiled_openai_prompt_matches_old_baseline() -> None:
-    assert OLD_OPENAI_PROMPT.exists(), f"Missing old prompt baseline: {OLD_OPENAI_PROMPT}"
-    expected = OLD_OPENAI_PROMPT.read_text(encoding="utf-8")
-
+def test_compiled_openai_prompt_keeps_tool_policy_and_design_charter() -> None:
     variant = next(
         variant
         for variant in iter_prompt_variants()
@@ -22,5 +13,14 @@ def test_compiled_openai_prompt_matches_old_baseline() -> None:
     compiled = compile_prompt_variant(variant)
     generated = variant.output.read_text(encoding="utf-8")
 
-    assert compiled == expected, "Compiled OpenAI designer prompt no longer matches old baseline"
-    assert generated == expected, "Generated OpenAI designer prompt no longer matches old baseline"
+    for text in (compiled, generated):
+        assert "Use ONLY `read_file` and `apply_patch`" in text
+        assert "write_code" not in text
+        assert "Use code, compile output, QC, and tests as your sensors" in text
+        assert 'Do not optimize for "passing" in the abstract' in text
+        assert "clear, legible hero features" in text
+        assert "wrong geometric representation" in text
+        assert "wrong overall composition" in text
+        assert "Do not preserve a scaffold just because parts of it compile" in text
+        assert "silhouette-critical visible forms" in text
+        assert "Plain primitives are acceptable for hidden structure" in text

@@ -94,6 +94,7 @@ class SingleRunContext:
     record_id: str
     run_dir: Path
     staging_dir: Path
+    staging_prompt_path: Path
     script_path: Path
     checkpoint_urdf_path: Path
     trace_dir: Path
@@ -248,6 +249,7 @@ def _build_single_run_context(
         record_id=resolved_record_id,
         run_dir=run_dir,
         staging_dir=staging_dir,
+        staging_prompt_path=staging_dir / "prompt.txt",
         script_path=staging_dir / "model.py",
         checkpoint_urdf_path=staging_dir / "model.urdf",
         trace_dir=staging_dir / "traces",
@@ -756,6 +758,7 @@ async def run_from_input(
             prompt_count=1,
         )
     )
+    storage_repo.write_text(context.staging_prompt_path, prompt_text)
 
     actual_model_id = selected_model_id
     loaded_system_prompt_path = resolve_system_prompt_path(
@@ -1126,6 +1129,7 @@ async def rerun_record_in_place(
             prompt_count=1,
         )
     )
+    storage_repo.write_text(context.staging_prompt_path, prompt_text)
 
     actual_model_id = selected_model_id
     loaded_system_prompt_path = resolve_system_prompt_path(

@@ -6,12 +6,20 @@ import type { RenderOptions } from "@/components/viewer3d/useRenderOptions";
 import type { UrdfSpec } from "@/components/viewer3d/urdf-parser";
 
 interface ViewportPanelProps {
-  recordId: string | null;
+  baseFileUrl: string | null;
+  assetRevisionKey: string | null;
+  selectionKey: string | null;
   renderOptions: RenderOptions;
   onUrdfSpecChange: (spec: UrdfSpec | null, jointNodes: Map<string, THREE.Object3D> | null) => void;
 }
 
-export function ViewportPanel({ recordId, renderOptions, onUrdfSpecChange }: ViewportPanelProps): JSX.Element {
+export function ViewportPanel({
+  baseFileUrl,
+  assetRevisionKey,
+  selectionKey,
+  renderOptions,
+  onUrdfSpecChange,
+}: ViewportPanelProps): JSX.Element {
   // Map from useRenderOptions format to RenderOptionsPanel format for SceneCanvas
   const sceneRenderOptions = {
     showEdges: renderOptions.showEdges,
@@ -26,7 +34,9 @@ export function ViewportPanel({ recordId, renderOptions, onUrdfSpecChange }: Vie
   return (
     <section className="relative h-full w-full min-w-0 overflow-hidden bg-[var(--surface-2)]">
       <SceneCanvas
-        recordId={recordId}
+        baseFileUrl={baseFileUrl}
+        assetRevisionKey={assetRevisionKey}
+        selectionKey={selectionKey}
         renderOptions={sceneRenderOptions}
         onUrdfSpecChange={onUrdfSpecChange}
       />

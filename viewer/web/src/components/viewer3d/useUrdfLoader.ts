@@ -20,10 +20,10 @@ export interface UrdfLoaderState {
 }
 
 /**
- * Hook that fetches and loads a URDF for a given record.
+ * Hook that fetches and loads a URDF from a base file URL.
  *
- * When recordId changes the hook:
- * 1. Fetches the URDF from /api/records/{recordId}/files/model.urdf
+ * When baseFileUrl changes the hook:
+ * 1. Fetches the URDF from {baseFileUrl}/model.urdf
  * 2. Parses with parseUrdf, rewrites absolute mesh filenames
  * 3. Builds the scene graph with buildRobotSceneGraph
  * 4. Removes the previous robot group from the scene and adds the new one
@@ -31,7 +31,8 @@ export interface UrdfLoaderState {
  * 6. Positions the grid and axis helpers underneath the model
  */
 export function useUrdfLoader(
-  recordId: string | null,
+  baseFileUrl: string | null,
+  assetRevisionKey: string | null,
   scene: THREE.Scene | null,
   camera: THREE.PerspectiveCamera | null,
   controls: { target: THREE.Vector3; update: () => void } | null,
@@ -48,8 +49,8 @@ export function useUrdfLoader(
   const robotGroupRef = useRef<THREE.Group | null>(null);
 
   useEffect(() => {
-    // Reset when no record is selected.
-    if (!recordId || !scene) {
+    // Reset when no base URL is available.
+    if (!baseFileUrl || !scene) {
       setUrdfSpec(null);
       setJointNodes(null);
       setJointFrames(null);
@@ -65,7 +66,14 @@ export function useUrdfLoader(
 
       try {
         // 1. Fetch URDF text.
-        const response = await fetch(`/api/records/${recordId}/files/model.urdf`);
+        const urdfUrl = new URL(`${baseFileUrl}/model.urdf`, window.location.origin);
+        if (assetRevisionKey) {
+          urdfUrl.searchParams.set('rev', assetRevisionKey);
+        }
+
+        const response = await fetch(urdfUrl.toString(), {
+          cache: assetRevisionKey ? 'no-store' : 'default',
+        });
         if (!response.ok) {
           throw new Error(`Failed to fetch URDF: ${response.status} ${response.statusText}`);
         }
@@ -80,7 +88,7 @@ export function useUrdfLoader(
         // Always include collision geometry in the scene graph so the render toggle
         // can reveal it without rebuilding the whole robot.
         const { root, jointNodes: joints, jointFrames: frames, linkNodes } = buildRobotSceneGraph(spec, { showCollisions: true });
-        await attachMeshGeometry(spec, linkNodes, `/api/records/${recordId}/files`);
+        await attachMeshGeometry(spec, linkNodes, baseFileUrl, assetRevisionKey);
         if (cancelled) return;
 
         // 4. Swap robot group in scene.
@@ -142,7 +150,7 @@ export function useUrdfLoader(
     return () => {
       cancelled = true;
     };
-  }, [recordId, scene, camera, controls, gridGroup, axisGroup]);
+  }, [baseFileUrl, assetRevisionKey, scene, camera, controls, gridGroup, axisGroup]);
 
   return { urdfSpec, jointNodes, jointFrames, loading, error };
 }
@@ -151,6 +159,7 @@ async function attachMeshGeometry(
   spec: UrdfSpec,
   linkNodes: Map<string, THREE.Group>,
   baseUrl: string,
+  assetRevisionKey: string | null,
 ): Promise<void> {
   const pending: Array<Promise<void>> = [];
   let collisionIndex = 0;
@@ -169,6 +178,7 @@ async function attachMeshGeometry(
       pending.push(
         loadGeometryObject(visual.geometry, baseUrl, {
           kind: 'visual',
+          assetRevisionKey,
           materialSpec: resolveVisualMaterialSpec(visual),
         }).then((meshGroup) => {
           if (visual.origin) {
@@ -190,6 +200,7 @@ async function attachMeshGeometry(
       pending.push(
         loadGeometryObject(collision.geometry, baseUrl, {
           kind: 'collision',
+          assetRevisionKey,
           materialSpec: {
             color,
             opacity: 0.88,

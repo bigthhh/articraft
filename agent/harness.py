@@ -89,6 +89,7 @@ class ArticraftAgent:
         self._seen_compile_warning_sigs: set[str] = set()
         self._seen_tool_error_sigs: set[str] = set()
         self._last_compile_error_sig: Optional[str] = None
+        self._post_success_design_audit_sent = False
         self.checkpoint_urdf_path = (
             Path(checkpoint_urdf_path).resolve() if checkpoint_urdf_path else None
         )
@@ -200,9 +201,12 @@ class ArticraftAgent:
 
         content = (
             "WARNING: The harness detected IMPORTANT issues that will likely look wrong in the viewer "
-            "(even if collision-based checks pass). Please fix these in code:\n\n"
+            "(even if collision-based checks pass). Treat these warnings as visual and structural sensors:\n\n"
             + "\n\n".join(interesting)
-            + "\n\nDo not ignore these warnings; fix geometry placement, joint placement, and mesh axis/origin issues rather than weakening tests."
+            + "\n\nDecide whether each issue is a local placement bug, a wrong geometric representation, "
+            "or a broader composition problem. Fix it at the right level. If a warning reveals a blocked "
+            "hero feature or a bad placeholder shape, replace that representation instead of tuning around it. "
+            "Do not weaken tests."
         )
         msg = {"role": "user", "content": content}
         conversation.append(msg)
@@ -264,16 +268,19 @@ class ArticraftAgent:
             content = (
                 f"{first_line}\n"
                 "Same compile failure as previous turn (details unchanged).\n\n"
-                "Fix the code and continue. Preserve or improve visible realism while fixing this. "
-                "If the current design has drifted into a weak local minimum, a broader rethink of the authored model is allowed."
+                "Treat this as a repeated diagnostic signal. Decide whether the root cause is a local bug, "
+                "a wrong representation, or a wrong overall composition. If this failure class repeats, stop "
+                "patching symptoms and rewrite the affected region from the root cause. Preserve structural "
+                "quality, but do not preserve a visually wrong scaffold."
             )
         else:
             if sig:
                 self._last_compile_error_sig = sig
             content = (
                 text
-                + "\n\nFix the code and continue. Keep the object visually rich and faithful to the prompt, "
-                "not merely acceptable to QC. If the current design quality has collapsed, rethink the visual model instead of only patching symptoms."
+                + "\n\nTreat this failure as a diagnostic signal. Decide whether it indicates a local bug, "
+                "a wrong geometric representation, or a wrong overall composition, then fix it at that level. "
+                "Keep the object visually rich and faithful to the prompt, not merely acceptable to QC."
             )
 
         msg = {"role": "user", "content": content}
@@ -281,6 +288,26 @@ class ArticraftAgent:
         if self.trace_writer:
             self.trace_writer.write_message(msg)
         return content
+
+    def _maybe_inject_post_success_design_audit(self, conversation: list[dict]) -> bool:
+        if self._post_success_design_audit_sent:
+            return False
+
+        content = (
+            "Compile passed. Do a final design audit before concluding.\n\n"
+            "Check whether:\n"
+            "- the prompt's hero features are prominent and unobscured\n"
+            "- the dominant silhouette reads correctly\n"
+            "- materials, proportions, and visible structure support realism\n"
+            "- your tests prove the important prompt-specific claims, not just generic validity\n\n"
+            "If any of those are weak, keep editing."
+        )
+        msg = {"role": "user", "content": content}
+        conversation.append(msg)
+        self._post_success_design_audit_sent = True
+        if self.trace_writer:
+            self.trace_writer.write_message(msg)
+        return True
 
     async def _compile_urdf_report_async(self) -> CompileReport:
         return await asyncio.to_thread(
@@ -815,8 +842,16 @@ class ArticraftAgent:
                     await self._persist_compile_success_checkpoint_async(report.urdf_xml)
                     had_successful_compile = True
                     last_successful_urdf_xml = report.urdf_xml
+                    compile_duration = time.monotonic() - compile_start
+                    self.display.add_compile_result(
+                        success=True,
+                        duration=compile_duration,
+                        warnings=report.warnings,
+                    )
                     injected = self._maybe_inject_compile_warnings(conversation, report=report)
                     if injected:
+                        continue
+                    if self._maybe_inject_post_success_design_audit(conversation):
                         continue
                 except TimeoutError as exc:
                     formatted = f"URDF compile failed: TimeoutError: {exc}"
@@ -932,7 +967,9 @@ class ArticraftAgent:
                         duration=compile_duration,
                         warnings=report.warnings,
                     )
-                    self._maybe_inject_compile_warnings(conversation, report=report)
+                    injected = self._maybe_inject_compile_warnings(conversation, report=report)
+                    if not injected:
+                        self._maybe_inject_post_success_design_audit(conversation)
                 except TimeoutError as exc:
                     formatted = f"URDF compile failed: TimeoutError: {exc}"
                     logger.warning("%s", formatted)

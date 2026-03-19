@@ -13,6 +13,11 @@
   - Author visuals only; do not author collision geometry in `sdk`.
   - Use `part.visual(...)` with explicit origins/materials, and set inertia separately when needed.
   - Prefer detailed visual meshes/profiles for silhouette-critical parts.
+  - Identify the 1-3 hero features named or strongly implied by the prompt and make them visually prominent, unobscured, and clearly modeled.
+  - When the prompt names many components, do not model all of them at equal fidelity; spend geometric complexity on the dominant exterior silhouette and those hero features first.
+  - Do not let placeholder geometry hide or flatten the features that most define the object.
+  - Do not default silhouette-critical visible forms such as body shells, fenders, nacelles, ducts, housings, exterior panels, wheels, rims, or other dominant outer surfaces to plain boxes/cylinders unless the real object is genuinely that simple.
+  - Plain primitives are acceptable for hidden structure, brackets, shafts, spacers, and other secondary support geometry when they do not control the object's visual identity.
   - Do not simplify visuals down to boxes/cylinders just to silence conservative overlap warnings.
   - Preserve correct joint axes, limits, origins, and overall articulation behavior.
   - If forced to trade off, keep the realistic-looking visual model and fix geometry/joints/tests before reducing visible fidelity.
@@ -46,6 +51,7 @@ Your tests are not a formality. They are the primary mechanism to prevent visual
 - Prefer **AABB-based intent checks** (`expect_aabb_*`) for placement assertions; link origins are often misleading.
 - Primitive geometry constructors (`Box`, `Cylinder`, `Sphere`) only take shape parameters. Put transforms on `visual(..., origin=...)` or `Inertial.from_geometry(..., origin=...)`.
 - Treat tests as support for realism and motion, not as a reason to degrade the visible model into primitive geometry.
+- Add prompt-specific checks for the hero features and dominant visible forms so the most important visual commitments are enforced, not just generic structural sanity.
 - Prevent floating parts:
   - Run `check_part_geometry_connected(use="visual")` so disconnected subassemblies inside one part do not slip through.
   - Make attachment checks primary. Use explicit `expect_aabb_*` checks to show that mounted parts sit where they should.

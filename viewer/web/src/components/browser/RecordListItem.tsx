@@ -54,7 +54,7 @@ function formatDate(value: string | null): string | null {
 }
 
 export function RecordListItem({ record }: RecordListItemProps): JSX.Element {
-  const { bootstrap, selectedRecordId } = useViewer();
+  const { bootstrap, selection } = useViewer();
   const dispatch = useViewerDispatch();
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -65,7 +65,7 @@ export function RecordListItem({ record }: RecordListItemProps): JSX.Element {
   const menuRef = useRef<HTMLDivElement | null>(null);
   const titleId = useId();
   const descriptionId = useId();
-  const isSelected = selectedRecordId === record.record_id;
+  const isSelected = selection?.kind === "record" && selection.recordId === record.record_id;
   const summaryText = truncateWithEllipsis(record.prompt_preview || record.title);
   const metadata = [
     record.model_id,
@@ -151,7 +151,7 @@ export function RecordListItem({ record }: RecordListItemProps): JSX.Element {
   }, [openState]);
 
   const handleSelect = () => {
-    dispatch({ type: "SELECT_RECORD", payload: record.record_id });
+    dispatch({ type: "SELECT_ITEM", payload: { kind: "record", recordId: record.record_id } });
   };
 
   const handleMenuToggle = (event: ReactMouseEvent<HTMLButtonElement>) => {

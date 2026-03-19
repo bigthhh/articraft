@@ -15,12 +15,15 @@ from viewer.api.schemas import (
     DeleteRecordResponse,
     HealthResponse,
     OpenRecordFolderResponse,
+    OpenStagingFolderResponse,
     RecordRatingRequest,
     RecordRatingResponse,
     RecordSummaryResponse,
     RecordTextFileResponse,
+    RepoStatsResponse,
     RunDetailResponse,
     RunSummaryResponse,
+    StagingEntryResponse,
     ViewerBootstrapResponse,
     WorkbenchEntryResponse,
 )
@@ -121,6 +124,42 @@ def create_app(*, repo_root: Path | None = None) -> FastAPI:
 
         return record_dir, target
 
+    def resolve_staging_root(run_id: str, record_id: str) -> Path:
+        if not run_id.startswith("run_"):
+            raise HTTPException(status_code=400, detail="Invalid run ID format")
+        if not record_id.startswith("rec_"):
+            raise HTTPException(status_code=400, detail="Invalid record ID format")
+
+        from storage.repo import StorageRepo
+
+        repo = StorageRepo(app.state.repo_root)
+        staging_dir = repo.layout.run_staging_dir(run_id) / record_id
+        if not staging_dir.exists() or not staging_dir.is_dir():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Staging entry not found: run_id={run_id} record_id={record_id}",
+            )
+        return staging_dir.resolve()
+
+    def resolve_staging_target(run_id: str, record_id: str, file_path: str) -> tuple[Path, Path]:
+        staging_dir = resolve_staging_root(run_id, record_id)
+
+        requested_path = Path(file_path)
+        if requested_path.is_absolute() or ".." in requested_path.parts:
+            raise HTTPException(status_code=400, detail="Invalid file path")
+
+        target = (staging_dir / requested_path).resolve()
+
+        try:
+            target.relative_to(staging_dir)
+        except ValueError as exc:
+            raise HTTPException(status_code=403, detail="Access denied") from exc
+
+        if not target.exists() or not target.is_file():
+            raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+
+        return staging_dir, target
+
     def read_text_file_payload(
         target: Path, *, preview_bytes: int, full: bool
     ) -> tuple[str, bool, int]:
@@ -143,6 +182,10 @@ def create_app(*, repo_root: Path | None = None) -> FastAPI:
     async def bootstrap() -> ViewerBootstrapResponse:
         return app.state.viewer_store.bootstrap()
 
+    @app.get("/api/stats", response_model=RepoStatsResponse)
+    async def repo_stats() -> RepoStatsResponse:
+        return await asyncio.to_thread(app.state.viewer_store.compute_stats)
+
     @app.get("/api/collections/workbench", response_model=list[WorkbenchEntryResponse])
     async def workbench_entries() -> list[WorkbenchEntryResponse]:
         return app.state.viewer_store.list_workbench_entries()
@@ -150,6 +193,10 @@ def create_app(*, repo_root: Path | None = None) -> FastAPI:
     @app.get("/api/collections/dataset", response_model=list[DatasetEntryResponse])
     async def dataset_entries() -> list[DatasetEntryResponse]:
         return app.state.viewer_store.list_dataset_entries()
+
+    @app.get("/api/staging", response_model=list[StagingEntryResponse])
+    async def staging_entries() -> list[StagingEntryResponse]:
+        return app.state.viewer_store.list_staging_entries()
 
     @app.get("/api/runs", response_model=list[RunSummaryResponse])
     async def runs() -> list[RunSummaryResponse]:
@@ -226,6 +273,29 @@ def create_app(*, repo_root: Path | None = None) -> FastAPI:
             path=str(record_dir),
         )
 
+    @app.post(
+        "/api/staging/{run_id}/{record_id}/open-folder",
+        response_model=OpenStagingFolderResponse,
+    )
+    async def open_staging_folder(run_id: str, record_id: str) -> OpenStagingFolderResponse:
+        staging_dir = resolve_staging_root(run_id, record_id)
+
+        try:
+            _open_in_file_manager(staging_dir)
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500, detail=f"Failed to open staging folder: {exc}"
+            ) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+        return OpenStagingFolderResponse(
+            status="opened",
+            run_id=run_id,
+            record_id=record_id,
+            path=str(staging_dir),
+        )
+
     @app.put("/api/records/{record_id}/rating", response_model=RecordRatingResponse)
     async def update_record_rating(
         record_id: str, payload: RecordRatingRequest
@@ -286,6 +356,46 @@ def create_app(*, repo_root: Path | None = None) -> FastAPI:
 
         return FileResponse(target, media_type=media_type)
 
+    @app.get(
+        "/api/staging/{run_id}/{record_id}/text/{file_path:path}",
+        response_model=RecordTextFileResponse,
+    )
+    async def staging_text_file(
+        run_id: str,
+        record_id: str,
+        file_path: str,
+        preview_bytes: int = Query(default=131072, ge=4096, le=1048576),
+        full: bool = False,
+    ) -> RecordTextFileResponse:
+        _, target = resolve_staging_target(run_id, record_id, file_path)
+        if target.suffix.lower() not in text_media_types:
+            raise HTTPException(
+                status_code=400, detail="Text preview is only supported for text files"
+            )
+
+        content, truncated, byte_count = await asyncio.to_thread(
+            read_text_file_payload,
+            target,
+            preview_bytes=preview_bytes,
+            full=full,
+        )
+        return RecordTextFileResponse(
+            record_id=record_id,
+            file_path=file_path,
+            content=content,
+            truncated=truncated,
+            byte_count=byte_count,
+            preview_byte_limit=None if full else preview_bytes,
+        )
+
+    @app.get("/api/staging/{run_id}/{record_id}/files/{file_path:path}")
+    async def staging_file(run_id: str, record_id: str, file_path: str) -> FileResponse:
+        _, target = resolve_staging_target(run_id, record_id, file_path)
+        suffix = target.suffix.lower()
+        media_type = media_type_map.get(suffix, "application/octet-stream")
+
+        return FileResponse(target, media_type=media_type)
+
     @app.get("/api/records/{record_id}/traces/{file_path:path}")
     async def record_trace_file(record_id: str, file_path: str) -> FileResponse:
         if not record_id.startswith("rec_"):
@@ -320,6 +430,14 @@ def create_app(*, repo_root: Path | None = None) -> FastAPI:
             ".txt": "text/plain",
             ".json": "application/json",
         }
+        media_type = media_type_map.get(target.suffix.lower(), "application/octet-stream")
+        return FileResponse(target, media_type=media_type)
+
+    @app.get("/api/staging/{run_id}/{record_id}/traces/{file_path:path}")
+    async def staging_trace_file(run_id: str, record_id: str, file_path: str) -> FileResponse:
+        if not file_path:
+            raise HTTPException(status_code=400, detail="Invalid file path")
+        _, target = resolve_staging_target(run_id, record_id, f"traces/{file_path}")
         media_type = media_type_map.get(target.suffix.lower(), "application/octet-stream")
         return FileResponse(target, media_type=media_type)
 

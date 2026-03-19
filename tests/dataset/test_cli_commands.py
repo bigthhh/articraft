@@ -158,15 +158,28 @@ def test_dataset_cli_commands_cover_promote_delete_and_prune(tmp_path: Path) -> 
         nonempty_stage_dir = repo.layout.run_staging_dir("run_cli") / "rec_keep"
         nonempty_stage_dir.mkdir(parents=True, exist_ok=True)
         (nonempty_stage_dir / "artifact.txt").write_text("keep", encoding="utf-8")
+        failed_stage_dir = repo.layout.run_staging_dir("run_cli") / "rec_failed"
+        failed_stage_dir.mkdir(parents=True, exist_ok=True)
+        (failed_stage_dir / "artifact.txt").write_text("failed", encoding="utf-8")
+        RunStore(repo).append_result(
+            "run_cli",
+            {
+                "record_id": "rec_failed",
+                "status": "failed",
+                "staging_dir": "data/cache/runs/run_cli/staging/rec_failed",
+            },
+        )
         search_index_before_prune = repo.layout.search_index_path().read_bytes()
         assert dataset_main(["--repo-root", str(repo_root), "prune-cache"]) == 0
         assert empty_record_stage_dir.exists()
         assert empty_nested_failure_dir.exists()
         assert nonempty_stage_dir.exists()
+        assert failed_stage_dir.exists()
         assert dataset_main(["--repo-root", str(repo_root), "prune-cache", "--execute"]) == 0
         assert not empty_record_stage_dir.exists()
         assert not empty_nested_failure_dir.exists()
         assert nonempty_stage_dir.exists()
+        assert not failed_stage_dir.exists()
         assert repo.layout.search_index_path().read_bytes() == search_index_before_prune
 
     category_output = io.StringIO()
@@ -225,12 +238,10 @@ def test_dataset_cli_commands_cover_promote_delete_and_prune(tmp_path: Path) -> 
         "Deleted record_id=rec_cli category_slug=hinges run_id_retained=run_cli"
         in output.getvalue()
     )
+    assert "failed_staging_dirs_to_remove=1" in output.getvalue()
     assert "empty_dirs_to_remove=4" in output.getvalue()
-    assert (
-        "Preview only. Re-run with --execute to remove these empty cache directories."
-        in output.getvalue()
-    )
-    assert "Removed empty cache directories: 4" in output.getvalue()
+    assert "Preview only. Re-run with --execute to remove these cache paths." in output.getvalue()
+    assert "Removed cache paths: 5" in output.getvalue()
     assert "record_dir=" in output.getvalue()
     assert "in_workbench=yes" in output.getvalue()
     assert "Preview only. Re-run with --execute --confirm-slug hinges" in category_output.getvalue()

@@ -144,3 +144,13 @@ textarea {
   word-break: break-word;
   min-width: 0;
 }
+
+/* Staging pulse animation */
+@keyframes pulse-staging {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.staging-pulse {
+  animation: pulse-staging 2s ease-in-out infinite;
+}

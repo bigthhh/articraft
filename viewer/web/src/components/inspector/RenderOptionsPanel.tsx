@@ -15,11 +15,11 @@ export type RenderOptions = {
 };
 
 export const defaultRenderOptions: RenderOptions = {
-  showEdges: false,
+  showEdges: true,
   showGrid: true,
   showCollisions: false,
   doubleSided: true,
-  environmentLighting: true,
+  environmentLighting: false,
   autoAnimate: false,
   showJointOverlay: false,
 };

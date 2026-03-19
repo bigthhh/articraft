@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { cn } from "@/lib/utils";
+import { cn, formatCategoryLabel } from "@/lib/utils";
 
 const timeOptions: Array<{ value: TimeFilter; label: string }> = [
   { value: "any", label: "Any time" },
@@ -44,14 +44,6 @@ function uniqueRecords(records: Array<RecordSummary | null>): RecordSummary[] {
   }
 
   return Array.from(seen.values());
-}
-
-function formatCategoryLabel(categorySlug: string): string {
-  return categorySlug
-    .split(/[_-]+/)
-    .filter((part) => part.length > 0)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
 }
 
 type CategoryOption = {

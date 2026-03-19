@@ -9,6 +9,16 @@ export interface LoadGeometryOptions {
   kind?: 'visual' | 'collision';
   materialSpec?: MaterialSpec;
   doubleSided?: boolean;
+  assetRevisionKey?: string | null;
+}
+
+function appendRevisionParam(url: string, assetRevisionKey: string | null | undefined): string {
+  if (!assetRevisionKey) {
+    return url;
+  }
+
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}rev=${encodeURIComponent(assetRevisionKey)}`;
 }
 
 /**
@@ -69,13 +79,14 @@ export async function loadGeometryObject(
   const url = baseUrl.endsWith('/')
     ? `${baseUrl}${filename}`
     : `${baseUrl}/${filename}`;
+  const resolvedUrl = appendRevisionParam(url, options.assetRevisionKey);
 
   const extension = filename.split('.').pop()?.toLowerCase();
   const scale = geometry.scale ?? [1, 1, 1];
 
   if (extension === 'glb' || extension === 'gltf') {
     const loader = new GLTFLoader();
-    const gltf = await loader.loadAsync(url);
+    const gltf = await loader.loadAsync(resolvedUrl);
     const group = new THREE.Group();
     group.add(gltf.scene);
     group.scale.set(scale[0], scale[1], scale[2]);
@@ -85,7 +96,7 @@ export async function loadGeometryObject(
 
   if (extension === 'obj') {
     const loader = new OBJLoader();
-    const obj = await loader.loadAsync(url);
+    const obj = await loader.loadAsync(resolvedUrl);
     const group = new THREE.Group();
     group.add(obj);
     group.scale.set(scale[0], scale[1], scale[2]);

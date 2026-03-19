@@ -26,11 +26,11 @@ const RENDER_OPTION_KEYS: Array<keyof RenderOptions> = [
 ];
 
 const DEFAULT_OPTIONS: RenderOptions = {
-  showEdges: false,
+  showEdges: true,
   showGrid: true,
   showCollisions: false,
   doubleSided: true,
-  envLighting: true,
+  envLighting: false,
   autoAnimate: false,
   showJointOverlay: false,
 };

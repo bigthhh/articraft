@@ -1,8 +1,8 @@
 import { useEffect, useState, type JSX } from "react";
 
 import { useViewer } from "@/lib/viewer-context";
-import { fetchRecordFile, fetchRecordTraceFile } from "@/lib/api";
-import { findRecordInBootstrap, findRunInBootstrap } from "@/lib/record-summary";
+import { fetchRecordFile, fetchRecordTraceFile, fetchStagingFile, fetchStagingTraceFile } from "@/lib/api";
+import { findRecordInBootstrap, findRunInBootstrap, findStagingEntryInBootstrap } from "@/lib/record-summary";
 import { TracePanel } from "@/components/inspector/TracePanel";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -11,7 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 function statusVariant(status: string | null | undefined): "success" | "warning" | "destructive" | "secondary" {
   const normalized = (status ?? "").toLowerCase();
   if (normalized === "success" || normalized === "materialized") return "success";
-  if (normalized === "running" || normalized === "pending") return "warning";
+  if (normalized === "running" || normalized === "pending") return "success";
   if (normalized === "failed") return "destructive";
   return "secondary";
 }
@@ -33,22 +33,81 @@ function SectionLabel({ children }: { children: React.ReactNode }): JSX.Element 
 }
 
 export function MetadataPanel(): JSX.Element {
-  const { bootstrap, selectedRecordId } = useViewer();
+  const { bootstrap, selectedRecordId, selection } = useViewer();
   const [compileReport, setCompileReport] = useState<Record<string, unknown> | null>(null);
   const [cost, setCost] = useState<Record<string, unknown> | null>(null);
   const [traceText, setTraceText] = useState<string | null>(null);
   const [loadingExtras, setLoadingExtras] = useState(false);
 
+  const isStaging = selection?.kind === "staging";
+  const stagingEntry = isStaging
+    ? findStagingEntryInBootstrap(bootstrap, selection.runId, selection.recordId)
+    : null;
   const record = selectedRecordId ? findRecordInBootstrap(bootstrap, selectedRecordId) : null;
   const run = findRunInBootstrap(bootstrap, record?.run_id);
   const compileStatus =
     typeof compileReport?.status === "string" ? compileReport.status : record?.has_compile_report ? "available" : null;
+  const stagingSelectionKey =
+    selection?.kind === "staging" ? `${selection.runId}:${selection.recordId}` : null;
+  const recordSelectionKey = selection?.kind === "record" ? selection.recordId : null;
+  const hasSelectedRecord = Boolean(selectedRecordId && record);
+  const recordHasCompileReport = record?.has_compile_report ?? false;
+  const recordHasCost = record?.has_cost ?? false;
+  const stagingHasCost = stagingEntry?.has_cost ?? false;
+  const stagingHasTraces = stagingEntry?.has_traces ?? false;
+  const stagingRecordId = stagingEntry?.record_id ?? null;
+  const stagingRunId = stagingEntry?.run_id ?? null;
 
   useEffect(() => {
-    if (!selectedRecordId || !record) {
+    // Staging metadata loading
+    if (isStaging && stagingRunId && stagingRecordId) {
+      let cancelled = false;
+      setLoadingExtras(true);
+      setCompileReport(null);
+
+      const promises: Promise<void>[] = [];
+
+      if (stagingHasCost) {
+        promises.push(
+          fetchStagingFile(stagingRunId, stagingRecordId, "cost.json")
+            .then((text) => {
+              if (!cancelled) setCost(JSON.parse(text) as Record<string, unknown>);
+            })
+            .catch(() => {
+              if (!cancelled) setCost(null);
+            }),
+        );
+      } else {
+        setCost(null);
+      }
+
+      if (stagingHasTraces) {
+        promises.push(
+          fetchStagingTraceFile(stagingRunId, stagingRecordId, "conversation.jsonl")
+            .then((text) => {
+              if (!cancelled) setTraceText(text);
+            })
+            .catch(() => {
+              if (!cancelled) setTraceText(null);
+            }),
+        );
+      } else {
+        setTraceText(null);
+      }
+
+      Promise.all(promises).finally(() => {
+        if (!cancelled) setLoadingExtras(false);
+      });
+
+      return () => { cancelled = true; };
+    }
+
+    // Record metadata loading
+    if (!selectedRecordId || !hasSelectedRecord) {
       setCompileReport(null);
       setCost(null);
       setTraceText(null);
+      setLoadingExtras(false);
       return;
     }
 
@@ -57,7 +116,7 @@ export function MetadataPanel(): JSX.Element {
 
     const promises: Promise<void>[] = [];
 
-    if (record.has_compile_report) {
+    if (recordHasCompileReport) {
       promises.push(
         fetchRecordFile(selectedRecordId, "compile_report.json")
           .then((text) => {
@@ -71,7 +130,7 @@ export function MetadataPanel(): JSX.Element {
       setCompileReport(null);
     }
 
-    if (record.has_cost) {
+    if (recordHasCost) {
       promises.push(
         fetchRecordFile(selectedRecordId, "cost.json")
           .then((text) => {
@@ -102,8 +161,103 @@ export function MetadataPanel(): JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [selectedRecordId, record]);
+  }, [
+    hasSelectedRecord,
+    isStaging,
+    recordHasCompileReport,
+    recordHasCost,
+    recordSelectionKey,
+    selectedRecordId,
+    stagingHasCost,
+    stagingHasTraces,
+    stagingRecordId,
+    stagingRunId,
+    stagingSelectionKey,
+  ]);
 
+  if (!selection) {
+    return (
+      <div className="flex h-32 items-center justify-center">
+        <p className="text-[11px] text-[var(--text-quaternary)]">Select a record</p>
+      </div>
+    );
+  }
+
+  // ── Staging metadata view ──
+  if (isStaging && stagingEntry) {
+    return (
+      <ScrollArea className="h-full">
+        <div className="space-y-5 pb-3">
+          <section>
+            <SectionLabel>Identity</SectionLabel>
+            <div className="space-y-0">
+              <div className="prop-row">
+                <span className="prop-label">Run ID</span>
+                <span className="prop-value font-mono text-[10px]">{stagingEntry.run_id}</span>
+              </div>
+              <div className="prop-row">
+                <span className="prop-label">Record ID</span>
+                <span className="prop-value font-mono text-[10px]">{stagingEntry.record_id}</span>
+              </div>
+              <div className="prop-row">
+                <span className="prop-label">Staging Dir</span>
+                <span className="prop-value font-mono text-[10px]">{stagingEntry.staging_dir}</span>
+              </div>
+              <div className="prop-row">
+                <span className="prop-label">Created</span>
+                <span className="prop-value">{formatDate(stagingEntry.created_at)}</span>
+              </div>
+              <div className="prop-row">
+                <span className="prop-label">Updated</span>
+                <span className="prop-value">{formatDate(stagingEntry.updated_at)}</span>
+              </div>
+            </div>
+          </section>
+
+          <section>
+            <SectionLabel>Status</SectionLabel>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Badge variant={statusVariant(stagingEntry.status)}>
+                {stagingEntry.status ?? "unknown"}
+              </Badge>
+            </div>
+            {stagingEntry.message ? (
+              <p className="mt-2 text-[11px] text-[var(--text-secondary)]">{stagingEntry.message}</p>
+            ) : null}
+          </section>
+
+          <section>
+            <SectionLabel>Metrics</SectionLabel>
+            <div className="space-y-0">
+              <div className="prop-row">
+                <span className="prop-label">Turns</span>
+                <span className="prop-value font-mono">{stagingEntry.turn_count != null ? String(stagingEntry.turn_count) : "--"}</span>
+              </div>
+              <div className="prop-row">
+                <span className="prop-label">Tool Calls</span>
+                <span className="prop-value font-mono">{stagingEntry.tool_call_count != null ? String(stagingEntry.tool_call_count) : "--"}</span>
+              </div>
+              <div className="prop-row">
+                <span className="prop-label">Compile Attempts</span>
+                <span className="prop-value font-mono">{stagingEntry.compile_attempt_count != null ? String(stagingEntry.compile_attempt_count) : "--"}</span>
+              </div>
+            </div>
+          </section>
+
+          {loadingExtras && (
+            <div className="space-y-1.5">
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="h-14 w-full" />
+            </div>
+          )}
+
+          {!loadingExtras && <TracePanel cost={cost} traceText={traceText} />}
+        </div>
+      </ScrollArea>
+    );
+  }
+
+  // ── Record metadata view ──
   if (!selectedRecordId) {
     return (
       <div className="flex h-32 items-center justify-center">

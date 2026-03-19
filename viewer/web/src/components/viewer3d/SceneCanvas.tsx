@@ -12,17 +12,27 @@ import type { UrdfSpec } from './urdf-parser';
 const CAMERA_QUERY_PARAM = 'cam';
 
 export interface SceneCanvasProps {
-  recordId: string | null;
+  baseFileUrl: string | null;
+  assetRevisionKey: string | null;
+  selectionKey: string | null;
   renderOptions: RenderOptions;
   onUrdfSpecChange?: (spec: UrdfSpec | null, jointNodes: Map<string, THREE.Object3D> | null) => void;
 }
 
-export function SceneCanvas({ recordId, renderOptions, onUrdfSpecChange }: SceneCanvasProps): JSX.Element {
+export function SceneCanvas({
+  baseFileUrl,
+  assetRevisionKey,
+  selectionKey,
+  renderOptions,
+  onUrdfSpecChange,
+}: SceneCanvasProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const isStagingSelection = selectionKey?.startsWith("staging:") ?? false;
 
   const { scene, camera, renderer, controls, gridGroup, axisGroup, sceneReady } = useThreeScene(containerRef);
   const { urdfSpec, jointNodes, jointFrames, loading, error } = useUrdfLoader(
-    recordId,
+    baseFileUrl,
+    assetRevisionKey,
     scene,
     camera,
     controls,
@@ -43,6 +53,7 @@ export function SceneCanvas({ recordId, renderOptions, onUrdfSpecChange }: Scene
   const edgeLinesRef = useRef<THREE.LineSegments[]>([]);
   const envMapRef = useRef<THREE.Texture | null>(null);
   const jointOverlayRef = useRef<THREE.Object3D[]>([]);
+  const isStagingBuffering = isStagingSelection && error?.startsWith("Failed to fetch URDF: 404");
 
   // Show/hide grid
   useEffect(() => {
@@ -162,11 +173,17 @@ export function SceneCanvas({ recordId, renderOptions, onUrdfSpecChange }: Scene
 
       {loading && (
         <div className="absolute inset-0 flex items-center justify-center bg-[#f3f3f3]/70">
-          <p className="text-[11px] text-[#999]">Loading…</p>
+          <p className="text-[11px] text-[#999]">{isStagingSelection ? "Buffering...." : "Loading…"}</p>
         </div>
       )}
 
-      {error && !loading && (
+      {isStagingBuffering && !loading && (
+        <div className="absolute inset-0 flex items-center justify-center bg-[#f3f3f3]/70">
+          <p className="text-[11px] text-[#999]">Buffering....</p>
+        </div>
+      )}
+
+      {error && !loading && !isStagingBuffering && (
         <div className="absolute inset-0 flex items-center justify-center bg-[#f3f3f3]/70">
           <div className="max-w-xs px-3 py-2 text-center">
             <p className="text-[11px] font-medium text-red-600">Failed to load model</p>
@@ -175,7 +192,7 @@ export function SceneCanvas({ recordId, renderOptions, onUrdfSpecChange }: Scene
         </div>
       )}
 
-      {!recordId && sceneReady && !loading && (
+      {!selectionKey && sceneReady && !loading && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <p className="text-[11px] text-[#bbb]">
             Select a record to view its 3D model

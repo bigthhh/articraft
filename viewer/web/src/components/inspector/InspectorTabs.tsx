@@ -30,7 +30,7 @@ export function InspectorTabs({
   renderOptions,
   onRenderOptionChange,
 }: InspectorTabsProps): JSX.Element {
-  const { selectedInspectorTab, selectedRecordId } = useViewer();
+  const { selectedInspectorTab, selection } = useViewer();
   const dispatch = useViewerDispatch();
 
   const [localOptions, setLocalOptions] = useState<RenderOptions>(defaultRenderOptions);
@@ -87,7 +87,7 @@ export function InspectorTabs({
         <MetadataPanel />
       </TabsContent>
 
-      {!selectedRecordId && (
+      {!selection && (
         <div className="absolute inset-0 flex items-center justify-center bg-[var(--surface-0)]/90">
           <div className="px-4 py-2.5 text-center">
             <p className="text-[12px] text-[var(--text-quaternary)]">No record selected</p>

@@ -21,5 +21,7 @@
 - Single-file mode only:
   - Do not use `*** Add File`, `*** Delete File`, or `*** Move to`.
 - If two compile/test failures occur in a row, do a root-cause pass from the latest failure before patching again.
-- Keep edits surgical by default, but if the current design has drifted away from the prompt, become visually weak, or fallen into a low-quality local minimum, you may rewrite the authored model section to recover a stronger design.
-- Do not stay trapped in incremental salvage when a broader visual rethink is the correct fix.
+- After a compile, QC, or test failure, classify it as a local implementation bug, a wrong geometric representation, or a wrong overall composition.
+- Fix failures at the right level. Keep edits surgical for local bugs, but rewrite the affected geometry/tests together when the representation or composition is wrong.
+- If two repair turns in a row do not materially improve the named hero features, or keep the same failure class alive, stop patching locally and rewrite the affected region.
+- Do not preserve a scaffold just because parts of it compile; preserve only the regions that still support a strong, prompt-faithful design.

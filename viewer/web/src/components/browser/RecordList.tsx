@@ -38,6 +38,11 @@ function withinRatingFilter(rating: number | null, filter: RatingFilter): boolea
   return rating === Number(filter);
 }
 
+function recordSortTimestamp(record: RecordSummary): number {
+  const timestamp = record.updated_at ?? record.created_at;
+  return timestamp ? new Date(timestamp).getTime() : 0;
+}
+
 export function RecordList(): JSX.Element {
   const {
     bootstrap,
@@ -145,8 +150,8 @@ export function RecordList(): JSX.Element {
 
     if (!deferredSearchQuery) {
       list.sort((a, b) => {
-        const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
-        const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+        const dateA = recordSortTimestamp(a);
+        const dateB = recordSortTimestamp(b);
         return dateB - dateA;
       });
     }

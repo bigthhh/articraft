@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -12,12 +14,15 @@ from storage.records import RecordStore
 from storage.repo import StorageRepo
 from storage.search import SearchIndex
 from viewer.api.schemas import (
+    CategoryStatsResponse,
     DatasetEntryResponse,
     RecordDetailResponse,
     RecordSummaryResponse,
+    RepoStatsResponse,
     RunDetailResponse,
     RunResultResponse,
     RunSummaryResponse,
+    StagingEntryResponse,
     ViewerBootstrapResponse,
     WorkbenchEntryResponse,
 )
@@ -29,6 +34,13 @@ def _utc_now() -> str:
 
 def _parse_sort_key(value: str | None) -> str:
     return value or ""
+
+
+def _relative_path(path: Path, root: Path) -> str:
+    try:
+        return path.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return path.resolve().as_posix()
 
 
 def _coerce_int(value: Any) -> int | None:
@@ -102,6 +114,41 @@ def _within_category_filters(category_slug: str | None, filter_values: list[str]
     return category_slug in {value for value in filter_values if value}
 
 
+def _collapse_text(value: str) -> str:
+    return " ".join(value.split())
+
+
+def _truncate_text(value: str, *, max_len: int = 160) -> str:
+    collapsed = _collapse_text(value)
+    if len(collapsed) <= max_len:
+        return collapsed
+    return collapsed[: max_len - 3].rstrip() + "..."
+
+
+def _first_nonempty_line(value: str) -> str | None:
+    for line in value.splitlines():
+        stripped = line.strip()
+        if stripped:
+            return stripped
+    return None
+
+
+def _mtime_to_utc(value: float) -> str:
+    return (
+        datetime.fromtimestamp(value, tz=timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+
+
+def _file_mtime_to_utc(path: Path) -> str | None:
+    try:
+        return _mtime_to_utc(path.stat().st_mtime)
+    except OSError:
+        return None
+
+
 class ViewerStore:
     def __init__(self, repo_root: Path) -> None:
         self.repo_root = repo_root.resolve()
@@ -127,6 +174,30 @@ class ViewerStore:
             if isinstance(parsed, dict):
                 rows.append(parsed)
         return rows
+
+    def _read_text(self, path: Path) -> str | None:
+        if not path.exists() or not path.is_file():
+            return None
+        try:
+            return path.read_text(encoding="utf-8")
+        except OSError:
+            return None
+
+    def _latest_staging_timestamp(self, staging_dir: Path, fallback: str | None) -> str | None:
+        latest_mtime: float | None = None
+        try:
+            for candidate in staging_dir.rglob("*"):
+                try:
+                    stat = candidate.stat()
+                except OSError:
+                    continue
+                if latest_mtime is None or stat.st_mtime > latest_mtime:
+                    latest_mtime = stat.st_mtime
+        except OSError:
+            return fallback
+        if latest_mtime is None:
+            return fallback
+        return _mtime_to_utc(latest_mtime)
 
     def _record_summary(self, record_id: str) -> RecordSummaryResponse | None:
         record_path = self.repo.layout.record_metadata_path(record_id)
@@ -245,6 +316,120 @@ class ViewerStore:
             )
         return entries
 
+    def list_staging_entries(self) -> list[StagingEntryResponse]:
+        runs_root = self.repo.layout.runs_root
+        if not runs_root.exists():
+            return []
+
+        entries: list[StagingEntryResponse] = []
+        for run_dir in runs_root.iterdir():
+            if not run_dir.is_dir():
+                continue
+            run_id = run_dir.name
+            run_metadata = self.repo.read_json(self.repo.layout.run_metadata_path(run_id))
+            if not isinstance(run_metadata, dict):
+                continue
+
+            run_status = str(run_metadata.get("status") or "")
+            if run_status == "success":
+                continue
+
+            staging_root = self.repo.layout.run_staging_dir(run_id)
+            if not staging_root.exists():
+                continue
+
+            result_by_record_id: dict[str, dict[str, Any]] = {}
+            for row in self._read_jsonl(self.repo.layout.run_results_path(run_id)):
+                record_id = row.get("record_id")
+                if isinstance(record_id, str) and record_id:
+                    result_by_record_id[record_id] = row
+
+            for staging_dir in staging_root.iterdir():
+                if not staging_dir.is_dir():
+                    continue
+                record_id = staging_dir.name
+                if not record_id.startswith("rec_"):
+                    continue
+
+                result = result_by_record_id.get(record_id, {})
+                persisted_record = self._record_summary(record_id)
+                prompt_path = staging_dir / "prompt.txt"
+                model_script_path = staging_dir / "model.py"
+                checkpoint_urdf_path = staging_dir / "model.urdf"
+                cost_path = staging_dir / "cost.json"
+                traces_dir = staging_dir / "traces"
+                prompt_text = self._read_text(staging_dir / "prompt.txt")
+                prompt_preview = ""
+                if prompt_text:
+                    prompt_preview = _truncate_text(prompt_text)
+                elif persisted_record is not None:
+                    prompt_preview = persisted_record.prompt_preview
+
+                title = (
+                    (_first_nonempty_line(prompt_text) if prompt_text else None)
+                    or (persisted_record.title if persisted_record is not None else None)
+                    or record_id
+                )
+                cost = self.repo.read_json(cost_path)
+                cost_turns = cost.get("turns") if isinstance(cost, dict) else None
+                inferred_turn_count = len(cost_turns) if isinstance(cost_turns, list) else None
+                result_turn_count = _coerce_int(result.get("turn_count"))
+                updated_at = self._latest_staging_timestamp(
+                    staging_dir,
+                    str(run_metadata.get("updated_at")) if run_metadata.get("updated_at") else None,
+                )
+
+                entries.append(
+                    StagingEntryResponse(
+                        run_id=run_id,
+                        record_id=record_id,
+                        title=title,
+                        prompt_preview=prompt_preview,
+                        status=(
+                            str(result.get("status"))
+                            if isinstance(result.get("status"), str)
+                            else (run_status or None)
+                        ),
+                        message=result.get("message")
+                        if isinstance(result.get("message"), str)
+                        else None,
+                        created_at=run_metadata.get("created_at"),
+                        updated_at=updated_at,
+                        collection=run_metadata.get("collection"),
+                        category_slug=run_metadata.get("category_slug"),
+                        provider=run_metadata.get("provider"),
+                        model_id=run_metadata.get("model_id"),
+                        sdk_package=run_metadata.get("sdk_package"),
+                        turn_count=(
+                            result_turn_count
+                            if result_turn_count is not None
+                            else inferred_turn_count
+                        ),
+                        tool_call_count=_coerce_int(result.get("tool_call_count")),
+                        compile_attempt_count=_coerce_int(result.get("compile_attempt_count")),
+                        staging_dir=_relative_path(staging_dir, self.repo_root),
+                        has_prompt=prompt_path.exists(),
+                        has_model_script=model_script_path.exists(),
+                        model_script_updated_at=_file_mtime_to_utc(model_script_path),
+                        has_checkpoint_urdf=checkpoint_urdf_path.exists(),
+                        checkpoint_updated_at=_file_mtime_to_utc(checkpoint_urdf_path),
+                        has_cost=cost_path.exists(),
+                        has_traces=traces_dir.exists(),
+                        persisted_record=persisted_record,
+                    )
+                )
+
+        return sorted(
+            entries,
+            key=lambda entry: (
+                _parse_sort_key(entry.updated_at),
+                _parse_sort_key(entry.created_at),
+                entry.run_id,
+                entry.record_id,
+            ),
+            reverse=True,
+        )
+
     def _run_summary(self, run_id: str, run_metadata: dict[str, Any]) -> RunSummaryResponse:
         results = self._read_jsonl(self.repo.layout.run_results_path(run_id))
         success_count = sum(1 for row in results if str(row.get("status", "")).lower() == "success")
@@ -336,6 +521,7 @@ class ViewerStore:
             generated_at=_utc_now(),
             workbench_entries=self.list_workbench_entries(),
             dataset_entries=self.list_dataset_entries(),
+            staging_entries=self.list_staging_entries(),
             runs=self.list_runs(),
         )
 
@@ -383,6 +569,133 @@ class ViewerStore:
             if len(results) >= limit:
                 break
         return results
+
+    def _compute_data_size(self) -> int | None:
+        data_dir = self.repo_root / "data"
+        if not data_dir.exists():
+            return None
+        try:
+            result = subprocess.run(
+                ["git", "ls-files", "-co", "--exclude-standard", "data/"],
+                capture_output=True,
+                text=True,
+                cwd=str(self.repo_root),
+                timeout=10,
+            )
+            if result.returncode != 0:
+                return None
+            total = 0
+            for line in result.stdout.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                path = self.repo_root / line
+                try:
+                    total += path.stat().st_size
+                except OSError:
+                    continue
+            return total
+        except (subprocess.TimeoutExpired, OSError):
+            return None
+
+    _stats_cache: tuple[float, RepoStatsResponse] | None = None
+    _STATS_TTL = 30.0
+
+    def compute_stats(self) -> RepoStatsResponse:
+        now = time.monotonic()
+        if self._stats_cache is not None:
+            cached_at, cached = self._stats_cache
+            if now - cached_at < self._STATS_TTL:
+                return cached
+
+        workbench_entries = self.list_workbench_entries()
+        dataset_entries = self.list_dataset_entries()
+        runs = self.list_runs()
+
+        seen_ids: set[str] = set()
+        summaries: list[RecordSummaryResponse] = []
+        # Map record_id -> category_slug from dataset entries (authoritative source)
+        dataset_categories: dict[str, str] = {}
+        for entry in dataset_entries:
+            if entry.category_slug:
+                dataset_categories[entry.record_id] = entry.category_slug
+        for entry in workbench_entries:
+            if entry.record and entry.record_id not in seen_ids:
+                seen_ids.add(entry.record_id)
+                summaries.append(entry.record)
+        for entry in dataset_entries:
+            if entry.record and entry.record_id not in seen_ids:
+                seen_ids.add(entry.record_id)
+                summaries.append(entry.record)
+
+        total_cost: float | None = None
+        category_counts: dict[str, int] = {}
+        category_rating_totals: dict[str, float] = {}
+        category_rating_counts: dict[str, int] = {}
+        category_cost_totals: dict[str, float] = {}
+        category_cost_counts: dict[str, int] = {}
+        model_counts: dict[str, int] = {}
+        provider_counts: dict[str, int] = {}
+        rating_distribution: dict[str, int] = {}
+
+        for s in summaries:
+            if s.total_cost_usd is not None:
+                total_cost = (total_cost or 0.0) + s.total_cost_usd
+            # Prefer dataset entry category, fall back to record metadata
+            category = dataset_categories.get(s.record_id) or s.category_slug
+            if category:
+                category_counts[category] = category_counts.get(category, 0) + 1
+                if s.rating is not None:
+                    category_rating_totals[category] = (
+                        category_rating_totals.get(category, 0.0) + s.rating
+                    )
+                    category_rating_counts[category] = category_rating_counts.get(category, 0) + 1
+                if s.total_cost_usd is not None:
+                    category_cost_totals[category] = (
+                        category_cost_totals.get(category, 0.0) + s.total_cost_usd
+                    )
+                    category_cost_counts[category] = category_cost_counts.get(category, 0) + 1
+            if s.model_id:
+                model_counts[s.model_id] = model_counts.get(s.model_id, 0) + 1
+            if s.provider:
+                provider_counts[s.provider] = provider_counts.get(s.provider, 0) + 1
+            rating_key = str(s.rating) if s.rating is not None else "unrated"
+            rating_distribution[rating_key] = rating_distribution.get(rating_key, 0) + 1
+
+        data_size = self._compute_data_size()
+        sorted_category_counts = sorted(category_counts.items(), key=lambda x: (-x[1], x[0]))
+        category_stats = {
+            category: CategoryStatsResponse(
+                count=count,
+                average_rating=(
+                    round(category_rating_totals[category] / category_rating_counts[category], 2)
+                    if category_rating_counts.get(category)
+                    else None
+                ),
+                average_cost_usd=(
+                    round(category_cost_totals[category] / category_cost_counts[category], 4)
+                    if category_cost_counts.get(category)
+                    else None
+                ),
+            )
+            for category, count in sorted_category_counts
+        }
+
+        response = RepoStatsResponse(
+            total_records=len(summaries),
+            workbench_count=len(workbench_entries),
+            dataset_count=len(dataset_entries),
+            total_runs=len(runs),
+            total_cost_usd=round(total_cost, 4) if total_cost is not None else None,
+            data_size_bytes=data_size,
+            category_counts=dict(sorted_category_counts),
+            category_stats=category_stats,
+            model_counts=dict(sorted(model_counts.items(), key=lambda x: x[1], reverse=True)),
+            provider_counts=dict(sorted(provider_counts.items(), key=lambda x: x[1], reverse=True)),
+            rating_distribution=rating_distribution,
+        )
+        self._stats_cache = (now, response)
+        return response
 
     def delete_record(self, record_id: str) -> bool:
         record = self.records.load_record(record_id)

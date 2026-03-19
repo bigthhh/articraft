@@ -143,10 +143,10 @@ def test_viewer_api_end_to_end(tmp_path: Path) -> None:
         record_id="rec_bike_001",
         created_at="2026-03-17T19:24:14Z",
         updated_at="2026-03-17T19:25:26Z",
-        rating=None,
+        rating=2,
         kind="generated_model",
         prompt_kind="single_prompt",
-        category_slug="stationary_exercise_bike",
+        category_slug="hinges",
         source=SourceRef(run_id="run_001"),
         sdk_package="sdk",
         provider="openai",
@@ -162,7 +162,7 @@ def test_viewer_api_end_to_end(tmp_path: Path) -> None:
             model_urdf="model.urdf",
             compile_report_json="compile_report.json",
             provenance_json="provenance.json",
-            cost_json=None,
+            cost_json="cost.json",
         ),
         collections=["workbench"],
     )
@@ -170,6 +170,15 @@ def test_viewer_api_end_to_end(tmp_path: Path) -> None:
     (repo.layout.record_dir("rec_bike_001") / "prompt.txt").write_text(
         "A realistic stationary exercise bike with adjustable seat and handlebar structure.",
         encoding="utf-8",
+    )
+    repo.write_json(
+        repo.layout.record_dir("rec_bike_001") / "cost.json",
+        {
+            "total": {
+                "tokens": {"total_tokens": 1200},
+                "costs_usd": {"total": 0.15},
+            }
+        },
     )
     collections.append_workbench_entry(
         record_id="rec_bike_001",
@@ -216,6 +225,56 @@ def test_viewer_api_end_to_end(tmp_path: Path) -> None:
             "compile_attempt_count": 1,
         },
     )
+    runs.write_run(
+        RunRecord(
+            schema_version=1,
+            run_id="run_live_001",
+            run_mode="workbench_single",
+            collection="workbench",
+            created_at="2026-03-18T08:00:00Z",
+            updated_at="2026-03-18T08:00:00Z",
+            provider="openai",
+            model_id="gpt-5.4",
+            sdk_package="sdk",
+            status="running",
+            prompt_count=1,
+        )
+    )
+    live_stage_dir = repo.layout.run_staging_dir("run_live_001") / "rec_stage_001"
+    live_stage_dir.mkdir(parents=True, exist_ok=True)
+    (live_stage_dir / "prompt.txt").write_text(
+        "prototype folding chair with a partially refined frame",
+        encoding="utf-8",
+    )
+    (live_stage_dir / "model.py").write_text(
+        "from __future__ import annotations\n\n# staged model\n",
+        encoding="utf-8",
+    )
+    (live_stage_dir / "model.urdf").write_text(
+        "<robot name='stage_preview'/>",
+        encoding="utf-8",
+    )
+    repo.write_json(
+        live_stage_dir / "cost.json",
+        {
+            "model_id": "gpt-5.4",
+            "turns": [
+                {"input_tokens": 100, "output_tokens": 200},
+                {"input_tokens": 80, "output_tokens": 160},
+            ],
+        },
+    )
+    live_trace_dir = live_stage_dir / "traces"
+    live_trace_dir.mkdir(parents=True, exist_ok=True)
+    (live_trace_dir / "conversation.jsonl").write_text(
+        '{"type":"message","message":{"role":"assistant","content":"staging"}}\n',
+        encoding="utf-8",
+    )
+    live_mesh_dir = live_stage_dir / "meshes"
+    live_mesh_dir.mkdir(parents=True, exist_ok=True)
+    (live_mesh_dir / "preview.obj").write_text(
+        "o tri\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n", encoding="utf-8"
+    )
 
     client = TestClient(create_app(repo_root=repo_root))
 
@@ -228,7 +287,24 @@ def test_viewer_api_end_to_end(tmp_path: Path) -> None:
     assert bootstrap["repo_root"] == repo_root.resolve().as_posix()
     assert len(bootstrap["workbench_entries"]) == 3
     assert len(bootstrap["dataset_entries"]) == 2
-    assert len(bootstrap["runs"]) == 1
+    assert len(bootstrap["staging_entries"]) == 1
+    assert len(bootstrap["runs"]) == 2
+    assert bootstrap["staging_entries"][0]["run_id"] == "run_live_001"
+    assert bootstrap["staging_entries"][0]["record_id"] == "rec_stage_001"
+    assert bootstrap["staging_entries"][0]["status"] == "running"
+    assert (
+        bootstrap["staging_entries"][0]["title"]
+        == "prototype folding chair with a partially refined frame"
+    )
+    assert (
+        bootstrap["staging_entries"][0]["prompt_preview"]
+        == "prototype folding chair with a partially refined frame"
+    )
+    assert bootstrap["staging_entries"][0]["turn_count"] == 2
+    assert bootstrap["staging_entries"][0]["has_checkpoint_urdf"] is True
+    assert bootstrap["staging_entries"][0]["checkpoint_updated_at"] is not None
+    assert bootstrap["staging_entries"][0]["model_script_updated_at"] is not None
+    assert bootstrap["staging_entries"][0]["has_traces"] is True
 
     workbench = client.get("/api/collections/workbench").json()
     workbench_by_id = {
@@ -239,15 +315,29 @@ def test_viewer_api_end_to_end(tmp_path: Path) -> None:
     dataset = client.get("/api/collections/dataset").json()
     assert [item["dataset_id"] for item in dataset] == ["dj_dataset_001", "hinge_dataset_001"]
 
+    staging = client.get("/api/staging").json()
+    assert len(staging) == 1
+    assert staging[0]["record_id"] == "rec_stage_001"
+    assert staging[0]["staging_dir"] == "data/cache/runs/run_live_001/staging/rec_stage_001"
+    assert staging[0]["checkpoint_updated_at"] is not None
+    assert staging[0]["model_script_updated_at"] is not None
+
     run_summaries = client.get("/api/runs").json()
-    assert run_summaries[0]["run_id"] == "run_001"
-    assert run_summaries[0]["success_count"] == 1
+    run_summary_by_id = {item["run_id"]: item for item in run_summaries}
+    assert run_summary_by_id["run_001"]["success_count"] == 1
+    assert run_summary_by_id["run_live_001"]["status"] == "running"
+    assert run_summary_by_id["run_live_001"]["success_count"] == 0
 
     run_detail = client.get("/api/runs/run_001").json()
     assert run_detail["run"]["run_id"] == "run_001"
     assert run_detail["results"][0]["record_id"] == "rec_001"
     assert run_detail["records"][0]["summary"]["title"] == "Test hinge model"
     assert run_detail["records"][0]["summary"]["rating"] is None
+
+    live_run_detail = client.get("/api/runs/run_live_001").json()
+    assert live_run_detail["run"]["run_id"] == "run_live_001"
+    assert live_run_detail["results"] == []
+    assert live_run_detail["records"] == []
 
     search_results = client.get("/api/records/search?q=dj&source=workbench").json()
     assert [item["record_id"] for item in search_results] == ["rec_dj_001"]
@@ -289,6 +379,24 @@ def test_viewer_api_end_to_end(tmp_path: Path) -> None:
     persisted_record = repo.read_json(repo.layout.record_metadata_path("rec_001"))
     assert persisted_record["rating"] == 4
 
+    stats = client.get("/api/stats")
+    assert stats.status_code == 200
+    stats_payload = stats.json()
+    assert stats_payload["total_records"] == 3
+    assert stats_payload["total_runs"] == 2
+    assert stats_payload["total_cost_usd"] == 0.2
+    assert stats_payload["category_counts"] == {"hinges": 2, "dj_equipment": 1}
+    assert stats_payload["category_stats"]["hinges"] == {
+        "count": 2,
+        "average_rating": 3.0,
+        "average_cost_usd": 0.1,
+    }
+    assert stats_payload["category_stats"]["dj_equipment"] == {
+        "count": 1,
+        "average_rating": None,
+        "average_cost_usd": None,
+    }
+
     invalid_rating = client.put("/api/records/rec_001/rating", json={"rating": 7})
     assert invalid_rating.status_code == 422
 
@@ -299,6 +407,23 @@ def test_viewer_api_end_to_end(tmp_path: Path) -> None:
     mesh_file = client.get("/api/records/rec_001/files/meshes/part.obj")
     assert mesh_file.status_code == 200
     assert "v 1 0 0" in mesh_file.text
+
+    staging_urdf = client.get("/api/staging/run_live_001/rec_stage_001/files/model.urdf")
+    assert staging_urdf.status_code == 200
+    assert "stage_preview" in staging_urdf.text
+
+    staging_mesh = client.get("/api/staging/run_live_001/rec_stage_001/files/meshes/preview.obj")
+    assert staging_mesh.status_code == 200
+    assert "v 1 0 0" in staging_mesh.text
+
+    staging_prompt = client.get("/api/staging/run_live_001/rec_stage_001/text/prompt.txt")
+    assert staging_prompt.status_code == 200
+    assert staging_prompt.json()["record_id"] == "rec_stage_001"
+    assert "folding chair" in staging_prompt.json()["content"]
+
+    staging_trace = client.get("/api/staging/run_live_001/rec_stage_001/traces/conversation.jsonl")
+    assert staging_trace.status_code == 200
+    assert '"content":"staging"' in staging_trace.text
 
     delete_response = client.delete("/api/records/rec_001")
     assert delete_response.status_code == 200
@@ -311,6 +436,7 @@ def test_viewer_api_end_to_end(tmp_path: Path) -> None:
     assert [item["record_id"] for item in bootstrap_after_delete["dataset_entries"]] == [
         "rec_dj_001"
     ]
+    assert len(bootstrap_after_delete["staging_entries"]) == 1
     assert repo.read_json(repo.layout.dataset_manifest_path()) == {
         "generated": [{"name": "dj_dataset_001", "record_id": "rec_dj_001"}]
     }

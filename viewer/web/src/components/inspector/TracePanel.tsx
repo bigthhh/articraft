@@ -1,4 +1,4 @@
-import { useEffect, useState, type JSX } from "react";
+import { useEffect, useMemo, useState, type JSX } from "react";
 import { ChevronDown } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -234,13 +234,13 @@ export function TracePanel({ cost, traceText }: TracePanelProps): JSX.Element | 
   const total = asRecord(cost?.total);
   const totalTokens = asRecord(total?.tokens);
   const totalCosts = asRecord(total?.costs_usd);
-  const turns = parseTurns(traceText, cost);
+  const turns = useMemo(() => parseTurns(traceText, cost), [traceText, cost]);
   const modelId = typeof cost?.model_id === "string" ? cost.model_id : null;
   const [openTurns, setOpenTurns] = useState<Set<number>>(() => new Set(turns[0] ? [turns[0].index] : []));
 
   useEffect(() => {
     setOpenTurns(new Set(turns[0] ? [turns[0].index] : []));
-  }, [traceText, cost]);
+  }, [turns]);
 
   if (!cost && !traceText) return null;
 

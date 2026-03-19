@@ -6,6 +6,7 @@ export interface RenderOptions {
   showEdges: boolean;
   showGrid: boolean;
   showCollisions: boolean;
+  showSegmentColors: boolean;
   doubleSided: boolean;
   envLighting: boolean;
   autoAnimate: boolean;
@@ -13,12 +14,13 @@ export interface RenderOptions {
 }
 
 const STORAGE_KEY = 'articraft-render-options';
-const STORAGE_SCHEMA_VERSION = 2;
+const STORAGE_SCHEMA_VERSION = 3;
 const RENDER_QUERY_PARAM = 'render';
 const RENDER_OPTION_KEYS: Array<keyof RenderOptions> = [
   'showEdges',
   'showGrid',
   'showCollisions',
+  'showSegmentColors',
   'doubleSided',
   'envLighting',
   'autoAnimate',
@@ -29,6 +31,7 @@ const DEFAULT_OPTIONS: RenderOptions = {
   showEdges: true,
   showGrid: true,
   showCollisions: false,
+  showSegmentColors: false,
   doubleSided: true,
   envLighting: false,
   autoAnimate: false,
@@ -59,6 +62,7 @@ function loadOptions(): RenderOptions {
         options = {
           ...DEFAULT_OPTIONS,
           ...parsed,
+          showSegmentColors: false,
           doubleSided: true,
         };
       }

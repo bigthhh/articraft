@@ -316,6 +316,7 @@ export default function ViewerShell(): JSX.Element {
     showEdges: renderOptions.showEdges,
     showGrid: renderOptions.showGrid,
     showCollisions: renderOptions.showCollisions,
+    showSegmentColors: renderOptions.showSegmentColors,
     doubleSided: renderOptions.doubleSided,
     environmentLighting: renderOptions.envLighting,
     autoAnimate: renderOptions.autoAnimate,

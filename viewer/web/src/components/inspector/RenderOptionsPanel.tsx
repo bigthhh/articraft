@@ -8,6 +8,7 @@ export type RenderOptions = {
   showEdges: boolean;
   showGrid: boolean;
   showCollisions: boolean;
+  showSegmentColors: boolean;
   doubleSided: boolean;
   environmentLighting: boolean;
   autoAnimate: boolean;
@@ -18,6 +19,7 @@ export const defaultRenderOptions: RenderOptions = {
   showEdges: true,
   showGrid: true,
   showCollisions: false,
+  showSegmentColors: false,
   doubleSided: true,
   environmentLighting: false,
   autoAnimate: false,
@@ -53,6 +55,12 @@ const optionRows: OptionRow[] = [
     key: "showCollisions",
     label: "Collisions",
     description: "Semi-transparent collision geometry",
+    section: "display",
+  },
+  {
+    key: "showSegmentColors",
+    label: "Part colors",
+    description: "High-contrast colors for each segmented part",
     section: "display",
   },
   {

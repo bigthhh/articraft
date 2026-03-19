@@ -10,6 +10,136 @@ import { updateUrlSearchParams } from '@/lib/url';
 import type { UrdfSpec } from './urdf-parser';
 
 const CAMERA_QUERY_PARAM = 'cam';
+const SEGMENTATION_PALETTE = [
+  '#ff5a36',
+  '#00b3ff',
+  '#ffd400',
+  '#16c47f',
+  '#ff2f92',
+  '#7c5cff',
+  '#ff8a00',
+  '#00c2a8',
+  '#ff6b6b',
+  '#145af2',
+  '#c4ff0e',
+  '#ff3d77',
+] as const;
+const SEGMENTATION_SNAPSHOT_KEY = '__articraftSegmentColorSnapshot__';
+
+type MaterialWithColor = THREE.Material & {
+  color?: THREE.Color;
+  emissive?: THREE.Color;
+  map?: THREE.Texture | null;
+  emissiveMap?: THREE.Texture | null;
+  metalness?: number;
+  roughness?: number;
+};
+
+type SegmentMaterialSnapshot = {
+  color?: THREE.Color;
+  emissive?: THREE.Color;
+  map?: THREE.Texture | null;
+  emissiveMap?: THREE.Texture | null;
+  metalness?: number;
+  roughness?: number;
+  transparent: boolean;
+  opacity: number;
+};
+
+function segmentColorForIndex(index: number): THREE.Color {
+  const base = new THREE.Color(SEGMENTATION_PALETTE[index % SEGMENTATION_PALETTE.length]);
+  const hueOffset = Math.floor(index / SEGMENTATION_PALETTE.length) * 0.07;
+  return base.offsetHSL(hueOffset, 0.06, 0);
+}
+
+function storeSegmentMaterialSnapshot(material: MaterialWithColor): void {
+  if (material.userData[SEGMENTATION_SNAPSHOT_KEY]) {
+    return;
+  }
+
+  material.userData[SEGMENTATION_SNAPSHOT_KEY] = {
+    color: material.color?.clone(),
+    emissive: material.emissive?.clone(),
+    map: material.map ?? null,
+    emissiveMap: material.emissiveMap ?? null,
+    metalness: material.metalness,
+    roughness: material.roughness,
+    transparent: material.transparent,
+    opacity: material.opacity,
+  } satisfies SegmentMaterialSnapshot;
+}
+
+function applySegmentColor(material: MaterialWithColor, color: THREE.Color): void {
+  storeSegmentMaterialSnapshot(material);
+
+  if (material.color) {
+    material.color.copy(color);
+  }
+  if (material.emissive) {
+    material.emissive.setRGB(0.06, 0.06, 0.06);
+  }
+  if ('map' in material) {
+    material.map = null;
+  }
+  if ('emissiveMap' in material) {
+    material.emissiveMap = null;
+  }
+  if ('metalness' in material && typeof material.metalness === 'number') {
+    material.metalness = 0.14;
+  }
+  if ('roughness' in material && typeof material.roughness === 'number') {
+    material.roughness = 0.72;
+  }
+  material.transparent = false;
+  material.opacity = 1;
+  material.needsUpdate = true;
+}
+
+function restoreSegmentMaterial(material: MaterialWithColor): void {
+  const snapshot = material.userData[SEGMENTATION_SNAPSHOT_KEY] as SegmentMaterialSnapshot | undefined;
+  if (!snapshot) {
+    return;
+  }
+
+  if (material.color && snapshot.color) {
+    material.color.copy(snapshot.color);
+  }
+  if (material.emissive) {
+    if (snapshot.emissive) {
+      material.emissive.copy(snapshot.emissive);
+    } else {
+      material.emissive.setRGB(0, 0, 0);
+    }
+  }
+  if ('map' in material) {
+    material.map = snapshot.map ?? null;
+  }
+  if ('emissiveMap' in material) {
+    material.emissiveMap = snapshot.emissiveMap ?? null;
+  }
+  if ('metalness' in material && typeof snapshot.metalness === 'number') {
+    material.metalness = snapshot.metalness;
+  }
+  if ('roughness' in material && typeof snapshot.roughness === 'number') {
+    material.roughness = snapshot.roughness;
+  }
+  material.transparent = snapshot.transparent;
+  material.opacity = snapshot.opacity;
+  material.needsUpdate = true;
+  delete material.userData[SEGMENTATION_SNAPSHOT_KEY];
+}
+
+function withMeshMaterials(
+  mesh: THREE.Mesh,
+  visit: (material: MaterialWithColor) => void,
+): void {
+  const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+  for (const material of materials) {
+    if (material) {
+      visit(material as MaterialWithColor);
+    }
+  }
+}
 
 export interface SceneCanvasProps {
   baseFileUrl: string | null;
@@ -146,6 +276,58 @@ export function SceneCanvas({
       }
     });
   }, [scene, renderOptions.showCollisions, urdfSpec]);
+
+  useEffect(() => {
+    if (!scene || !urdfSpec) {
+      return;
+    }
+
+    const robot = scene.getObjectByName('__articraft_robot__');
+    if (!robot) {
+      return;
+    }
+
+    for (const [index, link] of urdfSpec.links.entries()) {
+      const linkGroup = robot.getObjectByName(`link:${link.name}`);
+      if (!linkGroup) {
+        continue;
+      }
+
+      const linkColor = segmentColorForIndex(index);
+      linkGroup.traverse((obj) => {
+        if (!(obj instanceof THREE.Mesh) || obj.userData.articraftVisual !== true) {
+          return;
+        }
+
+        withMeshMaterials(obj, (material) => {
+          if (renderOptions.showSegmentColors) {
+            applySegmentColor(material, linkColor);
+          } else {
+            restoreSegmentMaterial(material);
+          }
+        });
+      });
+    }
+
+    return () => {
+      for (const link of urdfSpec.links) {
+        const linkGroup = robot.getObjectByName(`link:${link.name}`);
+        if (!linkGroup) {
+          continue;
+        }
+
+        linkGroup.traverse((obj) => {
+          if (!(obj instanceof THREE.Mesh) || obj.userData.articraftVisual !== true) {
+            return;
+          }
+
+          withMeshMaterials(obj, (material) => {
+            restoreSegmentMaterial(material);
+          });
+        });
+      }
+    };
+  }, [scene, renderOptions.showSegmentColors, urdfSpec]);
 
   useEffect(() => {
     disposeOverlayObjects(jointOverlayRef.current);

@@ -117,10 +117,17 @@ export function buildRobotSceneGraph(
         const debugColor = collisionColorForIndex(collisionIndex);
         collisionIndex += 1;
         const mesh = buildPrimitiveMesh(collision.geometry, {
+          name: 'collision_debug',
           color: debugColor,
           opacity: 0.88,
           metalness: 0,
           roughness: 1,
+          transmission: 0,
+          thickness: 0,
+          ior: 1.45,
+          clearcoat: 0,
+          clearcoatRoughness: 0.2,
+          envMapIntensity: 0.8,
         });
         if (mesh) {
           if (collision.origin) {

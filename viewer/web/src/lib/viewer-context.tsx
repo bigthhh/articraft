@@ -282,6 +282,7 @@ const initialState: ViewerState = {
   inspectorOpen: true,
   loading: true,
   error: null,
+  multiSelection: new Set(),
 };
 
 function recordSortTimestamp(record: RecordSummary): number {
@@ -403,6 +404,8 @@ function viewerReducer(state: ViewerState, action: ViewerAction): ViewerState {
   switch (action.type) {
     case "SET_BOOTSTRAP": {
       const nextSelection = getNextSelection(action.payload, state.selection);
+      const validIds = new Set(getBootstrapRecords(action.payload).map((r) => r.record_id));
+      const prunedMultiSelection = new Set([...state.multiSelection].filter((id) => validIds.has(id)));
       return {
         ...state,
         bootstrap: action.payload,
@@ -410,6 +413,7 @@ function viewerReducer(state: ViewerState, action: ViewerAction): ViewerState {
         selectedRecordId: selectionToSelectedRecordId(nextSelection),
         loading: false,
         error: null,
+        multiSelection: prunedMultiSelection,
       };
     }
     case "SYNC_FROM_URL":
@@ -420,12 +424,15 @@ function viewerReducer(state: ViewerState, action: ViewerAction): ViewerState {
     case "DELETE_RECORD_LOCAL": {
       const nextBootstrap = removeRecordFromBootstrap(state.bootstrap, action.payload);
       const nextSelection = nextBootstrap ? getNextSelection(nextBootstrap, state.selection) : state.selection;
+      const nextMultiSelection = new Set(state.multiSelection);
+      nextMultiSelection.delete(action.payload);
       return {
         ...state,
         bootstrap: nextBootstrap,
         selection: nextSelection,
         selectedRecordId: selectionToSelectedRecordId(nextSelection),
         error: null,
+        multiSelection: nextMultiSelection,
       };
     }
     case "SET_INSPECTOR_TAB":
@@ -482,9 +489,9 @@ function viewerReducer(state: ViewerState, action: ViewerAction): ViewerState {
     case "SET_ERROR":
       return { ...state, error: action.payload, loading: false };
     case "SET_SEARCH":
-      return { ...state, searchQuery: action.payload };
+      return { ...state, searchQuery: action.payload, multiSelection: new Set() };
     case "SET_SOURCE_FILTER":
-      return { ...state, sourceFilter: action.payload, modelFilter: null, selectedRunId: null };
+      return { ...state, sourceFilter: action.payload, modelFilter: null, selectedRunId: null, multiSelection: new Set() };
     case "SET_TIME_FILTER":
       return { ...state, timeFilter: action.payload };
     case "SET_MODEL_FILTER":
@@ -497,6 +504,41 @@ function viewerReducer(state: ViewerState, action: ViewerAction): ViewerState {
       return { ...state, ratingFilter: action.payload };
     case "SET_RUN_FILTER":
       return { ...state, selectedRunId: action.payload };
+    case "TOGGLE_MULTI_SELECT": {
+      const next = new Set(state.multiSelection);
+      if (next.has(action.payload)) {
+        next.delete(action.payload);
+      } else {
+        next.add(action.payload);
+      }
+      return { ...state, multiSelection: next };
+    }
+    case "RANGE_MULTI_SELECT": {
+      const { targetId, visibleIds } = action.payload;
+      const targetIndex = visibleIds.indexOf(targetId);
+      if (targetIndex === -1) return state;
+
+      // Find the last-toggled item that is currently selected, or fall back to first selected
+      let anchorIndex = -1;
+      for (let i = 0; i < visibleIds.length; i++) {
+        if (state.multiSelection.has(visibleIds[i])) {
+          anchorIndex = i;
+        }
+      }
+      if (anchorIndex === -1) anchorIndex = targetIndex;
+
+      const start = Math.min(anchorIndex, targetIndex);
+      const end = Math.max(anchorIndex, targetIndex);
+      const next = new Set(state.multiSelection);
+      for (let i = start; i <= end; i++) {
+        next.add(visibleIds[i]);
+      }
+      return { ...state, multiSelection: next };
+    }
+    case "SET_MULTI_SELECT_ALL":
+      return { ...state, multiSelection: new Set(action.payload) };
+    case "CLEAR_MULTI_SELECT":
+      return { ...state, multiSelection: new Set() };
     default:
       return state;
   }

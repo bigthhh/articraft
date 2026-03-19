@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useRef, useState, type JSX } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type JSX } from "react";
 
 import { searchRecords } from "@/lib/api";
 import type { CostFilter, RatingFilter, RecordSummary, TimeFilter } from "@/lib/types";
@@ -43,7 +43,11 @@ function recordSortTimestamp(record: RecordSummary): number {
   return timestamp ? new Date(timestamp).getTime() : 0;
 }
 
-export function RecordList(): JSX.Element {
+interface RecordListProps {
+  onVisibleIdsChange?: (ids: string[]) => void;
+}
+
+export function RecordList({ onVisibleIdsChange }: RecordListProps): JSX.Element {
   const {
     bootstrap,
     searchQuery,
@@ -55,6 +59,7 @@ export function RecordList(): JSX.Element {
     ratingFilter,
     selectedRunId,
     selectedRecordId,
+    multiSelection,
   } = useViewer();
   const dispatch = useViewerDispatch();
   const scrollAreaRef = useRef<HTMLDivElement | null>(null);
@@ -171,6 +176,10 @@ export function RecordList(): JSX.Element {
   ]);
 
   useEffect(() => {
+    onVisibleIdsChange?.(records.map((r) => r.record_id));
+  }, [records, onVisibleIdsChange]);
+
+  useEffect(() => {
     if (selectedRecordId !== previousSelectedRecordIdRef.current) {
       followSelectionRef.current = true;
       previousSelectedRecordIdRef.current = selectedRecordId;
@@ -231,6 +240,21 @@ export function RecordList(): JSX.Element {
     };
   }, []);
 
+  const multiSelectActive = multiSelection.size > 0;
+
+  const visibleIds = useMemo(() => records.map((r) => r.record_id), [records]);
+
+  const onMultiSelectToggle = useCallback(
+    (recordId: string, shiftKey: boolean) => {
+      if (shiftKey && multiSelectActive) {
+        dispatch({ type: "RANGE_MULTI_SELECT", payload: { targetId: recordId, visibleIds } });
+      } else {
+        dispatch({ type: "TOGGLE_MULTI_SELECT", payload: recordId });
+      }
+    },
+    [dispatch, multiSelectActive, visibleIds],
+  );
+
   useEffect(() => {
     const isTypingTarget = (target: EventTarget | null): boolean => {
       if (!(target instanceof HTMLElement)) {
@@ -249,6 +273,22 @@ export function RecordList(): JSX.Element {
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      // Cmd/Ctrl+A: select all visible records
+      if ((event.metaKey || event.ctrlKey) && event.key === "a" && !event.shiftKey && !event.altKey) {
+        if (!isTypingTarget(event.target) && records.length > 0) {
+          event.preventDefault();
+          dispatch({ type: "SET_MULTI_SELECT_ALL", payload: records.map((r) => r.record_id) });
+          return;
+        }
+      }
+
+      // Escape: clear multi-select
+      if (event.key === "Escape" && multiSelectActive) {
+        event.preventDefault();
+        dispatch({ type: "CLEAR_MULTI_SELECT" });
+        return;
+      }
+
       if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
         return;
       }
@@ -284,7 +324,7 @@ export function RecordList(): JSX.Element {
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [dispatch, records, selectedRecordId]);
+  }, [dispatch, multiSelectActive, records, selectedRecordId]);
 
   if (!bootstrap) {
     return (
@@ -316,7 +356,13 @@ export function RecordList(): JSX.Element {
     <ScrollArea ref={scrollAreaRef} className="min-h-0 flex-1">
       <div className="py-0.5">
         {records.map((record) => (
-          <RecordListItem key={record.record_id} record={record} />
+          <RecordListItem
+            key={record.record_id}
+            record={record}
+            multiSelectActive={multiSelectActive}
+            isMultiSelected={multiSelection.has(record.record_id)}
+            onMultiSelectToggle={onMultiSelectToggle}
+          />
         ))}
       </div>
     </ScrollArea>

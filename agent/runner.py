@@ -32,6 +32,7 @@ from agent.prompts import (
     SUPPORTED_SDK_DOCS_MODES,
     load_sdk_docs_reference,
     load_system_prompt_text,
+    normalize_sdk_package,
     resolve_system_prompt_path,
 )
 from agent.providers.gemini import GeminiLLM, gemini_api_keys_from_env
@@ -1687,6 +1688,11 @@ def main(argv: list[str] | None = None) -> int:
             "to reduce prompt size; `none` disables injected SDK docs entirely."
         ),
     )
+    parser.add_argument(
+        "--sdk-package",
+        default="sdk",
+        help="SDK package to use for prompt selection, scaffolding, and compilation.",
+    )
     args = parser.parse_args(argv)
     if args.collection == "dataset":
         if not args.dataset_id:
@@ -1696,7 +1702,12 @@ def main(argv: list[str] | None = None) -> int:
     elif args.dataset_id:
         parser.error("--dataset-id is only supported with --collection dataset.")
 
-    sdk_package = "sdk"
+    try:
+        sdk_package = normalize_sdk_package(args.sdk_package)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
     openai_reasoning_summary = "auto"
 
     if args.provider != "openai" and args.openai_transport != "http":

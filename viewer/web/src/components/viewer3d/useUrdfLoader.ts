@@ -209,10 +209,17 @@ async function attachMeshGeometry(
           kind: 'collision',
           assetRevisionKey,
           materialSpec: {
+            name: 'collision_debug',
             color,
             opacity: 0.88,
             metalness: 0,
             roughness: 1,
+            transmission: 0,
+            thickness: 0,
+            ior: 1.45,
+            clearcoat: 0,
+            clearcoatRoughness: 0.2,
+            envMapIntensity: 0.8,
           },
         }).then((meshGroup) => {
           if (collision.origin) {

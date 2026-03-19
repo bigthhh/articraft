@@ -1,7 +1,8 @@
 import { useEffect, useId, useRef, useState, type JSX, type MouseEvent as ReactMouseEvent } from "react";
-import { Copy, FolderOpen, MoreVertical, Star, Trash2 } from "lucide-react";
+import { Check, Copy, FolderOpen, MoreVertical, Star, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { deleteRecord, fetchBootstrap, openRecordFolder } from "@/lib/api";
 import { buildRecordPath, copyTextToClipboard } from "@/lib/record-path";
 import type { RecordSummary } from "@/lib/types";
@@ -10,6 +11,9 @@ import { useViewer, useViewerDispatch } from "@/lib/viewer-context";
 
 interface RecordListItemProps {
   record: RecordSummary;
+  multiSelectActive: boolean;
+  isMultiSelected: boolean;
+  onMultiSelectToggle: (recordId: string, shiftKey: boolean) => void;
 }
 
 const TRAILING_PUNCTUATION = /[\s,.;:!?)]*$/;
@@ -53,7 +57,7 @@ function formatDate(value: string | null): string | null {
   }).format(date);
 }
 
-export function RecordListItem({ record }: RecordListItemProps): JSX.Element {
+export function RecordListItem({ record, multiSelectActive, isMultiSelected, onMultiSelectToggle }: RecordListItemProps): JSX.Element {
   const { bootstrap, selection } = useViewer();
   const dispatch = useViewerDispatch();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -151,7 +155,27 @@ export function RecordListItem({ record }: RecordListItemProps): JSX.Element {
   }, [openState]);
 
   const handleSelect = () => {
+    dispatch({ type: "CLEAR_MULTI_SELECT" });
     dispatch({ type: "SELECT_ITEM", payload: { kind: "record", recordId: record.record_id } });
+  };
+
+  const handleRowClick = (event: ReactMouseEvent) => {
+    if (event.shiftKey && multiSelectActive) {
+      event.preventDefault();
+      onMultiSelectToggle(record.record_id, true);
+      return;
+    }
+    if (event.metaKey || event.ctrlKey) {
+      event.preventDefault();
+      onMultiSelectToggle(record.record_id, false);
+      return;
+    }
+    handleSelect();
+  };
+
+  const handleCheckboxClick = (event: ReactMouseEvent) => {
+    event.stopPropagation();
+    onMultiSelectToggle(record.record_id, event.shiftKey);
   };
 
   const handleMenuToggle = (event: ReactMouseEvent<HTMLButtonElement>) => {
@@ -231,12 +255,41 @@ export function RecordListItem({ record }: RecordListItemProps): JSX.Element {
         <div
           className={cn(
             "group flex items-start gap-0.5 rounded-lg px-2.5 py-2 transition-colors duration-100",
-            isSelected ? "bg-[var(--accent-soft)]" : "hover:bg-[var(--surface-1)]",
+            isMultiSelected
+              ? "bg-[var(--accent-soft)]"
+              : isSelected
+                ? "border-l-2 border-l-[var(--accent)] bg-[var(--accent-soft)] pl-2"
+                : "hover:bg-[var(--surface-1)]",
           )}
+          onClick={handleRowClick}
         >
+          {/* Checkbox: visible when multi-select is active, or on hover */}
           <button
             type="button"
-            onClick={handleSelect}
+            aria-label={isMultiSelected ? "Deselect record" : "Select record"}
+            onClick={handleCheckboxClick}
+            className={cn(
+              "mr-1.5 mt-0.5 flex shrink-0 items-center justify-center rounded-sm p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-soft)]",
+              multiSelectActive
+                ? "opacity-100"
+                : "opacity-0 group-hover:opacity-100",
+            )}
+          >
+            <span
+              className={cn(
+                "flex size-3.5 shrink-0 items-center justify-center rounded-sm border",
+                isMultiSelected
+                  ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]"
+                  : "border-[var(--border-default)] bg-[var(--surface-1)] text-transparent",
+              )}
+            >
+              <Check className="size-3" />
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); handleRowClick(e); }}
             data-record-select-trigger="true"
             className="min-w-0 flex-1 rounded-sm py-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-soft)]"
             title={summaryText}
@@ -267,22 +320,27 @@ export function RecordListItem({ record }: RecordListItemProps): JSX.Element {
             ) : null}
           </button>
 
-          <div ref={menuRef} className="relative shrink-0 pt-px">
-            <button
-              type="button"
-              aria-label={`Open actions for ${record.title}`}
-              aria-haspopup="menu"
-              aria-expanded={menuOpen}
-              onClick={handleMenuToggle}
-              className={cn(
-                "flex size-6 items-center justify-center rounded-md text-[var(--text-tertiary)] opacity-0 transition-all duration-100 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-soft)]",
-                menuOpen
-                  ? "bg-[var(--surface-0)] text-[var(--text-primary)] opacity-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)]"
-                  : "hover:bg-[var(--surface-0)] hover:text-[var(--text-primary)]",
-              )}
-            >
-              <MoreVertical className="size-3" />
-            </button>
+          <div ref={menuRef} className={cn("relative shrink-0 pt-px", multiSelectActive && "hidden")}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={`Open actions for ${record.title}`}
+                  aria-haspopup="menu"
+                  aria-expanded={menuOpen}
+                  onClick={handleMenuToggle}
+                  className={cn(
+                    "flex size-6 items-center justify-center rounded-md text-[var(--text-tertiary)] opacity-0 transition-all duration-100 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-soft)]",
+                    menuOpen
+                      ? "bg-[var(--surface-0)] text-[var(--text-primary)] opacity-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)]"
+                      : "hover:bg-[var(--surface-0)] hover:text-[var(--text-primary)]",
+                  )}
+                >
+                  <MoreVertical className="size-3" />
+                </button>
+              </TooltipTrigger>
+              {!menuOpen ? <TooltipContent side="right">Actions</TooltipContent> : null}
+            </Tooltip>
 
             {menuOpen ? (
               <div

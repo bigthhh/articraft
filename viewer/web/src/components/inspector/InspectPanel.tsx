@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Slider } from "@/components/ui/slider";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import type { UrdfJoint } from "@/components/inspector/JointSlider";
 
 type InspectPanelProps = {
@@ -635,24 +636,36 @@ export function InspectPanel({
                   Path
                 </span>
                 <div className="flex shrink-0 items-center gap-0.5">
-                  <button
-                    type="button"
-                    aria-label={copyState === "copied" ? "Copied object path" : "Copy object path"}
-                    title={copyState === "copied" ? "Copied object path" : copyState === "error" ? "Copy failed" : "Copy object path"}
-                    className="flex size-5 cursor-pointer items-center justify-center rounded-md text-[var(--text-quaternary)] transition-colors duration-100 hover:bg-[var(--surface-0)] hover:text-[var(--text-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-soft)]"
-                    onClick={() => void handleCopyRecordPath()}
-                  >
-                    <Copy className={`size-3 ${copyState === "copied" ? "text-[var(--success)]" : ""}`} />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={openState === "opened" ? "Opened object folder" : "Open object folder"}
-                    title={openState === "opened" ? "Opened object folder" : openState === "error" ? "Open failed" : "Open object folder"}
-                    className="flex size-5 cursor-pointer items-center justify-center rounded-md text-[var(--text-quaternary)] transition-colors duration-100 hover:bg-[var(--surface-0)] hover:text-[var(--text-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-soft)]"
-                    onClick={() => void handleOpenRecordFolder()}
-                  >
-                    <FolderOpen className={`size-3 ${openState === "opened" ? "text-[var(--success)]" : ""}`} />
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={copyState === "copied" ? "Copied object path" : "Copy object path"}
+                        className="flex size-5 cursor-pointer items-center justify-center rounded-md text-[var(--text-quaternary)] transition-colors duration-100 hover:bg-[var(--surface-0)] hover:text-[var(--text-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-soft)]"
+                        onClick={() => void handleCopyRecordPath()}
+                      >
+                        <Copy className={`size-3 ${copyState === "copied" ? "text-[var(--success)]" : ""}`} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">
+                      {copyState === "copied" ? "Copied!" : copyState === "error" ? "Failed" : "Copy path"}
+                    </TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={openState === "opened" ? "Opened object folder" : "Open object folder"}
+                        className="flex size-5 cursor-pointer items-center justify-center rounded-md text-[var(--text-quaternary)] transition-colors duration-100 hover:bg-[var(--surface-0)] hover:text-[var(--text-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-soft)]"
+                        onClick={() => void handleOpenRecordFolder()}
+                      >
+                        <FolderOpen className={`size-3 ${openState === "opened" ? "text-[var(--success)]" : ""}`} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">
+                      {openState === "opened" ? "Opened!" : openState === "error" ? "Failed" : "Open folder"}
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
               </div>
               <p

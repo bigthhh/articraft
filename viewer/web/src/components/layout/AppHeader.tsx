@@ -8,6 +8,7 @@ import { useViewer, useViewerDispatch } from "@/lib/viewer-context";
 import { findStagingEntryInBootstrap } from "@/lib/record-summary";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 const TRAILING_PUNCTUATION = /[\s,.;:!?)]*$/;
 
@@ -118,17 +119,22 @@ export function AppHeader(): JSX.Element {
             Dashboard
           </Button>
         )}
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={handleRefresh}
-          disabled={state.loading}
-          className="h-7 w-7 rounded-md p-0 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
-        >
-          <RefreshCw
-            className={`size-3.5 ${state.loading ? "animate-spin" : ""}`}
-          />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleRefresh}
+              disabled={state.loading}
+              className="h-7 w-7 rounded-md p-0 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+            >
+              <RefreshCw
+                className={`size-3.5 ${state.loading ? "animate-spin" : ""}`}
+              />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Refresh</TooltipContent>
+        </Tooltip>
       </div>
     </header>
   );

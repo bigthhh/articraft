@@ -9,7 +9,7 @@ setup:
     @if [ ! -f .env ]; then \
         cp .env.example .env; \
         echo "Created .env from .env.example"; \
-        echo "Set OPENAI_API_KEY and/or GEMINI_API_KEYS in .env before running the agent harness."; \
+        echo "Set OPENAI_API_KEYS or OPENAI_API_KEY and/or GEMINI_API_KEYS in .env before running the agent harness."; \
     fi
     uv sync --group dev
     uv run pre-commit install --hook-type pre-commit --hook-type pre-push
@@ -37,11 +37,12 @@ lint:
 smoke-tests:
     uv run --group dev pytest -q
 
-wb prompt model_arg="model=gpt-5.4" thinking_arg="thinking=high":
+wb prompt model_arg="model=gpt-5.4" thinking_arg="thinking=high" sdk_arg="sdk=sdk":
     #!/usr/bin/env bash
     set -euo pipefail
     raw_model={{ quote(model_arg) }}
     raw_thinking={{ quote(thinking_arg) }}
+    raw_sdk={{ quote(sdk_arg) }}
     case "$raw_model" in
       model=*)
         model="${raw_model#model=}"
@@ -56,6 +57,26 @@ wb prompt model_arg="model=gpt-5.4" thinking_arg="thinking=high":
         ;;
       *)
         thinking="$raw_thinking"
+        ;;
+    esac
+    case "$raw_sdk" in
+      sdk=*)
+        sdk="${raw_sdk#sdk=}"
+        ;;
+      *)
+        sdk="$raw_sdk"
+        ;;
+    esac
+    case "$sdk" in
+      sdk|base)
+        sdk_package="sdk"
+        ;;
+      sdk_hybrid|hybrid)
+        sdk_package="sdk_hybrid"
+        ;;
+      *)
+        echo "Unsupported sdk '$sdk'. Supported values: sdk, base, sdk_hybrid, hybrid." >&2
+        exit 1
         ;;
     esac
     case "$model" in
@@ -75,13 +96,15 @@ wb prompt model_arg="model=gpt-5.4" thinking_arg="thinking=high":
       --prompt {{ quote(prompt) }} \
       --provider "$provider" \
       --model "$model" \
-      --thinking "$thinking"
+      --thinking "$thinking" \
+      --sdk-package "$sdk_package"
 
-wb-init prompt model_arg="model=gpt-5.4" thinking_arg="thinking=high":
+wb-init prompt model_arg="model=gpt-5.4" thinking_arg="thinking=high" sdk_arg="sdk=sdk":
     #!/usr/bin/env bash
     set -euo pipefail
     raw_model={{ quote(model_arg) }}
     raw_thinking={{ quote(thinking_arg) }}
+    raw_sdk={{ quote(sdk_arg) }}
     case "$raw_model" in
       model=*)
         model="${raw_model#model=}"
@@ -96,6 +119,26 @@ wb-init prompt model_arg="model=gpt-5.4" thinking_arg="thinking=high":
         ;;
       *)
         thinking="$raw_thinking"
+        ;;
+    esac
+    case "$raw_sdk" in
+      sdk=*)
+        sdk="${raw_sdk#sdk=}"
+        ;;
+      *)
+        sdk="$raw_sdk"
+        ;;
+    esac
+    case "$sdk" in
+      sdk|base)
+        sdk_package="sdk"
+        ;;
+      sdk_hybrid|hybrid)
+        sdk_package="sdk_hybrid"
+        ;;
+      *)
+        echo "Unsupported sdk '$sdk'. Supported values: sdk, base, sdk_hybrid, hybrid." >&2
+        exit 1
         ;;
     esac
     case "$model" in
@@ -116,7 +159,8 @@ wb-init prompt model_arg="model=gpt-5.4" thinking_arg="thinking=high":
       {{ quote(prompt) }} \
       --provider "$provider" \
       --model-id "$model" \
-      --thinking-level "$thinking"
+      --thinking-level "$thinking" \
+      --sdk-package "$sdk_package"
 
 dataset-validate:
     uv run articraft-dataset --repo-root . validate

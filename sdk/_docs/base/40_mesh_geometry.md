@@ -32,6 +32,7 @@ geom.clone() -> MeshGeometry
 geom.merge(other) -> MeshGeometry
 geom.translate(dx, dy, dz) -> MeshGeometry
 geom.scale(sx, sy=None, sz=None) -> MeshGeometry
+geom.rotate(axis, angle_rad, origin=(0.0, 0.0, 0.0)) -> MeshGeometry
 geom.rotate_x(angle_rad) -> MeshGeometry
 geom.rotate_y(angle_rad) -> MeshGeometry
 geom.rotate_z(angle_rad) -> MeshGeometry
@@ -40,6 +41,14 @@ geom.save_obj(path: str | Path) -> None
 ```
 
 All transforms mutate the geometry in place and return `self` for chaining.
+
+`rotate(...)` requires:
+
+- `axis`: a non-zero 3D direction `(x, y, z)`
+- `angle_rad`: the rotation angle in radians
+- `origin`: optional pivot point, default `(0.0, 0.0, 0.0)`
+
+`rotate_x(...)`, `rotate_y(...)`, and `rotate_z(...)` are convenience wrappers over `rotate(...)`.
 
 `copy()` / `clone()` return a deep copy and are useful when you want to repeat a
 mesh pattern (for example spokes, whisk loops, cages, or repeated trim pieces)
@@ -52,8 +61,10 @@ Import:
 ```python
 from sdk import (
     BoxGeometry,
+    CapsuleGeometry,
     CylinderGeometry,
     ConeGeometry,
+    DomeGeometry,
     SphereGeometry,
     TorusGeometry,
 )
@@ -62,14 +73,18 @@ from sdk import (
 Signatures:
 
 - `BoxGeometry(size: Sequence[float])`
+- `CapsuleGeometry(radius: float, length: float, radial_segments: int = 24, height_segments: int = 8)`
 - `CylinderGeometry(radius: float, height: float, radial_segments: int = 24, closed: bool = True)`
 - `ConeGeometry(radius: float, height: float, radial_segments: int = 24, closed: bool = True)`
+- `DomeGeometry(radius: float | (rx, ry, rz), radial_segments: int = 24, height_segments: int = 12, closed: bool = True)`
 - `SphereGeometry(radius: float, width_segments: int = 24, height_segments: int = 16)`
 - `TorusGeometry(radius: float, tube: float, radial_segments: int = 16, tubular_segments: int = 32)`
 
 Notes:
 
+- `CapsuleGeometry` is centered at the origin, aligned with Z, and uses `length` for the cylindrical mid-section between the spherical caps.
 - `CylinderGeometry` and `ConeGeometry` are centered at the origin and extend along Z.
+- `DomeGeometry` builds the upper half of a sphere/ellipsoid. Its base lies on `z=0`, and the dome extends toward `+Z`.
 - `SphereGeometry` is centered at the origin.
 
 ## Profile/loft/extrude helpers
@@ -103,6 +118,9 @@ LatheGeometry(profile, segments=32)
 LoftGeometry(profiles, cap=True, closed=True)
 ```
 
+- `LoftGeometry` is now considered a low-level legacy primitive.
+- For new shell/exterior loft authoring, prefer `section_loft(...)` and
+  `repair_loft(...)`. See `46_section_lofts.md`.
 - `profiles` is an iterable of profiles, each profile an iterable of `(x, y, z)`.
 - All profiles must have the same point count.
 - If `closed=True`, the profile is treated as a closed loop (wraps the last segment).
@@ -158,6 +176,9 @@ SweepGeometry(profile, path, cap=False, closed=True)
   `wire_from_points(...)`, or `PipeGeometry`.
 
 ## Parametric profiles and organic casings
+
+These helpers remain available, but for new general-purpose lofted shells prefer
+`section_loft(...)` and `repair_loft(...)` from `46_section_lofts.md`.
 
 Import:
 
@@ -231,6 +252,9 @@ Builds an “organic casing” by lofting superellipse cross-sections along +Y, 
 - `y`: position along the loft axis
 - `z_min`, `z_max`: vertical extent
 - `width`: span in X
+
+This helper is specialized and remains useful for compatibility and simple
+casing forms. It is no longer the recommended general loft API.
 
 ### `split_superellipse_side_loft`
 

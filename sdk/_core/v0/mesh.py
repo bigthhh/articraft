@@ -1324,50 +1324,60 @@ class MeshGeometry:
         )
         return self
 
-    def rotate_x(self, angle: float) -> "MeshGeometry":
+    def rotate(
+        self,
+        axis: Sequence[float],
+        angle: float,
+        *,
+        origin: Sequence[float] = (0.0, 0.0, 0.0),
+    ) -> "MeshGeometry":
+        kx, ky, kz = _v_normalize((float(axis[0]), float(axis[1]), float(axis[2])))
+        ox, oy, oz = float(origin[0]), float(origin[1]), float(origin[2])
         c = cos(angle)
         s = sin(angle)
-        self.vertices = [(x, y * c - z * s, y * s + z * c) for (x, y, z) in self.vertices]
+        t = 1.0 - c
+
+        r00 = t * kx * kx + c
+        r01 = t * kx * ky - s * kz
+        r02 = t * kx * kz + s * ky
+        r10 = t * ky * kx + s * kz
+        r11 = t * ky * ky + c
+        r12 = t * ky * kz - s * kx
+        r20 = t * kz * kx - s * ky
+        r21 = t * kz * ky + s * kx
+        r22 = t * kz * kz + c
+
+        tx = ox - (r00 * ox + r01 * oy + r02 * oz)
+        ty = oy - (r10 * ox + r11 * oy + r12 * oz)
+        tz = oz - (r20 * ox + r21 * oy + r22 * oz)
+
+        self.vertices = [
+            (
+                r00 * x + r01 * y + r02 * z + tx,
+                r10 * x + r11 * y + r12 * z + ty,
+                r20 * x + r21 * y + r22 * z + tz,
+            )
+            for (x, y, z) in self.vertices
+        ]
         _prepend_primitive_transform(
             self,
             (
-                (1.0, 0.0, 0.0, 0.0),
-                (0.0, float(c), float(-s), 0.0),
-                (0.0, float(s), float(c), 0.0),
+                (float(r00), float(r01), float(r02), float(tx)),
+                (float(r10), float(r11), float(r12), float(ty)),
+                (float(r20), float(r21), float(r22), float(tz)),
                 (0.0, 0.0, 0.0, 1.0),
             ),
         )
         return self
+
+    def rotate_x(self, angle: float) -> "MeshGeometry":
+        return self.rotate((1.0, 0.0, 0.0), angle)
 
     def rotate_y(self, angle: float) -> "MeshGeometry":
-        c = cos(angle)
-        s = sin(angle)
-        self.vertices = [(x * c + z * s, y, -x * s + z * c) for (x, y, z) in self.vertices]
-        _prepend_primitive_transform(
-            self,
-            (
-                (float(c), 0.0, float(s), 0.0),
-                (0.0, 1.0, 0.0, 0.0),
-                (float(-s), 0.0, float(c), 0.0),
-                (0.0, 0.0, 0.0, 1.0),
-            ),
-        )
-        return self
+        return self.rotate((0.0, 1.0, 0.0), angle)
 
     def rotate_z(self, angle: float) -> "MeshGeometry":
-        c = cos(angle)
-        s = sin(angle)
-        self.vertices = [(x * c - y * s, x * s + y * c, z) for (x, y, z) in self.vertices]
-        _prepend_primitive_transform(
-            self,
-            (
-                (float(c), float(-s), 0.0, 0.0),
-                (float(s), float(c), 0.0, 0.0),
-                (0.0, 0.0, 1.0, 0.0),
-                (0.0, 0.0, 0.0, 1.0),
-            ),
-        )
-        return self
+        return self.rotate((0.0, 0.0, 1.0), angle)
 
     def to_obj(self) -> str:
         lines = ["o mesh"]
@@ -1387,6 +1397,26 @@ class MeshGeometry:
 
 
 BufferGeometry = MeshGeometry
+
+
+def _coerce_positive_radii3(
+    value: Union[float, Sequence[float]],
+    *,
+    name: str,
+) -> Vec3:
+    if isinstance(value, (int, float)):
+        radius = float(value)
+        if radius <= 0.0:
+            raise ValueError(f"{name} must be positive")
+        return (radius, radius, radius)
+    if len(value) != 3:
+        raise ValueError(f"{name} must be a positive float or a 3-sequence")
+    rx = float(value[0])
+    ry = float(value[1])
+    rz = float(value[2])
+    if rx <= 0.0 or ry <= 0.0 or rz <= 0.0:
+        raise ValueError(f"{name} values must be positive")
+    return (rx, ry, rz)
 
 
 class BoxGeometry(MeshGeometry):
@@ -1462,8 +1492,8 @@ class CylinderGeometry(MeshGeometry):
             bottom_center = self.add_vertex(0.0, 0.0, -half)
             for i in range(radial_segments):
                 i2 = (i + 1) % radial_segments
-                self.add_face(top_center, top_indices[i2], top_indices[i])
-                self.add_face(bottom_center, bottom_indices[i], bottom_indices[i2])
+                self.add_face(top_center, top_indices[i], top_indices[i2])
+                self.add_face(bottom_center, bottom_indices[i2], bottom_indices[i])
 
 
 class ConeGeometry(MeshGeometry):
@@ -1534,6 +1564,116 @@ class SphereGeometry(MeshGeometry):
                 if iy != 0:
                     self.add_face(a, b, d)
                 if iy != height_segments - 1:
+                    self.add_face(b, c, d)
+
+
+class DomeGeometry(MeshGeometry):
+    def __init__(
+        self,
+        radius: Union[float, Sequence[float]],
+        *,
+        radial_segments: int = 24,
+        height_segments: int = 12,
+        closed: bool = True,
+    ):
+        super().__init__()
+        rx, ry, rz = _coerce_positive_radii3(radius, name="radius")
+        radial_segments = max(3, int(radial_segments))
+        height_segments = max(1, int(height_segments))
+
+        for iy in range(height_segments + 1):
+            v = iy / height_segments
+            phi = 0.5 * pi * v
+            sin_phi = sin(phi)
+            cos_phi = cos(phi)
+            z = rz * cos_phi
+            for ix in range(radial_segments + 1):
+                u = ix / radial_segments
+                theta = 2.0 * pi * u
+                x = rx * sin_phi * cos(theta)
+                y = ry * sin_phi * sin(theta)
+                self.add_vertex(x, y, z)
+
+        verts_per_row = radial_segments + 1
+        for iy in range(height_segments):
+            for ix in range(radial_segments):
+                a = iy * verts_per_row + ix
+                b = a + verts_per_row
+                c = b + 1
+                d = a + 1
+                if iy != 0:
+                    self.add_face(a, b, d)
+                self.add_face(b, c, d)
+
+        if closed:
+            base_center = self.add_vertex(0.0, 0.0, 0.0)
+            base_offset = height_segments * verts_per_row
+            for ix in range(radial_segments):
+                self.add_face(base_center, base_offset + ix, base_offset + ix + 1)
+
+
+class CapsuleGeometry(MeshGeometry):
+    def __init__(
+        self,
+        radius: float,
+        length: float,
+        *,
+        radial_segments: int = 24,
+        height_segments: int = 8,
+    ):
+        super().__init__()
+        radius = float(radius)
+        length = float(length)
+        radial_segments = max(3, int(radial_segments))
+        height_segments = max(2, int(height_segments))
+
+        if radius <= 0.0:
+            raise ValueError("radius must be positive")
+        if length < 0.0:
+            raise ValueError("length must be non-negative")
+
+        if length <= _EPS:
+            self.merge(
+                SphereGeometry(
+                    radius,
+                    width_segments=radial_segments,
+                    height_segments=max(4, 2 * height_segments),
+                )
+            )
+            return
+
+        half = length * 0.5
+        rows: List[Tuple[float, float]] = []
+
+        for iy in range(height_segments + 1):
+            v = iy / height_segments
+            phi = 0.5 * pi * v
+            rows.append((radius * sin(phi), half + radius * cos(phi)))
+
+        for iy in range(height_segments + 1):
+            v = iy / height_segments
+            phi = 0.5 * pi + 0.5 * pi * v
+            rows.append((radius * sin(phi), -half + radius * cos(phi)))
+
+        for ring_radius, z in rows:
+            for ix in range(radial_segments + 1):
+                u = ix / radial_segments
+                theta = 2.0 * pi * u
+                x = ring_radius * cos(theta)
+                y = ring_radius * sin(theta)
+                self.add_vertex(x, y, z)
+
+        verts_per_row = radial_segments + 1
+        segment_count = len(rows) - 1
+        for iy in range(segment_count):
+            for ix in range(radial_segments):
+                a = iy * verts_per_row + ix
+                b = a + verts_per_row
+                c = b + 1
+                d = a + 1
+                if iy != 0:
+                    self.add_face(a, b, d)
+                if iy != segment_count - 1:
                     self.add_face(b, c, d)
 
 
@@ -2471,16 +2611,29 @@ def _sample_supported_spline_path(
     alpha: float,
     min_segment_length: float,
 ) -> List[Vec3]:
-    spline_key = str(spline or "catmull_rom").strip().lower()
-    if spline_key != "catmull_rom":
-        raise ValueError("spline must be 'catmull_rom'")
+    spline_key = str(spline or "catmull_rom").strip().lower().replace("-", "_")
+    if spline_key in {"catmullrom", "catmull_rom"}:
+        sampled = sample_catmull_rom_spline_3d(
+            list(points),
+            samples_per_segment=int(samples_per_segment),
+            closed=bool(closed_spline),
+            alpha=float(alpha),
+        )
+    elif spline_key in {"bezier", "cubic_bezier", "cubicbezier"}:
+        sampled = sample_cubic_bezier_spline_3d(
+            list(points),
+            samples_per_segment=int(samples_per_segment),
+        )
+        if bool(closed_spline) and _v_norm(_v_sub(sampled[0], sampled[-1])) > max(
+            float(min_segment_length), _EPS
+        ):
+            raise ValueError(
+                "closed_spline=True with spline='bezier' requires the sampled "
+                "Bezier chain to end where it starts"
+            )
+    else:
+        raise ValueError("spline must be one of: 'catmull_rom', 'bezier'")
 
-    sampled = sample_catmull_rom_spline_3d(
-        list(points),
-        samples_per_segment=int(samples_per_segment),
-        closed=bool(closed_spline),
-        alpha=float(alpha),
-    )
     return _preprocess_wire_polyline_points(
         sampled,
         min_segment_length=float(min_segment_length),
@@ -2505,6 +2658,7 @@ def tube_from_spline_points(
     Fit a spline through points, then build a circular tube along that path.
 
     This is the default "click points, fit a nice handle/tube" helper.
+    Supported spline families: ``catmull_rom`` and chained cubic ``bezier``.
     """
     centerline = _sample_supported_spline_path(
         points,
@@ -2542,7 +2696,8 @@ def sweep_profile_along_spline(
     Fit a spline through points, then sweep a 2D profile along the sampled path.
 
     The profile is treated as a closed outline. Use `tube_from_spline_points(...)`
-    for the common circular-tube case.
+    for the common circular-tube case. Supported spline families:
+    ``catmull_rom`` and chained cubic ``bezier``.
     """
     centerline = _sample_supported_spline_path(
         points,

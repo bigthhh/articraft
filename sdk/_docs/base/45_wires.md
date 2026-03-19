@@ -90,6 +90,10 @@ tube_from_spline_points(
 
 - Fits a spline through the points, then builds a circular tube along that path.
 - This is the default helper for single handle/tube/wire paths.
+- `spline` may be `"catmull_rom"` or `"bezier"`.
+- With `spline="bezier"`, `points` are chained cubic Bezier control points:
+  `[P0, P1, P2, P3, P4, P5, P6, ...]`.
+- For closed Bezier paths, the sampled Bezier chain must already end where it starts.
 - Internally it uses a mitered sweep because the sampled spline is already smooth.
 
 ## 3) Single spline profile sweep
@@ -110,6 +114,8 @@ sweep_profile_along_spline(
 
 - Fits a spline through the points, then sweeps a closed 2D profile along that path.
 - Use this for non-circular handles, trim, rails, and custom section sweeps.
+- `spline` may be `"catmull_rom"` or `"bezier"`.
+- With `spline="bezier"`, `points` are chained cubic Bezier control points.
 - For the common circular-tube case, prefer `tube_from_spline_points(...)`.
 
 ## 4) Single wire/tube path (advanced)

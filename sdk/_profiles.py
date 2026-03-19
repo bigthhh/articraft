@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-
 OPENAI_DESIGNER_PROMPT_NAME = "designer_system_prompt_openai.txt"
 HYBRID_OPENAI_DESIGNER_PROMPT_NAME = "designer_system_prompt_openai_hybrid.txt"
 GEMINI_DESIGNER_PROMPT_NAME = "designer_system_prompt_gemini.txt"
@@ -50,6 +49,7 @@ _COMMON_DOCS = (
 _BASE_DOCS = (
     Path("sdk/_docs/base/40_mesh_geometry.md"),
     Path("sdk/_docs/base/45_wires.md"),
+    Path("sdk/_docs/base/46_section_lofts.md"),
 )
 
 _CADQUERY_DOCS = (

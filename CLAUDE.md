@@ -8,23 +8,23 @@ Articraft is an agentic system that generates articulated 3D objects (URDF model
 
 ## Common Commands
 
-All commands use `just` (a command runner). Run `just` to list everything.
+Use `uv` for direct Python commands and `just` for the agent-facing shortcuts that help with record iteration. Run `just` or check [`justfile`](/Users/matthewzhou/articraft/justfile) for the full recipe list.
 
 ```bash
-just setup                  # First-time setup (venv, deps, hooks, storage init)
-just smoke-tests            # Run pytest suite
-just format                 # ruff format
-just lint                   # ruff check
-just viewer                 # Start viewer (builds frontend, opens browser)
-just viewer-dev             # Start viewer in dev mode (API + Vite HMR)
-just viewer-api             # Start only the API server
-just viewer-web-lint        # ESLint on viewer/web
-just viewer-web-typecheck   # TypeScript type-check on viewer/web
-just wb "prompt text"       # Generate an object from a prompt (workbench mode)
-just wb-init "prompt text"  # Create a draft workbench record without running generation
-just compile data/records/<id>  # Recompile a record's model.py → model.urdf
-just rerun data/records/<id>    # Re-run generation for an existing record in-place
-just search-index           # Rebuild the workbench search index
+uv sync --group dev            # Install Python dependencies
+uv build                       # Build wheel and sdist
+uv run --group dev pytest -q   # Run pytest directly
+uv run uvicorn viewer.api.app:app --reload --host 127.0.0.1 --port 8765  # Start API directly
+
+just setup                     # First-time setup shortcut
+just smoke-tests               # Run pytest suite
+just wb-init "prompt text"     # Create a draft workbench record to edit manually
+just compile data/records/<id> # Recompile model.py -> model.urdf
+just rerun data/records/<id>   # Re-run generation for an existing record
+just search-index              # Rebuild the workbench search index
+just viewer                    # Start viewer
+just viewer-dev                # Start viewer in dev mode
+just wb "prompt text"          # Generate an object from a prompt
 ```
 
 ### Running a single test
@@ -87,4 +87,4 @@ Files under `data/` are exempt from the trailing-newline requirement. Paths like
 
 ## Environment
 
-Provider keys go in `.env`: `OPENAI_API_KEY` for OpenAI, `GEMINI_API_KEYS` for Gemini. The `.env` file is gitignored.
+Provider keys go in `.env`: `OPENAI_API_KEYS` (preferred) or `OPENAI_API_KEY` for OpenAI, `GEMINI_API_KEYS` for Gemini. The `.env` file is gitignored.

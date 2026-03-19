@@ -15,6 +15,8 @@ def test_post_success_design_audit_injected_once() -> None:
     assert conversation
     content = conversation[0]["content"]
     assert "Compile passed. Do a final design audit before concluding." in content
+    assert "<design_audit>" in content
+    assert "<continue_if_needed>" in content
     assert "hero features are prominent and unobscured" in content
     assert "dominant silhouette reads correctly" in content
     assert "prompt-specific claims" in content

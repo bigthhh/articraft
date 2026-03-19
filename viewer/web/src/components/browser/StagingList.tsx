@@ -6,6 +6,7 @@ import { useViewer, useViewerDispatch } from "@/lib/viewer-context";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { deleteStagingEntry, fetchBootstrap, openStagingFolder } from "@/lib/api";
 import {
   getPreviewStagingEntries,
@@ -300,21 +301,26 @@ function StagingListItem({ entry }: { entry: StagingEntry }): JSX.Element {
 
           {!isPreview ? (
             <div ref={menuRef} className="relative shrink-0 pt-px">
-              <button
-                type="button"
-                aria-label={`Open actions for ${entry.title || entry.record_id}`}
-                aria-haspopup="menu"
-                aria-expanded={menuOpen}
-                onClick={handleMenuToggle}
-                className={cn(
-                  "flex size-6 items-center justify-center rounded-md text-[var(--text-tertiary)] opacity-0 transition-all duration-100 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(26,138,74,0.18)]",
-                  menuOpen
-                    ? "bg-[var(--surface-0)] text-[var(--text-primary)] opacity-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)]"
-                    : "hover:bg-[var(--surface-0)] hover:text-[var(--text-primary)]",
-                )}
-              >
-                <MoreVertical className="size-3" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={`Open actions for ${entry.title || entry.record_id}`}
+                    aria-haspopup="menu"
+                    aria-expanded={menuOpen}
+                    onClick={handleMenuToggle}
+                    className={cn(
+                      "flex size-6 items-center justify-center rounded-md text-[var(--text-tertiary)] opacity-0 transition-all duration-100 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(26,138,74,0.18)]",
+                      menuOpen
+                        ? "bg-[var(--surface-0)] text-[var(--text-primary)] opacity-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)]"
+                        : "hover:bg-[var(--surface-0)] hover:text-[var(--text-primary)]",
+                    )}
+                  >
+                    <MoreVertical className="size-3" />
+                  </button>
+                </TooltipTrigger>
+                {!menuOpen ? <TooltipContent side="right">Actions</TooltipContent> : null}
+              </Tooltip>
 
               {menuOpen ? (
                 <div

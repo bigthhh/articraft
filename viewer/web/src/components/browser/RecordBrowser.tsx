@@ -1,7 +1,8 @@
-import { useEffect, useState, type JSX } from "react";
+import { useCallback, useEffect, useState, type JSX } from "react";
 
 import type { SourceFilter } from "@/lib/types";
 import { useViewer, useViewerDispatch } from "@/lib/viewer-context";
+import { BulkActionBar } from "@/components/browser/BulkActionBar";
 import { ExplorerFilters } from "@/components/browser/ExplorerFilters";
 import { RecordSearch } from "@/components/browser/RecordSearch";
 import { RecordList } from "@/components/browser/RecordList";
@@ -10,9 +11,11 @@ import { StagingList } from "@/components/browser/StagingList";
 type BrowserTab = SourceFilter | "staging";
 
 export function RecordBrowser(): JSX.Element {
-  const { sourceFilter, loading, error, selection } = useViewer();
+  const { sourceFilter, loading, error, selection, multiSelection } = useViewer();
   const dispatch = useViewerDispatch();
   const [activeTab, setActiveTab] = useState<BrowserTab>(sourceFilter);
+  const [visibleRecordIds, setVisibleRecordIds] = useState<string[]>([]);
+  const handleVisibleIdsChange = useCallback((ids: string[]) => setVisibleRecordIds(ids), []);
   useEffect(() => {
     if (selection?.kind === "staging") {
       setActiveTab("staging");
@@ -92,7 +95,12 @@ export function RecordBrowser(): JSX.Element {
               <p className="text-[11px] text-[var(--text-quaternary)]">Loading…</p>
             </div>
           ) : (
-            <RecordList />
+            <>
+              <RecordList onVisibleIdsChange={handleVisibleIdsChange} />
+              {multiSelection.size > 0 ? (
+                <BulkActionBar visibleRecordIds={visibleRecordIds} />
+              ) : null}
+            </>
           )}
         </>
       )}

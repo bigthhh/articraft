@@ -39,6 +39,11 @@ class DeleteRecordPreview:
     in_workbench: bool
 
 
+@dataclass(slots=True, frozen=True)
+class PruneCachePreview:
+    empty_dirs: list[Path]
+
+
 def _build_delete_category_preview(
     repo: StorageRepo, queries: StorageQueries, category_slug: str
 ) -> DeleteCategoryPreview | None:
@@ -137,6 +142,61 @@ def _print_delete_record_preview(preview: DeleteRecordPreview) -> None:
     print(f"run_id={preview.run_id or '(none)'}")
     print(f"dataset_id={preview.dataset_id or '(none)'}")
     print(f"in_workbench={'yes' if preview.in_workbench else 'no'}")
+
+
+def _build_prune_cache_preview(repo: StorageRepo) -> PruneCachePreview:
+    cache_root = repo.layout.cache_root.resolve()
+    protected_dirs = {
+        cache_root,
+        repo.layout.runs_root.resolve(),
+        repo.layout.manifests_root.resolve(),
+    }
+    empty_dirs: list[Path] = []
+
+    def visit(path: Path) -> bool:
+        has_persistent_content = False
+        for child in path.iterdir():
+            if child.is_dir():
+                child_pruned = visit(child)
+                if not child_pruned:
+                    has_persistent_content = True
+            else:
+                has_persistent_content = True
+        if has_persistent_content:
+            return False
+        if path.resolve() not in protected_dirs:
+            empty_dirs.append(path)
+            return True
+        return False
+
+    if cache_root.exists():
+        visit(cache_root)
+    empty_dirs.sort(key=lambda path: (len(path.relative_to(cache_root).parts), path.as_posix()))
+    return PruneCachePreview(empty_dirs=empty_dirs)
+
+
+def _print_prune_cache_preview(repo: StorageRepo, preview: PruneCachePreview) -> None:
+    cache_root = repo.layout.cache_root.resolve()
+    print("Prune cache preview")
+    print(f"cache_root={cache_root}")
+    print(f"empty_dirs_to_remove={len(preview.empty_dirs)}")
+    if not preview.empty_dirs:
+        print("sample_dirs=(none)")
+        return
+    for path in preview.empty_dirs[:10]:
+        print(f"sample_dir={path.relative_to(cache_root)}")
+    remaining = len(preview.empty_dirs) - 10
+    if remaining > 0:
+        print(f"sample_dirs_remaining={remaining}")
+
+
+def _prune_cache(repo: StorageRepo, preview: PruneCachePreview) -> int:
+    removed = 0
+    for path in sorted(preview.empty_dirs, key=lambda item: len(item.parts), reverse=True):
+        if path.exists() and path.is_dir() and not any(path.iterdir()):
+            path.rmdir()
+            removed += 1
+    return removed
 
 
 def _delete_category(
@@ -253,6 +313,14 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("validate", help="Validate record-local dataset entries.")
     subparsers.add_parser(
         "build-manifest", help="Build the derived dataset manifest under data/cache/manifests/."
+    )
+    prune_cache = subparsers.add_parser(
+        "prune-cache", help="Remove recursively empty directories under data/cache/."
+    )
+    prune_cache.add_argument(
+        "--execute",
+        action="store_true",
+        help="Execute the prune after showing the preview.",
     )
     return parser
 
@@ -398,6 +466,18 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"Wrote dataset manifest to {repo.layout.dataset_manifest_path()} entries={len(manifest['generated'])}"
         )
+        return 0
+
+    if args.command == "prune-cache":
+        repo.ensure_layout()
+        preview = _build_prune_cache_preview(repo)
+        _print_prune_cache_preview(repo, preview)
+        if not args.execute:
+            print("Preview only. Re-run with --execute to remove these empty cache directories.")
+            return 0
+
+        removed = _prune_cache(repo, preview)
+        print(f"Removed empty cache directories: {removed}")
         return 0
 
     parser.error(f"Unhandled command: {args.command}")

@@ -8,7 +8,7 @@ from pathlib import Path
 MAX_FILE_SIZE_BYTES = 1_000_000
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FORBIDDEN_PATHS = (
-    re.compile(r"(^|/)\.env(\..*)?$"),
+    re.compile(r"(^|/)\.env(?!\.example)(\..*)?$"),
     re.compile(r"^data/cache/"),
     re.compile(r"^data/local/"),
     re.compile(r"^data/records/[^/]+/model\.urdf$"),

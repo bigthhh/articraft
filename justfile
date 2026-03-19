@@ -5,6 +5,12 @@ host := "127.0.0.1"
 port := "8765"
 
 setup:
+    # Create a local env template once; never overwrite an existing secrets file.
+    @if [ ! -f .env ]; then \
+        cp .env.example .env; \
+        echo "Created .env from .env.example"; \
+        echo "Set OPENAI_API_KEY and/or GEMINI_API_KEYS in .env before running the agent harness."; \
+    fi
     uv sync --group dev
     uv run pre-commit install --hook-type pre-commit --hook-type pre-push
     uv run articraft-dataset --repo-root . init-storage
@@ -69,6 +75,25 @@ dataset-validate:
 
 dataset-manifest:
     uv run articraft-dataset --repo-root . build-manifest
+
+prune-cache-preview:
+    uv run articraft-dataset --repo-root . prune-cache
+
+prune-cache:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    uv run articraft-dataset --repo-root . prune-cache
+    printf "\nRemove these empty cache directories? [y/N]: "
+    read -r confirm
+    case "$confirm" in
+      y|Y|yes|YES)
+        exec uv run articraft-dataset --repo-root . prune-cache --execute
+        ;;
+      *)
+        echo "Aborting."
+        exit 1
+        ;;
+    esac
 
 dataset-delete-category-preview category_slug:
     uv run articraft-dataset --repo-root . delete-category --category-slug {{ quote(category_slug) }}

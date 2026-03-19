@@ -87,7 +87,7 @@ def main() -> None:
                 prompt_count=1,
             )
         )
-
+        repo.layout.search_index_path().write_text("sqlite-placeholder", encoding="utf-8")
         output = io.StringIO()
         with redirect_stdout(output):
             assert (
@@ -158,6 +158,35 @@ def main() -> None:
             assert repo.layout.search_index_path().exists()
             assert (CollectionStore(repo).load_workbench() or {}).get("entries", []) == []
             assert DatasetStore(repo).list_entries() == []
+            empty_record_stage_dir = repo.layout.run_staging_dir("run_cli") / "rec_empty"
+            empty_record_stage_dir.mkdir(parents=True, exist_ok=True)
+            empty_nested_failure_dir = (
+                repo.layout.run_failures_dir("run_cli") / "rec_empty" / "logs"
+            )
+            empty_nested_failure_dir.mkdir(parents=True, exist_ok=True)
+            nonempty_stage_dir = repo.layout.run_staging_dir("run_cli") / "rec_keep"
+            nonempty_stage_dir.mkdir(parents=True, exist_ok=True)
+            (nonempty_stage_dir / "artifact.txt").write_text("keep", encoding="utf-8")
+            search_index_before_prune = repo.layout.search_index_path().read_bytes()
+            assert dataset_main(["--repo-root", str(repo_root), "prune-cache"]) == 0
+            assert empty_record_stage_dir.exists()
+            assert empty_nested_failure_dir.exists()
+            assert nonempty_stage_dir.exists()
+            assert (
+                dataset_main(
+                    [
+                        "--repo-root",
+                        str(repo_root),
+                        "prune-cache",
+                        "--execute",
+                    ]
+                )
+                == 0
+            )
+            assert not empty_record_stage_dir.exists()
+            assert not empty_nested_failure_dir.exists()
+            assert nonempty_stage_dir.exists()
+            assert repo.layout.search_index_path().read_bytes() == search_index_before_prune
 
         category_output = io.StringIO()
         with redirect_stdout(category_output):
@@ -217,6 +246,12 @@ def main() -> None:
             "Deleted record_id=rec_cli category_slug=hinges run_id_retained=run_cli"
             in output.getvalue()
         )
+        assert "empty_dirs_to_remove=4" in output.getvalue()
+        assert (
+            "Preview only. Re-run with --execute to remove these empty cache directories."
+            in output.getvalue()
+        )
+        assert "Removed empty cache directories: 4" in output.getvalue()
         assert "record_dir=" in output.getvalue()
         assert "in_workbench=yes" in output.getvalue()
         assert (

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
-from .assets import resolve_asset_root
+from .assets import resolve_asset_root, resolve_mesh_path
 from .errors import ValidationError
 from .generated_collisions import compile_object_model_with_generated_collisions
 from .types import ArticulationType, Mesh, Origin, Part
@@ -358,13 +358,7 @@ def _geometry_local_aabb(
         if not filename:
             raise ValidationError("Mesh geometry filename is missing")
 
-        mesh_path = Path(filename)
-        if not mesh_path.is_absolute():
-            if asset_root is None:
-                raise ValidationError(
-                    f"Mesh path is relative but no asset_root provided: {filename!r}"
-                )
-            mesh_path = (asset_root / mesh_path).resolve()
+        mesh_path = resolve_mesh_path(filename, assets=asset_root)
         if not mesh_path.exists():
             raise ValidationError(f"Mesh file not found: {mesh_path}")
         if mesh_path.suffix.lower() != ".obj":
@@ -527,13 +521,7 @@ def _collision_object_from_geometry(
         shape = fcl.Sphere(float(geometry.radius))
     elif isinstance(geometry, Mesh):
         filename = os.fspath(geometry.filename)
-        mesh_path = Path(filename)
-        if not mesh_path.is_absolute():
-            if asset_root is None:
-                raise ValidationError(
-                    f"Mesh path is relative but no asset_root provided: {filename!r}"
-                )
-            mesh_path = (asset_root / mesh_path).resolve()
+        mesh_path = resolve_mesh_path(filename, assets=asset_root)
         if mesh_path.suffix.lower() != ".obj":
             raise ValidationError(
                 f"Only OBJ meshes are supported for geometry QC (got: {mesh_path.name!r})."

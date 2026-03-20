@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Literal, Optional, Tuple, Union
 
-from .assets import AssetContext, resolve_asset_root
+from ._mesh_provenance import decompose_mesh_primitive_provenance
+from .assets import AssetContext, resolve_asset_root, resolve_mesh_path
 from .errors import ValidationError
 from .geometry_qc import (
     AABB,
@@ -33,7 +34,7 @@ SurfaceSubject = Union[Part, Visual, Geometry]
 MeshSubject = Union[MeshGeometry, Mesh]
 SurfaceWrapMapping = Literal["auto", "intrinsic", "nearest"]
 _EPS = 1e-9
-_TRIMESH_CACHE: dict[Path, object] = {}
+_TRIMESH_CACHE: dict[Path, tuple[tuple[int, int], object]] = {}
 
 
 @dataclass(frozen=True)
@@ -246,9 +247,11 @@ def _iter_subject_items(
 
 
 def _expand_mesh_provenance(geometry: Geometry, tf: Mat4) -> tuple[Geometry, Mat4]:
-    if isinstance(geometry, Mesh) and geometry.source_geometry is not None:
-        src_tf = geometry.source_transform or _identity4()
-        return geometry.source_geometry, _mat4_mul(tf, src_tf)
+    if isinstance(geometry, Mesh):
+        decomposed = decompose_mesh_primitive_provenance(geometry)
+        if decomposed is not None:
+            primitive, local_tf = decomposed
+            return primitive, _mat4_mul(tf, local_tf)
     return geometry, tf
 
 
@@ -594,19 +597,25 @@ def _rotation_for_surface_frame(
 
 
 def _resolve_mesh_path(mesh: Mesh, asset_root: Optional[Path]) -> Path:
-    filename = Path(mesh.filename)
-    if filename.is_absolute():
-        return filename
-    if asset_root is None:
-        raise ValidationError(
-            f"Mesh path is relative but no asset_root provided: {mesh.filename!r}"
-        )
-    return (asset_root / filename).resolve()
+    return resolve_mesh_path(mesh.filename, assets=asset_root)
+
+
+def _mesh_cache_fingerprint(mesh_path: Path) -> tuple[int, int]:
+    try:
+        stat = mesh_path.stat()
+    except FileNotFoundError as exc:
+        raise ValidationError(f"Mesh file not found: {mesh_path}") from exc
+    return int(stat.st_mtime_ns), int(stat.st_size)
 
 
 def _load_trimesh_mesh(mesh: Mesh, *, asset_root: Optional[Path]):
     mesh_path = _resolve_mesh_path(mesh, asset_root)
-    cached = _TRIMESH_CACHE.get(mesh_path)
+    fingerprint = _mesh_cache_fingerprint(mesh_path)
+    cached_entry = _TRIMESH_CACHE.get(mesh_path)
+    cached = None
+    if cached_entry is not None and cached_entry[0] == fingerprint:
+        cached = cached_entry[1]
+
     if cached is None:
         try:
             import trimesh
@@ -619,7 +628,7 @@ def _load_trimesh_mesh(mesh: Mesh, *, asset_root: Optional[Path]):
             raise ValidationError(
                 f"Expected mesh geometry at {mesh_path}, got {type(loaded).__name__}"
             )
-        _TRIMESH_CACHE[mesh_path] = loaded
+        _TRIMESH_CACHE[mesh_path] = (fingerprint, loaded)
         cached = loaded
     if mesh.scale is None:
         return cached

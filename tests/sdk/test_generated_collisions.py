@@ -4,7 +4,7 @@ from math import pi
 
 import pytest
 
-from sdk import ArticulatedObject, AssetContext, Cylinder, Sphere
+from sdk import ArticulatedObject, AssetContext, Box, Cylinder, Mesh, Sphere
 from sdk._core.v0 import generated_collisions as gc
 from sdk._core.v0.mesh import (
     BoxGeometry,
@@ -168,3 +168,25 @@ def test_merge_with_unknown_geometry_clears_collision_recipe(tmp_path) -> None:
 
     assert mesh.source_geometry is None
     assert mesh.source_collisions is None
+
+
+def test_compile_generated_collisions_resolves_legacy_mesh_prefix(tmp_path) -> None:
+    mesh = mesh_from_geometry(
+        BoxGeometry((0.10, 0.20, 0.30)),
+        tmp_path / "assets" / "meshes" / "box.obj",
+    )
+    legacy_mesh = Mesh(
+        filename="meshes/box.obj",
+        source_geometry=mesh.source_geometry,
+        source_transform=mesh.source_transform,
+        source_collisions=mesh.source_collisions,
+    )
+
+    compiled = gc.compile_object_model_with_generated_collisions(
+        _build_model_with_mesh(tmp_path, legacy_mesh),
+        asset_root=tmp_path,
+    )
+
+    collisions = compiled.parts[0].collisions
+    assert len(collisions) == 1
+    assert collisions[0].geometry == Box((0.10, 0.20, 0.30))

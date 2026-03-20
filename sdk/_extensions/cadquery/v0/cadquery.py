@@ -49,12 +49,21 @@ def _coerce_shape(model: object, cq: Any) -> object:
 
     if isinstance(model, cq.Workplane):
         try:
-            shape = model.val()
+            values = list(model.vals())
         except Exception as exc:
             raise TypeError("CadQuery Workplane did not produce an exportable shape") from exc
-        if shape is None:
+        if not values:
             raise TypeError("CadQuery Workplane produced no exportable shape")
-        return shape
+        if not all(isinstance(value, cq.Shape) for value in values):
+            raise TypeError("CadQuery Workplane produced non-shape objects")
+        if len(values) == 1:
+            return values[0]
+        try:
+            return cq.Compound.makeCompound(values)
+        except Exception as exc:
+            raise TypeError(
+                "Failed to combine CadQuery Workplane objects into a compound shape"
+            ) from exc
 
     if isinstance(model, cq.Shape):
         return model

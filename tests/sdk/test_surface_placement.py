@@ -12,17 +12,20 @@ from sdk import (
     Mesh,
     MeshGeometry,
     Origin,
+    Part,
     Sphere,
     SurfaceFrame,
     ValidationError,
     Visual,
     mesh_from_geometry,
+    part_local_aabb,
     place_on_surface,
     sample_catmull_rom_spline_2d,
     surface_frame,
     wrap_mesh_onto_surface,
     wrap_profile_onto_surface,
 )
+from sdk._core.v0 import placement as placement_module
 
 
 def _rpy_matrix(origin: Origin) -> tuple[tuple[float, float, float], ...]:
@@ -160,6 +163,49 @@ def test_surface_frame_uses_mesh_proximity_backend(tmp_path: Path) -> None:
     _assert_vec_close(frame.normal, (1.0, 0.0, 0.0), tol=1e-4)
 
 
+def test_surface_frame_uses_scaled_source_geometry_provenance() -> None:
+    target = Mesh(
+        filename="dummy.obj",
+        scale=(2.0, 2.0, 2.0),
+        source_geometry=Box((1.0, 1.0, 1.0)),
+    )
+
+    frame = surface_frame(
+        target,
+        direction=(0.0, 0.0, 1.0),
+    )
+
+    _assert_vec_close(frame.point, (0.0, 0.0, 1.0))
+
+    origin = place_on_surface(
+        child=Box((1.0, 1.0, 1.0)),
+        target=target,
+        direction=(0.0, 0.0, 1.0),
+        child_axis="+z",
+    )
+
+    _assert_vec_close(origin.xyz, (0.0, 0.0, 1.5))
+
+
+def test_mesh_helpers_resolve_legacy_mesh_prefix(tmp_path: Path) -> None:
+    mesh_from_geometry(
+        BoxGeometry((2.0, 4.0, 6.0)),
+        tmp_path / "assets" / "meshes" / "box.obj",
+    )
+    mesh = Mesh(filename="meshes/box.obj")
+
+    aabb = part_local_aabb(
+        Part("body", visuals=[Visual(mesh)]),
+        asset_root=tmp_path,
+        prefer_collisions=False,
+    )
+
+    assert aabb == ((-1.0, -2.0, -3.0), (1.0, 2.0, 3.0))
+
+    loaded = placement_module._load_trimesh_mesh(mesh, asset_root=tmp_path)
+    assert tuple(float(v) for v in loaded.extents) == (2.0, 4.0, 6.0)
+
+
 def test_place_on_surface_uses_mesh_target_for_flush_offset(tmp_path: Path) -> None:
     target_mesh: Mesh = mesh_from_geometry(BoxGeometry((2.0, 2.0, 2.0)), tmp_path / "target.obj")
 
@@ -172,6 +218,24 @@ def test_place_on_surface_uses_mesh_target_for_flush_offset(tmp_path: Path) -> N
     )
 
     _assert_vec_close(origin.xyz, (1.06, 0.0, 0.0), tol=1e-4)
+
+
+def test_surface_mesh_cache_refreshes_when_obj_changes(tmp_path: Path) -> None:
+    placement_module._TRIMESH_CACHE.clear()
+
+    mesh_path = tmp_path / "assets" / "meshes" / "box.obj"
+    mesh_from_geometry(BoxGeometry((1.0, 1.0, 1.0)), mesh_path)
+    mesh = Mesh(filename="assets/meshes/box.obj")
+
+    loaded1 = placement_module._load_trimesh_mesh(mesh, asset_root=tmp_path)
+    mesh_from_geometry(BoxGeometry((2.0, 2.0, 2.0)), mesh_path)
+    loaded2 = placement_module._load_trimesh_mesh(mesh, asset_root=tmp_path)
+
+    assert tuple(float(v) for v in loaded1.extents) == (1.0, 1.0, 1.0)
+    assert tuple(float(v) for v in loaded2.extents) == (2.0, 2.0, 2.0)
+    assert loaded1 is not loaded2
+
+    placement_module._TRIMESH_CACHE.clear()
 
 
 def test_wrap_mesh_onto_surface_conforms_visible_face_to_sphere() -> None:

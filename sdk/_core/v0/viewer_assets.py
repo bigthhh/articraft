@@ -7,6 +7,8 @@ from pathlib import Path
 
 import numpy as np
 
+from .assets import resolve_mesh_path
+
 
 def _pad4(data: bytes, *, fill: bytes) -> bytes:
     padding = (-len(data)) % 4
@@ -122,9 +124,24 @@ def build_glb_bytes(vertices: np.ndarray, faces: np.ndarray) -> bytes:
         ],
         "buffers": [{"byteLength": len(binary_blob)}],
         "bufferViews": [
-            {"buffer": 0, "byteOffset": pos_offset, "byteLength": len(positions_blob), "target": 34962},
-            {"buffer": 0, "byteOffset": norm_offset, "byteLength": len(normals_blob), "target": 34962},
-            {"buffer": 0, "byteOffset": index_offset, "byteLength": len(indices_blob), "target": 34963},
+            {
+                "buffer": 0,
+                "byteOffset": pos_offset,
+                "byteLength": len(positions_blob),
+                "target": 34962,
+            },
+            {
+                "buffer": 0,
+                "byteOffset": norm_offset,
+                "byteLength": len(normals_blob),
+                "target": 34962,
+            },
+            {
+                "buffer": 0,
+                "byteOffset": index_offset,
+                "byteLength": len(indices_blob),
+                "target": 34963,
+            },
         ],
         "accessors": [
             {
@@ -188,13 +205,13 @@ def convert_urdf_visual_meshes_to_glb(
         if not filename.lower().endswith(".obj"):
             continue
 
-        mesh_path = Path(filename)
-        if not mesh_path.is_absolute():
-            mesh_path = (asset_root / mesh_path).resolve()
+        mesh_path = resolve_mesh_path(filename, assets=asset_root)
 
         glb_path = mesh_path.with_suffix(".glb")
         try:
-            needs_refresh = (not glb_path.exists()) or (mesh_path.stat().st_mtime_ns > glb_path.stat().st_mtime_ns)
+            needs_refresh = (not glb_path.exists()) or (
+                mesh_path.stat().st_mtime_ns > glb_path.stat().st_mtime_ns
+            )
             if needs_refresh:
                 convert_obj_file_to_glb(mesh_path, glb_path)
             converted[mesh_path] = glb_path

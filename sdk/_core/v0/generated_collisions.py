@@ -14,6 +14,7 @@ import coacd
 import numpy as np
 import trimesh
 
+from ._mesh_provenance import decompose_mesh_primitive_provenance
 from .assets import AssetContext, coerce_asset_context, resolve_asset_root
 from .errors import ValidationError
 from .types import Box, Collision, Cylinder, Mesh, Origin, Part, Sphere, Visual
@@ -207,9 +208,7 @@ def _collisions_from_visual(
             f"Unsupported visual geometry for collision generation: {type(geometry).__name__}"
         )
 
-    mesh_path = Path(geometry.filename)
-    if not mesh_path.is_absolute():
-        mesh_path = (assets.asset_root / mesh_path).resolve()
+    mesh_path = assets.mesh_path(geometry.filename, ensure_dir=False).resolve()
     if mesh_path.suffix.lower() != ".obj":
         raise ValidationError(
             f"Collision generation only supports OBJ meshes (got: {mesh_path.name!r})"
@@ -280,12 +279,7 @@ def _collision_from_primitive_backed_mesh(
     visual_origin: Origin,
     name: str,
 ) -> Optional[Collision]:
-    source = geometry.source_geometry
-    if not isinstance(source, (Box, Cylinder, Sphere)):
-        return None
-
-    local_tf = _mesh_source_affine(geometry)
-    decomposed = _decompose_primitive_affine(source, local_tf)
+    decomposed = decompose_mesh_primitive_provenance(geometry)
     if decomposed is None:
         return None
 
@@ -358,81 +352,6 @@ def _collisions_from_recipe_backed_mesh(
     return collisions
 
 
-def _mesh_source_affine(geometry: Mesh) -> Mat4:
-    base = _coerce_mat4(geometry.source_transform) or _identity4()
-    if geometry.scale is None:
-        return base
-    sx, sy, sz = (float(v) for v in geometry.scale)
-    scale_tf: Mat4 = (
-        (sx, 0.0, 0.0, 0.0),
-        (0.0, sy, 0.0, 0.0),
-        (0.0, 0.0, sz, 0.0),
-        (0.0, 0.0, 0.0, 1.0),
-    )
-    return _mat4_mul(scale_tf, base)
-
-
-def _decompose_primitive_affine(
-    primitive: Box | Cylinder | Sphere,
-    affine: Mat4,
-) -> Optional[tuple[Box | Cylinder | Sphere, Mat4]]:
-    linear = tuple(tuple(float(affine[row][col]) for col in range(3)) for row in range(3))
-    translation = (
-        float(affine[0][3]),
-        float(affine[1][3]),
-        float(affine[2][3]),
-    )
-    columns = [(linear[0][col], linear[1][col], linear[2][col]) for col in range(3)]
-    scales = [math.sqrt(sum(component * component for component in col)) for col in columns]
-    if any(scale <= _AFFINE_TOL for scale in scales):
-        return None
-
-    for i in range(3):
-        for j in range(i + 1, 3):
-            dot = sum(columns[i][k] * columns[j][k] for k in range(3))
-            limit = _AFFINE_TOL * max(1.0, scales[i] * scales[j])
-            if abs(dot) > limit:
-                return None
-
-    rot_cols = [tuple(component / scales[idx] for component in columns[idx]) for idx in range(3)]
-    rotation = tuple(tuple(rot_cols[col][row] for col in range(3)) for row in range(3))
-    det = _mat3_det(rotation)
-    if abs(det) <= _AFFINE_TOL:
-        return None
-    if det < 0.0:
-        rot_cols[0] = tuple(-component for component in rot_cols[0])
-        rotation = tuple(tuple(rot_cols[col][row] for col in range(3)) for row in range(3))
-
-    sx, sy, sz = (float(scale) for scale in scales)
-    if isinstance(primitive, Box):
-        collision_geometry: Box | Cylinder | Sphere = Box(
-            (
-                float(primitive.size[0]) * sx,
-                float(primitive.size[1]) * sy,
-                float(primitive.size[2]) * sz,
-            )
-        )
-    elif isinstance(primitive, Cylinder):
-        if not _approx_equal(sx, sy):
-            return None
-        collision_geometry = Cylinder(
-            radius=float(primitive.radius) * ((sx + sy) * 0.5),
-            length=float(primitive.length) * sz,
-        )
-    else:
-        if not (_approx_equal(sx, sy) and _approx_equal(sx, sz)):
-            return None
-        collision_geometry = Sphere(radius=float(primitive.radius) * ((sx + sy + sz) / 3.0))
-
-    rigid_tf: Mat4 = (
-        (rotation[0][0], rotation[0][1], rotation[0][2], translation[0]),
-        (rotation[1][0], rotation[1][1], rotation[1][2], translation[1]),
-        (rotation[2][0], rotation[2][1], rotation[2][2], translation[2]),
-        (0.0, 0.0, 0.0, 1.0),
-    )
-    return collision_geometry, rigid_tf
-
-
 def _approx_equal(a: float, b: float, *, tol: float = _AFFINE_TOL) -> bool:
     return abs(float(a) - float(b)) <= float(tol) * max(1.0, abs(float(a)), abs(float(b)))
 
@@ -446,14 +365,6 @@ def _coerce_mat4(value: object) -> Optional[Mat4]:
             return None
         rows.append((float(row[0]), float(row[1]), float(row[2]), float(row[3])))
     return (rows[0], rows[1], rows[2], rows[3])
-
-
-def _mat3_det(mat: Mat3) -> float:
-    return (
-        mat[0][0] * (mat[1][1] * mat[2][2] - mat[1][2] * mat[2][1])
-        - mat[0][1] * (mat[1][0] * mat[2][2] - mat[1][2] * mat[2][0])
-        + mat[0][2] * (mat[1][0] * mat[2][1] - mat[1][1] * mat[2][0])
-    )
 
 
 def _identity4() -> Mat4:

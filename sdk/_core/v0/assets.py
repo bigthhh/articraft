@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Union
+
+from .errors import ValidationError
 
 AssetContextLike = Union["AssetContext", str, Path]
 _LEGACY_MESH_PREFIX = "meshes/"
@@ -106,3 +109,22 @@ def resolve_asset_root(
     if resolved is not None:
         return resolved.asset_root
     return None
+
+
+def resolve_mesh_path(
+    filename: str | os.PathLike[str],
+    *,
+    assets: AssetContextLike | None,
+    ensure_dir: bool = False,
+) -> Path:
+    path = Path(filename)
+    if path.is_absolute():
+        return path.resolve()
+
+    asset_ctx = coerce_asset_context(assets)
+    if asset_ctx is None:
+        raise ValidationError(
+            f"Mesh path is relative but no asset_root provided: {os.fspath(filename)!r}"
+        )
+
+    return asset_ctx.mesh_path(path, ensure_dir=ensure_dir).resolve()

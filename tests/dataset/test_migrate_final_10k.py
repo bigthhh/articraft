@@ -425,18 +425,18 @@ def test_migrate_final_10k_import_and_replace(tmp_path: Path) -> None:
 
     missing_mesh_record = repo.read_json(repo.layout.record_metadata_path("rec_category_000_0001"))
     assert missing_mesh_record is not None
-    assert missing_mesh_record["derived_assets"]["materialization_status"] == "missing"
+    assert "derived_assets" not in missing_mesh_record
     assert missing_mesh_record["rating"] == 4
 
     available_mesh_record = repo.read_json(
         repo.layout.record_metadata_path("rec_category_001_0001")
     )
     assert available_mesh_record is not None
-    assert available_mesh_record["derived_assets"]["materialization_status"] == "available"
+    assert "derived_assets" not in available_mesh_record
     assert available_mesh_record["rating"] == 5
-    assert repo.layout.record_asset_meshes_dir("rec_category_001_0001").exists()
+    assert repo.layout.record_materialization_asset_meshes_dir("rec_category_001_0001").exists()
     rewritten_cache_manifest = (
-        repo.layout.record_asset_meshes_dir("rec_category_001_0001")
+        repo.layout.record_materialization_asset_meshes_dir("rec_category_001_0001")
         / "collision"
         / "cache"
         / "mesh_hash_0001.json"

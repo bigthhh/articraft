@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from storage.models import CompileReport, Provenance, Record
+from storage.models import Provenance, Record
 from storage.repo import StorageRepo
 
 logger = logging.getLogger(__name__)
@@ -30,11 +30,6 @@ class RecordStore:
         self.ensure_record_dirs(record.record_id)
         path = self.repo.layout.record_metadata_path(record.record_id)
         self.repo.write_json(path, record.to_dict())
-        return path
-
-    def write_compile_report(self, record_id: str, report: CompileReport) -> Path:
-        path = self.repo.layout.record_dir(record_id) / "compile_report.json"
-        self.repo.write_json(path, report.to_dict())
         return path
 
     def write_provenance(self, record_id: str, provenance: Provenance) -> Path:
@@ -81,4 +76,7 @@ class RecordStore:
         if not record_dir.exists():
             return False
         shutil.rmtree(record_dir)
+        materialization_dir = self.repo.layout.record_materialization_dir(record_id)
+        if materialization_dir.exists():
+            shutil.rmtree(materialization_dir)
         return True

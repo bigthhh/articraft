@@ -14,9 +14,6 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 StorageRepo = importlib.import_module("storage.repo").StorageRepo
-infer_materialization_status = importlib.import_module(
-    "storage.materialize"
-).infer_materialization_status
 
 MESH_FILENAME_RE = re.compile(r'(<mesh\b[^>]*\bfilename\s*=\s*["\'])(meshes/[^"\']+)(["\'])')
 MODEL_PY_PATTERNS = (
@@ -183,19 +180,17 @@ def _update_record_sidecars(
     if isinstance(record, dict):
         artifacts = record.setdefault("artifacts", {})
         if isinstance(artifacts, dict):
-            artifacts["assets_dir"] = "assets"
-        derived_assets = record.setdefault("derived_assets", {})
-        if isinstance(derived_assets, dict):
-            derived_assets["assets_dir"] = "assets"
-            derived_assets["materialization_status"] = infer_materialization_status(
-                repo,
-                record_id,
-                record=record,
+            artifacts.pop("assets_dir", None)
+            artifacts.pop("model_urdf", None)
+            artifacts.pop("compile_report_json", None)
+            artifacts["provenance_json"] = str(
+                artifacts.get("provenance_json") or "provenance.json"
             )
+        record.pop("derived_assets", None)
         hashes = record.setdefault("hashes", {})
         if isinstance(hashes, dict):
             hashes["model_py_sha256"] = _sha256_file(model_path)
-            hashes["model_urdf_sha256"] = _sha256_file(urdf_path)
+            hashes.pop("model_urdf_sha256", None)
         summary.updated_record_metadata += 1
         if not dry_run:
             repo.write_json(record_path, record)
@@ -203,15 +198,11 @@ def _update_record_sidecars(
     provenance_path = model_path.parent / "provenance.json"
     provenance = repo.read_json(provenance_path)
     if isinstance(provenance, dict):
-        materialization = provenance.setdefault("materialization", {})
-        if isinstance(materialization, dict):
-            fingerprint_inputs = materialization.setdefault("fingerprint_inputs", {})
-            if isinstance(fingerprint_inputs, dict):
-                fingerprint_inputs["model_py_sha256"] = _sha256_file(model_path)
-                fingerprint_inputs["model_urdf_sha256"] = _sha256_file(urdf_path)
-                summary.updated_provenance += 1
-                if not dry_run:
-                    repo.write_json(provenance_path, provenance)
+        if "materialization" in provenance:
+            provenance.pop("materialization", None)
+            summary.updated_provenance += 1
+            if not dry_run:
+                repo.write_json(provenance_path, provenance)
 
 
 def _migrate_artifact_dir(
@@ -268,9 +259,9 @@ def migrate_record_assets_paths(repo_root: Path, *, dry_run: bool = False) -> Mi
         record_id = record_dir.name
         changed = _migrate_artifact_dir(
             record_dir,
-            mesh_dir=repo.layout.record_asset_meshes_dir(record_id),
-            glb_dir=repo.layout.record_asset_glb_dir(record_id),
-            viewer_dir=repo.layout.record_asset_viewer_dir(record_id),
+            mesh_dir=repo.layout.record_materialization_asset_meshes_dir(record_id),
+            glb_dir=repo.layout.record_materialization_asset_glb_dir(record_id),
+            viewer_dir=repo.layout.record_materialization_asset_viewer_dir(record_id),
             summary=summary,
             dry_run=dry_run,
         )

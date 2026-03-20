@@ -25,18 +25,14 @@ RunStore = importlib.import_module("storage.runs").RunStore
 ensure_record_artifacts_exist = importlib.import_module(
     "storage.materialize"
 ).ensure_record_artifacts_exist
-infer_materialization_status = importlib.import_module(
-    "storage.materialize"
-).infer_materialization_status
+MaterializationStore = importlib.import_module("storage.materialize").MaterializationStore
 
 storage_models = importlib.import_module("storage.models")
 CategoryRecord = storage_models.CategoryRecord
 CompileReport = storage_models.CompileReport
-DerivedAssets = storage_models.DerivedAssets
 DisplayMetadata = storage_models.DisplayMetadata
 EnvironmentSettings = storage_models.EnvironmentSettings
 GenerationSettings = storage_models.GenerationSettings
-MaterializationInputs = storage_models.MaterializationInputs
 PromptingSettings = storage_models.PromptingSettings
 Provenance = storage_models.Provenance
 Record = storage_models.Record
@@ -820,7 +816,7 @@ def rewrite_collision_cache_manifests_for_repo(repo_root: Path) -> int:
         return 0
     for record_dir in sorted(path for path in records_root.iterdir() if path.is_dir()):
         rewritten += _rewrite_collision_cache_manifests(
-            repo.layout.record_asset_meshes_dir(record_dir.name)
+            repo.layout.record_materialization_asset_meshes_dir(record_dir.name)
         )
     return rewritten
 
@@ -856,13 +852,18 @@ def _import_item(
 ) -> None:
     record_dir = records.ensure_record_dirs(item.canonical_record_id)
     _copy_file(item.model_source_path, record_dir / "model.py")
-    _copy_file(item.urdf_source_path, record_dir / "model.urdf")
+    _copy_file(
+        item.urdf_source_path,
+        repo.layout.record_materialization_urdf_path(item.canonical_record_id),
+    )
     _copy_file(item.cost_source_path, record_dir / "cost.json")
     repo.write_text(record_dir / "prompt.txt", item.prompt_text)
     _copy_tree(item.traces_dir, repo.layout.record_traces_dir(item.canonical_record_id))
 
     if item.meshes_dir is not None:
-        destination_meshes_dir = repo.layout.record_asset_meshes_dir(item.canonical_record_id)
+        destination_meshes_dir = repo.layout.record_materialization_asset_meshes_dir(
+            item.canonical_record_id
+        )
         _copy_tree(item.meshes_dir, destination_meshes_dir)
         _rewrite_collision_cache_manifests(destination_meshes_dir)
 
@@ -870,7 +871,6 @@ def _import_item(
 
     prompt_sha = hashlib.sha256(item.prompt_text.encode("utf-8")).hexdigest()
     model_sha = _sha256_file(record_dir / "model.py")
-    urdf_sha = _sha256_file(record_dir / "model.urdf")
     cost_payload = _load_json(item.cost_source_path)
     cost_total = cost_payload.get("total") if isinstance(cost_payload, dict) else None
     total_cost_usd: float | None = None
@@ -893,10 +893,10 @@ def _import_item(
             "total_cost_usd": total_cost_usd,
         },
     )
-    records.write_compile_report(item.canonical_record_id, compile_report)
+    MaterializationStore(repo).write_compile_report(item.canonical_record_id, compile_report)
 
     provenance = Provenance(
-        schema_version=1,
+        schema_version=2,
         record_id=item.canonical_record_id,
         generation=GenerationSettings(
             provider=item.provider,
@@ -929,17 +929,11 @@ def _import_item(
             else None,
             final_status="success",
         ),
-        materialization=MaterializationInputs(
-            model_py_sha256=model_sha,
-            model_urdf_sha256=urdf_sha,
-            sdk_fingerprint=None,
-        ),
     )
     records.write_provenance(item.canonical_record_id, provenance)
-    materialization_status = infer_materialization_status(repo, item.canonical_record_id)
 
     record = Record(
-        schema_version=1,
+        schema_version=2,
         record_id=item.canonical_record_id,
         created_at=item.created_at,
         updated_at=item.created_at,
@@ -963,18 +957,12 @@ def _import_item(
             prompt_txt="prompt.txt",
             prompt_series_json=None,
             model_py="model.py",
-            model_urdf="model.urdf",
-            compile_report_json="compile_report.json",
             provenance_json="provenance.json",
             cost_json="cost.json",
         ),
         hashes=RecordHashes(
             prompt_sha256=prompt_sha,
             model_py_sha256=model_sha,
-            model_urdf_sha256=urdf_sha,
-        ),
-        derived_assets=DerivedAssets(
-            materialization_status=materialization_status,
         ),
         collections=["dataset"],
     )
@@ -982,8 +970,7 @@ def _import_item(
     ensure_record_artifacts_exist(
         repo,
         item.canonical_record_id,
-        record=record.to_dict(),
-        required=("model_py", "model_urdf", "compile_report_json", "provenance_json"),
+        required=("model_py", "provenance_json"),
     )
 
 

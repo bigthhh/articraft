@@ -59,17 +59,15 @@ from storage.dataset_workflow import (
     reconcile_category_metadata,
 )
 from storage.datasets import DatasetStore
-from storage.materialize import ensure_record_artifacts_exist, infer_materialization_status
+from storage.materialize import MaterializationStore, ensure_record_artifacts_exist
 from storage.models import (
     CompileReport as StorageCompileReport,
 )
 from storage.models import (
     CompileWarning,
-    DerivedAssets,
     DisplayMetadata,
     EnvironmentSettings,
     GenerationSettings,
-    MaterializationInputs,
     PromptingSettings,
     Provenance,
     Record,
@@ -322,7 +320,7 @@ def _build_single_run_context(
         record_dir=record_dir,
         record_prompt_path=record_dir / "prompt.txt",
         record_model_path=record_dir / "model.py",
-        record_urdf_path=record_dir / "model.urdf",
+        record_urdf_path=storage_repo.layout.record_materialization_urdf_path(resolved_record_id),
     )
 
 
@@ -430,33 +428,9 @@ def _build_record_artifacts(
         prompt_txt=_optional_string(existing_artifacts.get("prompt_txt")) or "prompt.txt",
         prompt_series_json=_optional_string(existing_artifacts.get("prompt_series_json")),
         model_py=_first_string(existing_artifacts.get("model_py"), "model.py"),
-        model_urdf=_first_string(existing_artifacts.get("model_urdf"), "model.urdf"),
-        compile_report_json=_first_string(
-            existing_artifacts.get("compile_report_json"),
-            "compile_report.json",
-        ),
         provenance_json=_first_string(existing_artifacts.get("provenance_json"), "provenance.json"),
         cost_json="cost.json" if has_cost_file else None,
         inputs_dir=_optional_string(existing_artifacts.get("inputs_dir")) or "inputs",
-        assets_dir=_optional_string(existing_artifacts.get("assets_dir")) or "assets",
-    )
-
-
-def _build_record_derived_assets(
-    existing_record: dict | None,
-    *,
-    materialization_status: str,
-) -> DerivedAssets:
-    existing_derived = (
-        existing_record.get("derived_assets") if isinstance(existing_record, dict) else None
-    )
-    if not isinstance(existing_derived, dict):
-        existing_derived = {}
-    if materialization_status not in {"missing", "available"}:
-        materialization_status = "missing"
-    return DerivedAssets(
-        assets_dir=_first_string(existing_derived.get("assets_dir"), "assets"),
-        materialization_status=materialization_status,
     )
 
 
@@ -544,22 +518,11 @@ def create_workbench_draft_record(
     if image_path is not None:
         record_store.copy_input_image(context.record_id, image_path)
 
-    compile_report = StorageCompileReport(
-        schema_version=1,
-        record_id=context.record_id,
-        status="draft",
-        urdf_path="model.urdf",
-        warnings=[],
-        checks_run=[],
-        metrics={},
-    )
-    record_store.write_compile_report(context.record_id, compile_report)
-
     prompt_sha = _sha256_text(normalized_prompt)
     model_py_sha = _sha256_file(context.record_model_path)
 
     provenance = Provenance(
-        schema_version=1,
+        schema_version=2,
         record_id=context.record_id,
         generation=GenerationSettings(
             provider=provider,
@@ -591,16 +554,11 @@ def create_workbench_draft_record(
             compile_attempt_count=0,
             final_status="draft",
         ),
-        materialization=MaterializationInputs(
-            model_py_sha256=model_py_sha,
-            model_urdf_sha256=None,
-            sdk_fingerprint=None,
-        ),
     )
     record_store.write_provenance(context.record_id, provenance)
 
     record = Record(
-        schema_version=1,
+        schema_version=2,
         record_id=context.record_id,
         created_at=context.created_at,
         updated_at=context.created_at,
@@ -620,21 +578,13 @@ def create_workbench_draft_record(
             prompt_txt="prompt.txt",
             prompt_series_json=None,
             model_py="model.py",
-            model_urdf="model.urdf",
-            compile_report_json="compile_report.json",
             provenance_json="provenance.json",
             cost_json=None,
             inputs_dir="inputs",
-            assets_dir="assets",
         ),
         hashes=RecordHashes(
             prompt_sha256=prompt_sha,
             model_py_sha256=model_py_sha,
-            model_urdf_sha256=None,
-        ),
-        derived_assets=DerivedAssets(
-            assets_dir="assets",
-            materialization_status="missing",
         ),
         collections=["workbench"],
     )
@@ -687,10 +637,18 @@ def _write_success_record(
     workbench_entry: dict | None = None,
     dataset_entry: dict | None = None,
 ) -> Path:
+    materializations = MaterializationStore(storage_repo)
     record_store.ensure_record_dirs(context.record_id)
     storage_repo.write_text(context.record_prompt_path, prompt_text)
     storage_repo.write_text(context.record_model_path, final_code)
     storage_repo.write_text(context.record_urdf_path, urdf_xml)
+    stale_record_urdf_path = context.record_dir / "model.urdf"
+    if stale_record_urdf_path.exists():
+        stale_record_urdf_path.unlink()
+    stale_compile_report_path = context.record_dir / "compile_report.json"
+    if stale_compile_report_path.exists():
+        stale_compile_report_path.unlink()
+    _remove_tree_if_exists(context.record_dir / "assets")
 
     if image_path is not None:
         record_store.copy_input_image(context.record_id, image_path, missing_ok=True)
@@ -704,15 +662,15 @@ def _write_success_record(
         shutil.rmtree(context.trace_dir)
     _replace_tree_from_source(
         context.staging_dir / "assets" / "meshes",
-        storage_repo.layout.record_asset_meshes_dir(context.record_id),
+        storage_repo.layout.record_materialization_asset_meshes_dir(context.record_id),
     )
     _replace_tree_from_source(
         context.staging_dir / "assets" / "glb",
-        storage_repo.layout.record_asset_glb_dir(context.record_id),
+        storage_repo.layout.record_materialization_asset_glb_dir(context.record_id),
     )
     _replace_tree_from_source(
         context.staging_dir / "assets" / "viewer",
-        storage_repo.layout.record_asset_viewer_dir(context.record_id),
+        storage_repo.layout.record_materialization_asset_viewer_dir(context.record_id),
     )
 
     compile_report = StorageCompileReport(
@@ -728,14 +686,13 @@ def _write_success_record(
             "compile_attempt_count": compile_attempt_count,
         },
     )
-    record_store.write_compile_report(context.record_id, compile_report)
+    materializations.write_compile_report(context.record_id, compile_report)
 
     prompt_sha = _sha256_text(prompt_text)
     model_py_sha = _sha256_file(context.record_model_path)
-    model_urdf_sha = _sha256_file(context.record_urdf_path)
 
     provenance = Provenance(
-        schema_version=1,
+        schema_version=2,
         record_id=context.record_id,
         generation=GenerationSettings(
             provider=provider,
@@ -767,17 +724,11 @@ def _write_success_record(
             compile_attempt_count=compile_attempt_count,
             final_status="success",
         ),
-        materialization=MaterializationInputs(
-            model_py_sha256=model_py_sha,
-            model_urdf_sha256=model_urdf_sha,
-            sdk_fingerprint=None,
-        ),
     )
     record_store.write_provenance(context.record_id, provenance)
-    materialization_status = infer_materialization_status(storage_repo, context.record_id)
 
     record = Record(
-        schema_version=1,
+        schema_version=2,
         record_id=context.record_id,
         created_at=(
             _first_string(existing_record.get("created_at"), context.created_at)
@@ -819,11 +770,6 @@ def _write_success_record(
         hashes=RecordHashes(
             prompt_sha256=prompt_sha,
             model_py_sha256=model_py_sha,
-            model_urdf_sha256=model_urdf_sha,
-        ),
-        derived_assets=_build_record_derived_assets(
-            existing_record,
-            materialization_status=materialization_status,
         ),
         collections=(
             _normalize_collection_names(existing_record.get("collections"), collection)
@@ -835,8 +781,7 @@ def _write_success_record(
     ensure_record_artifacts_exist(
         storage_repo,
         context.record_id,
-        record=record.to_dict(),
-        required=("model_py", "model_urdf", "compile_report_json", "provenance_json"),
+        required=("model_py", "provenance_json"),
     )
     if workbench_entry is not None:
         collections.upsert_workbench_entry(

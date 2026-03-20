@@ -117,17 +117,28 @@ def create_app(*, repo_root: Path | None = None) -> FastAPI:
         if requested_path.is_absolute() or ".." in requested_path.parts:
             raise HTTPException(status_code=400, detail="Invalid file path")
 
-        target = (record_dir / requested_path).resolve()
+        if requested_path.parts == ("model.urdf",):
+            root = repo.layout.record_materialization_dir(record_id).resolve()
+            target = repo.layout.record_materialization_urdf_path(record_id).resolve()
+        elif requested_path.parts == ("compile_report.json",):
+            root = repo.layout.record_materialization_dir(record_id).resolve()
+            target = repo.layout.record_materialization_compile_report_path(record_id).resolve()
+        elif len(requested_path.parts) >= 2 and requested_path.parts[0] == "assets":
+            root = repo.layout.record_materialization_dir(record_id).resolve()
+            target = (root / requested_path).resolve()
+        else:
+            root = record_dir.resolve()
+            target = (record_dir / requested_path).resolve()
 
         try:
-            target.relative_to(record_dir.resolve())
+            target.relative_to(root)
         except ValueError as exc:
             raise HTTPException(status_code=403, detail="Access denied") from exc
 
         if not target.exists() or not target.is_file():
             raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
 
-        return record_dir, target
+        return root, target
 
     async def resolve_record_target_with_materialization(
         record_id: str, file_path: str

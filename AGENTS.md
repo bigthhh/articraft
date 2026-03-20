@@ -25,7 +25,7 @@ When a `just` recipe supports optional settings, pass them as overrides before t
 - `just wb-init "prompt text"` creates a draft workbench record without running generation, which is useful when you want an empty record directory to work in.
 - `just image=reference.png wb-init "prompt text"` stores a reference image with the draft so later reruns keep the same conditioning.
 - `just compile-visual data/records/<id>` recompiles only the visual viewer artifacts for a single record.
-- `just compile data/records/<id>` recompiles a record's `model.py` into `model.urdf`.
+- `just compile data/records/<id>` recompiles a record's `model.py` into cache-backed materialization outputs under `data/cache/record_materialization/<id>/`.
 - `just rerun data/records/<id>` reruns generation for an existing workbench record in place.
 - `just search-index` rebuilds the workbench search index after record changes.
 - `just viewer` starts the local viewer flow.

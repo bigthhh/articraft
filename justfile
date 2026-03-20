@@ -456,19 +456,24 @@ compile-unsafe record_dir:
     record_dir={{ quote(record_dir) }}
     sdk_package={{ quote(sdk_package) }}
     script_path="$record_dir/model.py"
-    urdf_path="$record_dir/model.urdf"
     if [ ! -f "$script_path" ]; then
       echo "Record model not found: $script_path" >&2
       exit 1
     fi
-    RECORD_SCRIPT="$script_path" RECORD_URDF="$urdf_path" RECORD_SDK="$sdk_package" uv run python - <<'PY'
-    from pathlib import Path
+    RECORD_DIR="$record_dir" RECORD_SCRIPT="$script_path" RECORD_SDK="$sdk_package" uv run python - <<'PY'
     import os
     from agent.compiler import compile_urdf_report
+    from storage.repo import StorageRepo
+    from pathlib import Path
 
+    record_dir = Path(os.environ["RECORD_DIR"]).resolve()
     script = Path(os.environ["RECORD_SCRIPT"]).resolve()
-    urdf_path = Path(os.environ["RECORD_URDF"]).resolve()
     sdk_package = os.environ["RECORD_SDK"]
+    repo_root = Path.cwd().resolve()
+    repo = StorageRepo(repo_root)
+    record_id = record_dir.name
+    urdf_path = repo.layout.record_materialization_urdf_path(record_id)
+    urdf_path.parent.mkdir(parents=True, exist_ok=True)
     report = compile_urdf_report(script, sdk_package=sdk_package, run_checks=False)
     urdf_path.write_text(report.urdf_xml, encoding="utf-8")
     print(f"Unsafely recompiled {script}")

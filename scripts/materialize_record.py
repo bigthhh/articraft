@@ -4,6 +4,7 @@ import argparse
 import time
 from pathlib import Path
 
+from storage.repo import StorageRepo
 from viewer.api.store import ViewerStore
 
 
@@ -60,7 +61,7 @@ def main() -> int:
     )
     elapsed_seconds = time.perf_counter() - started_at
 
-    urdf_path = record_dir / "model.urdf"
+    urdf_path = StorageRepo(repo_root).layout.record_materialization_urdf_path(record_dir.name)
     action = "Compiled visuals for" if args.target == "visual" else "Recompiled"
     print(f"{action} {model_path}")
     print(f"Wrote URDF to {urdf_path}")

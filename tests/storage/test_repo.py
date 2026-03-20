@@ -12,7 +12,6 @@ from storage.models import (
     DisplayMetadata,
     EnvironmentSettings,
     GenerationSettings,
-    MaterializationInputs,
     PromptingSettings,
     Provenance,
     Record,
@@ -55,7 +54,7 @@ def test_storage_repo_round_trips_records_collections_and_runs(tmp_path: Path) -
 
     record_store = RecordStore(repo)
     record = Record(
-        schema_version=1,
+        schema_version=2,
         record_id="rec_123",
         created_at="2026-03-18T00:00:00Z",
         updated_at="2026-03-18T00:00:00Z",
@@ -72,8 +71,6 @@ def test_storage_repo_round_trips_records_collections_and_runs(tmp_path: Path) -
             prompt_txt="prompt.txt",
             prompt_series_json=None,
             model_py="model.py",
-            model_urdf="model.urdf",
-            compile_report_json="compile_report.json",
             provenance_json="provenance.json",
             cost_json="cost.json",
         ),
@@ -104,11 +101,12 @@ def test_storage_repo_round_trips_records_collections_and_runs(tmp_path: Path) -
         urdf_path="model.urdf",
         warnings=[],
     )
-    record_store.write_compile_report("rec_123", report)
-    assert (repo.layout.record_dir("rec_123") / "compile_report.json").exists()
+    materialize = MaterializationStore(repo)
+    materialize.write_compile_report("rec_123", report)
+    assert repo.layout.record_materialization_compile_report_path("rec_123").exists()
 
     provenance = Provenance(
-        schema_version=1,
+        schema_version=2,
         record_id="rec_123",
         generation=GenerationSettings(provider="openai", model_id="gpt-5.4", thinking_level="high"),
         prompting=PromptingSettings(
@@ -119,26 +117,19 @@ def test_storage_repo_round_trips_records_collections_and_runs(tmp_path: Path) -
         sdk=SdkSettings(sdk_package="sdk", sdk_version="workspace", sdk_fingerprint="sdk-hash"),
         environment=EnvironmentSettings(python_version="3.11.11", platform="darwin-arm64"),
         run_summary=RunSummary(final_status="success"),
-        materialization=MaterializationInputs(
-            model_py_sha256="py-hash",
-            model_urdf_sha256="urdf-hash",
-            sdk_fingerprint="sdk-hash",
-        ),
     )
     record_store.write_provenance("rec_123", provenance)
     assert (repo.layout.record_dir("rec_123") / "provenance.json").exists()
     assert categories.load("hinges") is not None
 
-    materialize = MaterializationStore(repo)
     status = materialize.asset_status("rec_123")
     assert not status.meshes_present
     assert not status.glb_present
     assert not status.viewer_present
-    assert status.assets_dir == repo.layout.record_assets_dir("rec_123")
+    assert status.assets_dir == repo.layout.record_materialization_assets_dir("rec_123")
 
     fingerprint = build_materialization_fingerprint(
         model_py_sha256="py-hash",
-        model_urdf_sha256="urdf-hash",
         sdk_fingerprint="sdk-hash",
     )
     assert len(fingerprint) == 64

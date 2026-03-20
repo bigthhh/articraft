@@ -13,9 +13,9 @@ def test_infer_materialization_status_marks_primitive_only_success_as_available(
     repo.ensure_layout()
 
     record_id = "rec_primitive"
-    record_dir = repo.layout.record_dir(record_id)
-    record_dir.mkdir(parents=True, exist_ok=True)
-    (record_dir / "model.urdf").write_text(
+    materialization_dir = repo.layout.record_materialization_dir(record_id)
+    materialization_dir.mkdir(parents=True, exist_ok=True)
+    (materialization_dir / "model.urdf").write_text(
         "<robot name='primitive'><link name='base'><visual><geometry><box size='1 1 1'/></geometry></visual></link></robot>",
         encoding="utf-8",
     )
@@ -32,9 +32,9 @@ def test_infer_materialization_status_keeps_mesh_backed_urdf_missing_without_ass
     repo.ensure_layout()
 
     record_id = "rec_mesh"
-    record_dir = repo.layout.record_dir(record_id)
-    record_dir.mkdir(parents=True, exist_ok=True)
-    (record_dir / "model.urdf").write_text(
+    materialization_dir = repo.layout.record_materialization_dir(record_id)
+    materialization_dir.mkdir(parents=True, exist_ok=True)
+    (materialization_dir / "model.urdf").write_text(
         "<robot name='mesh'><link name='base'><visual><geometry><mesh filename='assets/meshes/base.obj'/></geometry></visual></link></robot>",
         encoding="utf-8",
     )
@@ -52,16 +52,14 @@ def test_ensure_record_artifacts_exist_raises_for_missing_canonical_files(tmp_pa
     record_dir = repo.layout.record_dir(record_id)
     record_dir.mkdir(parents=True, exist_ok=True)
     (record_dir / "record.json").write_text(
-        '{"artifacts":{"model_py":"model.py","model_urdf":"model.urdf","compile_report_json":"compile_report.json","provenance_json":"provenance.json"}}',
+        '{"artifacts":{"model_py":"model.py","provenance_json":"provenance.json"}}',
         encoding="utf-8",
     )
-    (record_dir / "compile_report.json").write_text('{"status":"success"}', encoding="utf-8")
     (record_dir / "provenance.json").write_text("{}", encoding="utf-8")
 
     with pytest.raises(FileNotFoundError, match="missing canonical artifact"):
         ensure_record_artifacts_exist(
             repo,
             record_id,
-            record=repo.read_json(record_dir / "record.json"),
-            required=("model_py", "model_urdf", "compile_report_json", "provenance_json"),
+            required=("model_py", "provenance_json"),
         )

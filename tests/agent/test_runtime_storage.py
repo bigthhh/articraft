@@ -57,16 +57,19 @@ def test_workbench_run_and_rerun_persist_runtime_artifacts(
     record_dirs = [path for path in records_root.iterdir() if path.is_dir()]
     assert len(record_dirs) == 1
     record_dir = record_dirs[0]
+    materialization_dir = repo_root / "data" / "cache" / "record_materialization" / record_dir.name
 
     assert (record_dir / "prompt.txt").read_text(encoding="utf-8") == "make a gearbox"
     assert (record_dir / "model.py").exists()
-    assert (record_dir / "model.urdf").read_text(encoding="utf-8") == "<robot name='test'/>"
-    assert (record_dir / "compile_report.json").exists()
     assert (record_dir / "provenance.json").exists()
     assert (record_dir / "cost.json").exists()
     assert (record_dir / "traces").exists()
     assert (record_dir / "traces" / "conversation.jsonl").exists()
-    assert (record_dir / "assets" / "meshes" / "part.obj").exists()
+    assert (materialization_dir / "model.urdf").read_text(
+        encoding="utf-8"
+    ) == "<robot name='test'/>"
+    assert (materialization_dir / "compile_report.json").exists()
+    assert (materialization_dir / "assets" / "meshes" / "part.obj").exists()
 
     workbench_path = repo_root / "data" / "local" / "workbench.json"
     workbench = json.loads(workbench_path.read_text(encoding="utf-8"))
@@ -131,7 +134,7 @@ def test_workbench_run_and_rerun_persist_runtime_artifacts(
     assert not (record_dir / "traces" / "stale.txt").exists()
     assert not (record_dir / "assets" / "glb").exists()
     assert not (record_dir / "assets" / "viewer").exists()
-    assert (record_dir / "assets" / "meshes" / "part.obj").exists()
+    assert (materialization_dir / "assets" / "meshes" / "part.obj").exists()
 
     workbench = json.loads(workbench_path.read_text(encoding="utf-8"))
     assert len(workbench["entries"]) == 1
@@ -297,9 +300,10 @@ def test_workbench_run_succeeds_when_persisted_input_image_disappears(
     assert exit_code == 0
 
     record_dir = next((repo_root / "data" / "records").iterdir())
+    materialization_dir = repo_root / "data" / "cache" / "record_materialization" / record_dir.name
     assert (record_dir / "record.json").exists()
     assert (record_dir / "provenance.json").exists()
-    assert (record_dir / "compile_report.json").exists()
+    assert (materialization_dir / "compile_report.json").exists()
     assert list((record_dir / "inputs").iterdir()) == []
 
     run_dir = next((repo_root / "data" / "cache" / "runs").iterdir())

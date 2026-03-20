@@ -59,8 +59,6 @@ def test_viewer_store_delete_record_removes_empty_ad_hoc_category(tmp_path: Path
                 prompt_txt="prompt.txt",
                 prompt_series_json=None,
                 model_py="model.py",
-                model_urdf="model.urdf",
-                compile_report_json="compile_report.json",
                 provenance_json="provenance.json",
                 cost_json=None,
             ),
@@ -124,8 +122,6 @@ def test_viewer_api_end_to_end(tmp_path: Path) -> None:
             prompt_txt="prompt.txt",
             prompt_series_json=None,
             model_py="model.py",
-            model_urdf="model.urdf",
-            compile_report_json="compile_report.json",
             provenance_json="provenance.json",
             cost_json="cost.json",
         ),
@@ -137,7 +133,7 @@ def test_viewer_api_end_to_end(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     repo.write_json(
-        repo.layout.record_dir("rec_001") / "compile_report.json",
+        repo.layout.record_materialization_compile_report_path("rec_001"),
         {
             "schema_version": 1,
             "record_id": "rec_001",
@@ -162,7 +158,7 @@ def test_viewer_api_end_to_end(tmp_path: Path) -> None:
             }
         },
     )
-    asset_meshes_dir = repo.layout.record_asset_meshes_dir("rec_001")
+    asset_meshes_dir = repo.layout.record_materialization_asset_meshes_dir("rec_001")
     asset_meshes_dir.mkdir(parents=True, exist_ok=True)
     (asset_meshes_dir / "part.obj").write_text(
         "o tri\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n", encoding="utf-8"
@@ -203,8 +199,6 @@ def test_viewer_api_end_to_end(tmp_path: Path) -> None:
             prompt_txt="prompt.txt",
             prompt_series_json=None,
             model_py="model.py",
-            model_urdf="model.urdf",
-            compile_report_json="compile_report.json",
             provenance_json="provenance.json",
             cost_json=None,
         ),
@@ -243,8 +237,6 @@ def test_viewer_api_end_to_end(tmp_path: Path) -> None:
             prompt_txt="prompt.txt",
             prompt_series_json=None,
             model_py="model.py",
-            model_urdf="model.urdf",
-            compile_report_json="compile_report.json",
             provenance_json="provenance.json",
             cost_json="cost.json",
         ),
@@ -619,8 +611,6 @@ def test_viewer_api_promote_uses_category_slug_not_display_title(tmp_path: Path)
                 prompt_txt="prompt.txt",
                 prompt_series_json=None,
                 model_py="model.py",
-                model_urdf="model.urdf",
-                compile_report_json="compile_report.json",
                 provenance_json="provenance.json",
                 cost_json=None,
             ),
@@ -699,8 +689,6 @@ def test_viewer_api_ensures_record_assets_on_demand(
             prompt_txt="prompt.txt",
             prompt_series_json=None,
             model_py="model.py",
-            model_urdf="model.urdf",
-            compile_report_json="compile_report.json",
             provenance_json="provenance.json",
             cost_json=None,
         ),
@@ -793,16 +781,14 @@ def test_viewer_api_ensures_record_assets_on_demand(
     assert "v 1 0 0" in mesh_response.text
     assert compile_calls == [repo.layout.record_dir("rec_lazy_001") / "model.py"]
 
-    compile_report = repo.read_json(repo.layout.record_dir("rec_lazy_001") / "compile_report.json")
+    compile_report = repo.read_json(
+        repo.layout.record_materialization_compile_report_path("rec_lazy_001")
+    )
     assert compile_report["status"] == "success"
     assert compile_report["warnings"] == [{"code": "warning", "message": "warning: lazy compile"}]
 
     persisted_record = repo.read_json(repo.layout.record_metadata_path("rec_lazy_001"))
-    assert persisted_record["derived_assets"]["materialization_status"] == "available"
-    assert persisted_record["hashes"]["model_urdf_sha256"]
-
-    provenance = repo.read_json(repo.layout.record_dir("rec_lazy_001") / "provenance.json")
-    assert provenance["materialization"]["fingerprint_inputs"]["model_urdf_sha256"]
+    assert "derived_assets" not in persisted_record
 
 
 def test_viewer_api_persists_compiled_urdf_for_nonblocking_geometry_qc(
@@ -834,8 +820,6 @@ def test_viewer_api_persists_compiled_urdf_for_nonblocking_geometry_qc(
             prompt_txt="prompt.txt",
             prompt_series_json=None,
             model_py="model.py",
-            model_urdf="model.urdf",
-            compile_report_json="compile_report.json",
             provenance_json="provenance.json",
             cost_json=None,
         ),
@@ -903,7 +887,9 @@ def test_viewer_api_persists_compiled_urdf_for_nonblocking_geometry_qc(
     assert "robot name='qc'" in urdf_response.text
     assert compile_calls == [record_dir / "model.py"]
 
-    compile_report = repo.read_json(record_dir / "compile_report.json")
+    compile_report = repo.read_json(
+        repo.layout.record_materialization_compile_report_path("rec_qc_001")
+    )
     assert compile_report["status"] == "success"
     assert any(
         "URDF compile warning (collision, non-blocking): isolated parts detected" in item["message"]
@@ -911,10 +897,10 @@ def test_viewer_api_persists_compiled_urdf_for_nonblocking_geometry_qc(
     )
 
     persisted_record = repo.read_json(repo.layout.record_metadata_path("rec_qc_001"))
-    assert persisted_record["derived_assets"]["materialization_status"] == "available"
+    assert "derived_assets" not in persisted_record
 
 
-def test_viewer_api_serves_canonical_assets_when_shadow_files_exist(tmp_path: Path) -> None:
+def test_viewer_api_serves_materialized_assets_when_shadow_files_exist(tmp_path: Path) -> None:
     repo = StorageRepo(tmp_path)
     repo.ensure_layout()
     record_store = RecordStore(repo)
@@ -940,8 +926,6 @@ def test_viewer_api_serves_canonical_assets_when_shadow_files_exist(tmp_path: Pa
             prompt_txt="prompt.txt",
             prompt_series_json=None,
             model_py="model.py",
-            model_urdf="model.urdf",
-            compile_report_json="compile_report.json",
             provenance_json="provenance.json",
             cost_json=None,
         ),
@@ -951,12 +935,16 @@ def test_viewer_api_serves_canonical_assets_when_shadow_files_exist(tmp_path: Pa
     record_dir = repo.layout.record_dir("rec_shadowed_001")
     (record_dir / "prompt.txt").write_text("shadowed assets", encoding="utf-8")
     (record_dir / "model.py").write_text("from __future__ import annotations\n", encoding="utf-8")
-    (record_dir / "model.urdf").write_text(
+    repo.layout.record_materialization_urdf_path("rec_shadowed_001").parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+    repo.layout.record_materialization_urdf_path("rec_shadowed_001").write_text(
         "<robot name='shadowed'><link name='base'><visual><geometry><mesh filename='assets/meshes/part.obj'/></geometry></visual></link></robot>",
         encoding="utf-8",
     )
     repo.write_json(
-        record_dir / "compile_report.json",
+        repo.layout.record_materialization_compile_report_path("rec_shadowed_001"),
         {
             "schema_version": 1,
             "record_id": "rec_shadowed_001",
@@ -983,7 +971,7 @@ def test_viewer_api_serves_canonical_assets_when_shadow_files_exist(tmp_path: Pa
     shadow_meshes_dir = record_dir / "meshes"
     shadow_meshes_dir.mkdir(parents=True, exist_ok=True)
     (shadow_meshes_dir / "part.obj").write_text("shadow mesh\n", encoding="utf-8")
-    canonical_meshes_dir = repo.layout.record_asset_meshes_dir("rec_shadowed_001")
+    canonical_meshes_dir = repo.layout.record_materialization_asset_meshes_dir("rec_shadowed_001")
     canonical_meshes_dir.mkdir(parents=True, exist_ok=True)
     (canonical_meshes_dir / "part.obj").write_text("canonical mesh\n", encoding="utf-8")
 
@@ -1023,8 +1011,6 @@ def test_viewer_api_rebuilds_missing_assets_even_with_successful_urdf(
             prompt_txt="prompt.txt",
             prompt_series_json=None,
             model_py="model.py",
-            model_urdf="model.urdf",
-            compile_report_json="compile_report.json",
             provenance_json="provenance.json",
             cost_json=None,
         ),
@@ -1141,8 +1127,6 @@ def test_viewer_api_rebuilds_missing_assets_for_assets_prefixed_mesh_paths(
             prompt_txt="prompt.txt",
             prompt_series_json=None,
             model_py="model.py",
-            model_urdf="model.urdf",
-            compile_report_json="compile_report.json",
             provenance_json="provenance.json",
             cost_json=None,
         ),
@@ -1264,8 +1248,6 @@ def test_viewer_store_force_materialize_clears_stale_derived_outputs(
             prompt_txt="prompt.txt",
             prompt_series_json=None,
             model_py="model.py",
-            model_urdf="model.urdf",
-            compile_report_json="compile_report.json",
             provenance_json="provenance.json",
             cost_json=None,
         ),
@@ -1359,12 +1341,24 @@ def test_viewer_store_force_materialize_clears_stale_derived_outputs(
 
     assert result.compiled is True
     assert compile_calls == [record_dir / "model.py"]
-    assert (repo.layout.record_asset_meshes_dir("rec_force_assets_001") / "fresh.obj").exists()
-    assert not (repo.layout.record_asset_meshes_dir("rec_force_assets_001") / "stale.obj").exists()
-    assert (repo.layout.record_asset_glb_dir("rec_force_assets_001") / "fresh.glb").exists()
-    assert not (repo.layout.record_asset_glb_dir("rec_force_assets_001") / "stale.glb").exists()
-    assert (repo.layout.record_asset_viewer_dir("rec_force_assets_001") / "fresh.json").exists()
-    assert not (repo.layout.record_asset_viewer_dir("rec_force_assets_001") / "stale.json").exists()
+    assert (
+        repo.layout.record_materialization_asset_meshes_dir("rec_force_assets_001") / "fresh.obj"
+    ).exists()
+    assert not (
+        repo.layout.record_materialization_asset_meshes_dir("rec_force_assets_001") / "stale.obj"
+    ).exists()
+    assert (
+        repo.layout.record_materialization_asset_glb_dir("rec_force_assets_001") / "fresh.glb"
+    ).exists()
+    assert not (
+        repo.layout.record_materialization_asset_glb_dir("rec_force_assets_001") / "stale.glb"
+    ).exists()
+    assert (
+        repo.layout.record_materialization_asset_viewer_dir("rec_force_assets_001") / "fresh.json"
+    ).exists()
+    assert not (
+        repo.layout.record_materialization_asset_viewer_dir("rec_force_assets_001") / "stale.json"
+    ).exists()
 
 
 def test_viewer_store_visual_materialize_can_be_upgraded_to_full(
@@ -1396,8 +1390,6 @@ def test_viewer_store_visual_materialize_can_be_upgraded_to_full(
             prompt_txt="prompt.txt",
             prompt_series_json=None,
             model_py="model.py",
-            model_urdf="model.urdf",
-            compile_report_json="compile_report.json",
             provenance_json="provenance.json",
             cost_json=None,
         ),
@@ -1478,15 +1470,23 @@ def test_viewer_store_visual_materialize_can_be_upgraded_to_full(
         target="visual",
     )
     assert visual_result.compiled is True
-    compile_report = repo.read_json(record_dir / "compile_report.json")
+    compile_report = repo.read_json(
+        repo.layout.record_materialization_compile_report_path("rec_visual_upgrade_001")
+    )
     assert compile_report["metrics"]["compile_level"] == "visual"
-    assert "<collision" not in (record_dir / "model.urdf").read_text(encoding="utf-8")
+    assert "<collision" not in repo.layout.record_materialization_urdf_path(
+        "rec_visual_upgrade_001"
+    ).read_text(encoding="utf-8")
 
     full_result = viewer_store.materialize_record_assets("rec_visual_upgrade_001", target="full")
     assert full_result.compiled is True
-    compile_report = repo.read_json(record_dir / "compile_report.json")
+    compile_report = repo.read_json(
+        repo.layout.record_materialization_compile_report_path("rec_visual_upgrade_001")
+    )
     assert compile_report["metrics"]["compile_level"] == "full"
-    assert "<collision" in (record_dir / "model.urdf").read_text(encoding="utf-8")
+    assert "<collision" in repo.layout.record_materialization_urdf_path(
+        "rec_visual_upgrade_001"
+    ).read_text(encoding="utf-8")
     assert compile_calls == [
         (record_dir / "model.py", False, "visual"),
         (record_dir / "model.py", False, "full"),
@@ -1522,8 +1522,6 @@ def test_viewer_store_full_materialize_can_enable_validation(
             prompt_txt="prompt.txt",
             prompt_series_json=None,
             model_py="model.py",
-            model_urdf="model.urdf",
-            compile_report_json="compile_report.json",
             provenance_json="provenance.json",
             cost_json=None,
         ),
@@ -1593,7 +1591,9 @@ def test_viewer_store_full_materialize_can_enable_validation(
     assert compile_calls == [
         (record_dir / "model.py", False, True, "full"),
     ]
-    compile_report = repo.read_json(record_dir / "compile_report.json")
+    compile_report = repo.read_json(
+        repo.layout.record_materialization_compile_report_path("rec_full_validate_001")
+    )
     assert compile_report["metrics"]["compile_level"] == "full"
     assert compile_report["metrics"]["validation_level"] == "full"
 
@@ -1627,8 +1627,6 @@ def test_viewer_store_can_skip_nested_compile_timeout(
             prompt_txt="prompt.txt",
             prompt_series_json=None,
             model_py="model.py",
-            model_urdf="model.urdf",
-            compile_report_json="compile_report.json",
             provenance_json="provenance.json",
             cost_json=None,
         ),

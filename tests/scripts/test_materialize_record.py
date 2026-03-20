@@ -4,6 +4,7 @@ import sys
 from types import SimpleNamespace
 
 from scripts import materialize_record
+from storage.repo import StorageRepo
 
 
 def test_materialize_record_prints_elapsed_time(monkeypatch, tmp_path, capsys) -> None:
@@ -52,5 +53,9 @@ def test_materialize_record_prints_elapsed_time(monkeypatch, tmp_path, capsys) -
     assert calls == [("rec_test_0001", True, True, "visual")]
     output = capsys.readouterr().out
     assert "Compiled visuals for" in output
+    expected_urdf_path = StorageRepo(tmp_path).layout.record_materialization_urdf_path(
+        "rec_test_0001"
+    )
+    assert f"Wrote URDF to {expected_urdf_path}" in output
     assert "Warnings: 0" in output
     assert "Elapsed: 2.50s" in output

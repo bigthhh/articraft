@@ -27,12 +27,9 @@ class RecordArtifacts:
     prompt_txt: str | None
     prompt_series_json: str | None
     model_py: str
-    model_urdf: str
-    compile_report_json: str
     provenance_json: str
     cost_json: str | None
     inputs_dir: str | None = "inputs"
-    assets_dir: str | None = "assets"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -42,7 +39,6 @@ class RecordArtifacts:
 class RecordHashes:
     prompt_sha256: str | None = None
     model_py_sha256: str | None = None
-    model_urdf_sha256: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -52,15 +48,6 @@ class RecordHashes:
 class DisplayMetadata:
     title: str
     prompt_preview: str
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass(slots=True, frozen=True)
-class DerivedAssets:
-    assets_dir: str = "assets"
-    materialization_status: MaterializationStatus = "missing"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -83,7 +70,6 @@ class Record:
     display: DisplayMetadata
     artifacts: RecordArtifacts
     hashes: RecordHashes = field(default_factory=RecordHashes)
-    derived_assets: DerivedAssets = field(default_factory=DerivedAssets)
     collections: list[CollectionName] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -103,7 +89,6 @@ class Record:
             "display": self.display.to_dict(),
             "artifacts": self.artifacts.to_dict(),
             "hashes": self.hashes.to_dict(),
-            "derived_assets": self.derived_assets.to_dict(),
             "collections": list(self.collections),
         }
 
@@ -164,17 +149,6 @@ class RunSummary:
 
 
 @dataclass(slots=True, frozen=True)
-class MaterializationInputs:
-    model_py_sha256: str | None = None
-    model_urdf_sha256: str | None = None
-    sdk_fingerprint: str | None = None
-    materializer_version: str = "v1"
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass(slots=True, frozen=True)
 class Provenance:
     schema_version: int
     record_id: str
@@ -183,7 +157,6 @@ class Provenance:
     sdk: SdkSettings
     environment: EnvironmentSettings
     run_summary: RunSummary
-    materialization: MaterializationInputs
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -194,9 +167,6 @@ class Provenance:
             "sdk": self.sdk.to_dict(),
             "environment": self.environment.to_dict(),
             "run_summary": self.run_summary.to_dict(),
-            "materialization": {
-                "fingerprint_inputs": self.materialization.to_dict(),
-            },
         }
 
 

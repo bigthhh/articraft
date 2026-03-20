@@ -48,8 +48,6 @@ def _create_workbench_record(
                 prompt_txt="prompt.txt",
                 prompt_series_json=None,
                 model_py="model.py",
-                model_urdf="model.urdf",
-                compile_report_json="compile_report.json",
                 provenance_json="provenance.json",
                 cost_json=None,
             ),
@@ -110,8 +108,6 @@ def test_dataset_cli_commands_cover_promote_delete_and_prune(tmp_path: Path) -> 
             prompt_txt="prompt.txt",
             prompt_series_json=None,
             model_py="model.py",
-            model_urdf="model.urdf",
-            compile_report_json="compile_report.json",
             provenance_json="provenance.json",
             cost_json=None,
         ),
@@ -308,7 +304,7 @@ def test_dataset_cli_commands_cover_promote_delete_and_prune(tmp_path: Path) -> 
     )
     assert "failed_staging_dirs_to_remove=1" in output.getvalue()
     assert "empty_dirs_to_remove=" in output.getvalue()
-    assert "Removed cache paths: 6" in output.getvalue()
+    assert "Removed cache paths: 7" in output.getvalue()
     assert "Preview only. Re-run with --execute to remove these cache paths." in output.getvalue()
     assert "record_dir=" in output.getvalue()
     assert "in_workbench=yes" in output.getvalue()
@@ -434,8 +430,6 @@ def test_promote_record_reuses_existing_category_and_allocates_next_dataset_id(
                 prompt_txt="prompt.txt",
                 prompt_series_json=None,
                 model_py="model.py",
-                model_urdf="model.urdf",
-                compile_report_json="compile_report.json",
                 provenance_json="provenance.json",
                 cost_json=None,
             ),

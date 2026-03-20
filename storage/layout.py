@@ -37,6 +37,10 @@ class StorageLayout:
         return self.cache_root / "manifests"
 
     @property
+    def record_materializations_root(self) -> Path:
+        return self.cache_root / "record_materialization"
+
+    @property
     def runs_root(self) -> Path:
         return self.cache_root / "runs"
 
@@ -91,6 +95,27 @@ class StorageLayout:
     def record_asset_viewer_dir(self, record_id: str) -> Path:
         return self.record_assets_dir(record_id) / "viewer"
 
+    def record_materialization_dir(self, record_id: str) -> Path:
+        return self.record_materializations_root / record_id
+
+    def record_materialization_urdf_path(self, record_id: str) -> Path:
+        return self.record_materialization_dir(record_id) / "model.urdf"
+
+    def record_materialization_compile_report_path(self, record_id: str) -> Path:
+        return self.record_materialization_dir(record_id) / "compile_report.json"
+
+    def record_materialization_assets_dir(self, record_id: str) -> Path:
+        return self.record_materialization_dir(record_id) / "assets"
+
+    def record_materialization_asset_meshes_dir(self, record_id: str) -> Path:
+        return self.record_materialization_assets_dir(record_id) / "meshes"
+
+    def record_materialization_asset_glb_dir(self, record_id: str) -> Path:
+        return self.record_materialization_assets_dir(record_id) / "glb"
+
+    def record_materialization_asset_viewer_dir(self, record_id: str) -> Path:
+        return self.record_materialization_assets_dir(record_id) / "viewer"
+
     def run_dir(self, run_id: str) -> Path:
         return self.runs_root / run_id
 
@@ -122,6 +147,7 @@ class StorageLayout:
             self.records_root,
             self.local_root,
             self.manifests_root,
+            self.record_materializations_root,
             self.runs_root,
         ):
             path.mkdir(parents=True, exist_ok=True)

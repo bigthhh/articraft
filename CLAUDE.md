@@ -25,7 +25,7 @@ just compile-all-strict        # Full path with validation-heavy geometry checks
 just name=<batch-id> batch-spec-new   # Create an empty tracked batch CSV with the canonical header
 just spec=data/batch_specs/<batch-id>.csv concurrency=8 dataset-batch  # Run a tracked dataset batch CSV
 just wb-init "prompt text"     # Create a draft workbench record to edit manually
-just compile data/records/<id> # Recompile model.py -> model.urdf
+just compile data/records/<id> # Recompile model.py into cache-backed materialization outputs
 just compile-visual data/records/<id> # Recompile only visual viewer artifacts for one record
 just rerun data/records/<id>   # Re-run generation for an existing record
 just search-index              # Rebuild the workbench search index
@@ -71,8 +71,9 @@ npm --prefix viewer/web run typecheck   # tsc
 
 1. User prompt → `agent/runner.py` → `ArticraftAgent` (multi-turn LLM with tool-use) → generated `model.py` that uses `sdk`
 2. `agent/compiler.py` executes `model.py` → exports URDF XML + mesh assets
-3. Results persisted to `data/records/<record_id>/` (record.json, model.py, model.urdf, provenance.json, cost.json, traces/, assets/)
-4. `viewer/api` serves records; `viewer/web` renders them with Three.js
+3. Canonical record data persisted to `data/records/<record_id>/` (record.json, model.py, provenance.json, cost.json, traces/, inputs/)
+4. Derived compile/materialization outputs persisted to `data/cache/record_materialization/<record_id>/` (model.urdf, compile_report.json, assets/)
+5. `viewer/api` serves records; `viewer/web` renders them with Three.js
 
 Dataset batch flow:
 
@@ -83,11 +84,12 @@ Dataset batch flow:
 
 ### Storage layout (`data/`)
 
-- `data/records/<record_id>/` — One directory per generated object
+- `data/records/<record_id>/` — One directory per generated object containing only canonical record data
 - `data/categories/` — Dataset category metadata and prompt batches
 - `data/batch_specs/` — Tracked dataset batch CSV specs
 - `data/local/workbench.json` — Local workbench collection
-- `data/cache/` — Manifests, run logs, batch state, search index (all regenerable)
+- `data/cache/` — Manifests, run logs, batch state, search index, and record materialization outputs (all regenerable)
+- `data/cache/record_materialization/<record_id>/` — Local compile/materialization outputs for one record (`model.urdf`, `compile_report.json`, `assets/`)
 - `data/cache/runs/<run_id>/state/` — Per-row batch resume state
 - `data/cache/runs/<run_id>/allocations.json` — Reserved dataset and record IDs for a batch run
 

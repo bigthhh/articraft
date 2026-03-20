@@ -37,13 +37,6 @@ def test_migrate_record_assets_paths_moves_rewrites_and_updates_metadata(tmp_pat
         {
             "artifacts": {
                 "model_py": "model.py",
-                "model_urdf": "model.urdf",
-                "compile_report_json": "compile_report.json",
-                "assets_dir": "assets",
-            },
-            "derived_assets": {
-                "assets_dir": "assets",
-                "materialization_status": "missing",
             },
             "hashes": {},
         },
@@ -65,7 +58,7 @@ def test_migrate_record_assets_paths_moves_rewrites_and_updates_metadata(tmp_pat
     assert summary.scanned_records == 1
     assert summary.changed_records == 1
     assert not legacy_mesh_dir.exists()
-    assert (repo.layout.record_asset_meshes_dir(record_id) / "part.obj").exists()
+    assert (repo.layout.record_materialization_asset_meshes_dir(record_id) / "part.obj").exists()
     assert "filename='assets/meshes/part.obj'" in (record_dir / "model.urdf").read_text(
         encoding="utf-8"
     )
@@ -73,13 +66,12 @@ def test_migrate_record_assets_paths_moves_rewrites_and_updates_metadata(tmp_pat
     assert "ASSETS.mesh_dir" in (record_dir / "model.py").read_text(encoding="utf-8")
 
     record = json.loads((record_dir / "record.json").read_text(encoding="utf-8"))
-    assert record["derived_assets"]["materialization_status"] == "available"
+    assert "derived_assets" not in record
     assert record["hashes"]["model_py_sha256"]
-    assert record["hashes"]["model_urdf_sha256"]
+    assert "model_urdf_sha256" not in record["hashes"]
 
     provenance = json.loads((record_dir / "provenance.json").read_text(encoding="utf-8"))
-    assert provenance["materialization"]["fingerprint_inputs"]["model_py_sha256"]
-    assert provenance["materialization"]["fingerprint_inputs"]["model_urdf_sha256"]
+    assert "materialization" not in provenance
 
 
 def test_migrate_record_assets_paths_rewrites_hybrid_mesh_context_block(tmp_path) -> None:
@@ -188,6 +180,6 @@ def test_migrate_record_assets_paths_dry_run_leaves_files_unchanged(tmp_path) ->
 
     assert summary.changed_records == 1
     assert legacy_mesh_dir.exists()
-    assert not repo.layout.record_asset_meshes_dir(record_id).exists()
+    assert not repo.layout.record_materialization_asset_meshes_dir(record_id).exists()
     assert "filename='meshes/part.obj'" in (record_dir / "model.urdf").read_text(encoding="utf-8")
     assert 'HERE / "meshes"' in (record_dir / "model.py").read_text(encoding="utf-8")

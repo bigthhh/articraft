@@ -3,17 +3,16 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
-from storage.models import AssetStatus, MaterializationStatus
+from storage.models import AssetStatus, CompileReport, MaterializationStatus
 from storage.repo import StorageRepo
 
 
 def build_materialization_fingerprint(
     *,
     model_py_sha256: str | None,
-    model_urdf_sha256: str | None,
-    sdk_fingerprint: str | None,
+    model_urdf_sha256: str | None = None,
+    sdk_fingerprint: str | None = None,
     materializer_version: str = "v1",
 ) -> str:
     payload = "|".join(
@@ -31,50 +30,54 @@ def build_materialization_fingerprint(
 class MaterializationStore:
     repo: StorageRepo
 
+    def ensure_record_dirs(self, record_id: str) -> Path:
+        materialization_dir = self.repo.layout.record_materialization_dir(record_id)
+        materialization_dir.mkdir(parents=True, exist_ok=True)
+        return materialization_dir
+
+    def write_compile_report(self, record_id: str, report: CompileReport) -> Path:
+        path = self.repo.layout.record_materialization_compile_report_path(record_id)
+        self.repo.write_json(path, report.to_dict())
+        return path
+
     def asset_status(self, record_id: str) -> AssetStatus:
-        assets_dir = self.repo.layout.record_assets_dir(record_id)
+        assets_dir = self.repo.layout.record_materialization_assets_dir(record_id)
         return AssetStatus(
             record_id=record_id,
             assets_dir=assets_dir,
-            meshes_present=self.repo.layout.record_asset_meshes_dir(record_id).exists(),
-            glb_present=self.repo.layout.record_asset_glb_dir(record_id).exists(),
-            viewer_present=self.repo.layout.record_asset_viewer_dir(record_id).exists(),
+            meshes_present=self.repo.layout.record_materialization_asset_meshes_dir(
+                record_id
+            ).exists(),
+            glb_present=self.repo.layout.record_materialization_asset_glb_dir(record_id).exists(),
+            viewer_present=self.repo.layout.record_materialization_asset_viewer_dir(
+                record_id
+            ).exists(),
         )
 
 
-def _record_artifact_path(
-    record_dir: Path, record: dict[str, Any] | None, key: str, default: str
-) -> Path:
-    artifacts = record.get("artifacts") if isinstance(record, dict) else None
-    if isinstance(artifacts, dict):
-        value = artifacts.get(key)
-        if isinstance(value, str) and value.strip():
-            return record_dir / value
-    return record_dir / default
-
-
-def record_artifact_paths(
-    repo: StorageRepo,
-    record_id: str,
-    *,
-    record: dict[str, Any] | None = None,
-) -> dict[str, Path]:
+def canonical_record_paths(repo: StorageRepo, record_id: str) -> dict[str, Path]:
     record_dir = repo.layout.record_dir(record_id)
     return {
-        "model_py": _record_artifact_path(record_dir, record, "model_py", "model.py"),
-        "model_urdf": _record_artifact_path(record_dir, record, "model_urdf", "model.urdf"),
-        "compile_report_json": _record_artifact_path(
-            record_dir,
-            record,
-            "compile_report_json",
-            "compile_report.json",
-        ),
-        "provenance_json": _record_artifact_path(
-            record_dir,
-            record,
-            "provenance_json",
-            "provenance.json",
-        ),
+        "record_json": repo.layout.record_metadata_path(record_id),
+        "prompt_txt": record_dir / "prompt.txt",
+        "model_py": record_dir / "model.py",
+        "provenance_json": record_dir / "provenance.json",
+        "cost_json": record_dir / "cost.json",
+        "inputs_dir": repo.layout.record_inputs_dir(record_id),
+        "traces_dir": repo.layout.record_traces_dir(record_id),
+        "dataset_entry_json": repo.layout.record_dataset_entry_path(record_id),
+    }
+
+
+def materialization_paths(repo: StorageRepo, record_id: str) -> dict[str, Path]:
+    return {
+        "root": repo.layout.record_materialization_dir(record_id),
+        "model_urdf": repo.layout.record_materialization_urdf_path(record_id),
+        "compile_report_json": repo.layout.record_materialization_compile_report_path(record_id),
+        "assets_dir": repo.layout.record_materialization_assets_dir(record_id),
+        "meshes_dir": repo.layout.record_materialization_asset_meshes_dir(record_id),
+        "glb_dir": repo.layout.record_materialization_asset_glb_dir(record_id),
+        "viewer_dir": repo.layout.record_materialization_asset_viewer_dir(record_id),
     }
 
 
@@ -82,10 +85,9 @@ def ensure_record_artifacts_exist(
     repo: StorageRepo,
     record_id: str,
     *,
-    record: dict[str, Any] | None = None,
     required: tuple[str, ...],
 ) -> None:
-    paths = record_artifact_paths(repo, record_id, record=record)
+    paths = canonical_record_paths(repo, record_id)
     missing = [name for name in required if not paths[name].exists()]
     if not missing:
         return
@@ -104,9 +106,9 @@ def record_has_materialized_assets(repo: StorageRepo, record_id: str) -> bool:
     return any(
         _has_nonempty_dir(path)
         for path in (
-            repo.layout.record_asset_meshes_dir(record_id),
-            repo.layout.record_asset_glb_dir(record_id),
-            repo.layout.record_asset_viewer_dir(record_id),
+            repo.layout.record_materialization_asset_meshes_dir(record_id),
+            repo.layout.record_materialization_asset_glb_dir(record_id),
+            repo.layout.record_materialization_asset_viewer_dir(record_id),
         )
     )
 
@@ -125,14 +127,11 @@ def urdf_references_external_meshes(urdf_path: Path) -> bool:
 def infer_materialization_status(
     repo: StorageRepo,
     record_id: str,
-    *,
-    record: dict[str, Any] | None = None,
 ) -> MaterializationStatus:
     if record_has_materialized_assets(repo, record_id):
         return "available"
 
-    record_dir = repo.layout.record_dir(record_id)
-    urdf_path = _record_artifact_path(record_dir, record, "model_urdf", "model.urdf")
+    urdf_path = repo.layout.record_materialization_urdf_path(record_id)
     if urdf_path.exists() and not urdf_references_external_meshes(urdf_path):
         return "available"
     return "missing"

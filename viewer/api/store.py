@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import shutil
 import subprocess
@@ -14,7 +13,7 @@ from typing import Any
 from storage.collections import CollectionStore
 from storage.dataset_workflow import promote_record_workflow, reconcile_category_metadata
 from storage.datasets import DatasetStore
-from storage.materialize import infer_materialization_status
+from storage.materialize import MaterializationStore, infer_materialization_status
 from storage.models import CompileReport as StorageCompileReport
 from storage.models import CompileWarning
 from storage.queries import StorageQueries
@@ -158,16 +157,6 @@ def _file_mtime_to_utc(path: Path) -> str | None:
         return None
 
 
-def _sha256_file(path: Path) -> str | None:
-    if not path.exists() or not path.is_file():
-        return None
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def _replace_tree_from_source(source: Path, destination: Path) -> None:
     if not source.exists() or not source.is_dir():
         return
@@ -197,8 +186,7 @@ def _compile_level_from_report(report: dict[str, Any] | None) -> str | None:
         value = metrics.get("compile_level")
         if isinstance(value, str) and value in {"visual", "full"}:
             return value
-    # Backward compatibility: legacy successful reports were always full compiles.
-    return "full"
+    return None
 
 
 def _compile_report_satisfies_target(
@@ -234,6 +222,7 @@ class ViewerStore:
         self.collections = CollectionStore(self.repo)
         self.datasets = DatasetStore(self.repo)
         self.records = RecordStore(self.repo)
+        self.materializations = MaterializationStore(self.repo)
         self.search = SearchIndex(self.repo)
         if ensure_search_index:
             self.search.ensure_current()
@@ -252,7 +241,7 @@ class ViewerStore:
         self,
         record_id: str,
         record: dict[str, Any] | None = None,
-    ) -> tuple[Path, Path, Path, Path]:
+    ) -> tuple[Path, Path, Path]:
         record_dir = self.repo.layout.record_dir(record_id)
         artifacts = record.get("artifacts") if isinstance(record, dict) else None
         model_name = (
@@ -260,50 +249,55 @@ class ViewerStore:
             if isinstance(artifacts, dict) and artifacts.get("model_py")
             else "model.py"
         )
-        urdf_name = (
-            str(artifacts.get("model_urdf"))
-            if isinstance(artifacts, dict) and artifacts.get("model_urdf")
-            else "model.urdf"
-        )
-        compile_name = (
-            str(artifacts.get("compile_report_json"))
-            if isinstance(artifacts, dict) and artifacts.get("compile_report_json")
-            else "compile_report.json"
-        )
-        provenance_name = (
-            str(artifacts.get("provenance_json"))
-            if isinstance(artifacts, dict) and artifacts.get("provenance_json")
-            else "provenance.json"
-        )
         return (
             record_dir / model_name,
-            record_dir / urdf_name,
-            record_dir / compile_name,
-            record_dir / provenance_name,
+            self.repo.layout.record_materialization_urdf_path(record_id),
+            self.repo.layout.record_materialization_compile_report_path(record_id),
         )
 
     def _materialization_status_for_record(
         self,
         record_id: str,
-        record: dict[str, Any] | None = None,
     ) -> str:
-        return infer_materialization_status(self.repo, record_id, record=record)
+        return infer_materialization_status(self.repo, record_id)
 
     def _clear_derived_asset_outputs(
         self,
         record_id: str,
         *,
+        record_dir: Path,
         urdf_path: Path,
         compile_path: Path,
     ) -> None:
         for path in (
             urdf_path,
             compile_path,
-            self.repo.layout.record_asset_meshes_dir(record_id),
-            self.repo.layout.record_asset_glb_dir(record_id),
-            self.repo.layout.record_asset_viewer_dir(record_id),
+            record_dir / "model.urdf",
+            record_dir / "compile_report.json",
+            record_dir / "assets",
+            self.repo.layout.record_materialization_asset_meshes_dir(record_id),
+            self.repo.layout.record_materialization_asset_glb_dir(record_id),
+            self.repo.layout.record_materialization_asset_viewer_dir(record_id),
         ):
             _remove_path_if_exists(path)
+
+    def _promote_local_materialization_outputs(self, record_id: str, *, record_dir: Path) -> None:
+        _remove_path_if_exists(record_dir / "model.urdf")
+        _remove_path_if_exists(record_dir / "compile_report.json")
+        _remove_path_if_exists(self.repo.layout.record_materialization_assets_dir(record_id))
+        _replace_tree_from_source(
+            record_dir / "assets" / "meshes",
+            self.repo.layout.record_materialization_asset_meshes_dir(record_id),
+        )
+        _replace_tree_from_source(
+            record_dir / "assets" / "glb",
+            self.repo.layout.record_materialization_asset_glb_dir(record_id),
+        )
+        _replace_tree_from_source(
+            record_dir / "assets" / "viewer",
+            self.repo.layout.record_materialization_asset_viewer_dir(record_id),
+        )
+        _remove_path_if_exists(record_dir / "assets")
 
     def _write_compile_report(
         self,
@@ -334,50 +328,7 @@ class ViewerStore:
             checks_run=list(checks_run or ["compile_urdf"]),
             metrics=metrics,
         )
-        self.records.write_compile_report(record_id, report)
-
-    def _update_record_compile_metadata(
-        self,
-        *,
-        record_id: str,
-        record: dict[str, Any],
-        model_path: Path,
-        urdf_path: Path,
-        provenance_path: Path,
-    ) -> str:
-        record["updated_at"] = _utc_now()
-        hashes = record.setdefault("hashes", {})
-        if not isinstance(hashes, dict):
-            hashes = {}
-            record["hashes"] = hashes
-        hashes["model_py_sha256"] = _sha256_file(model_path)
-        hashes["model_urdf_sha256"] = _sha256_file(urdf_path)
-
-        derived_assets = record.setdefault("derived_assets", {})
-        if not isinstance(derived_assets, dict):
-            derived_assets = {}
-            record["derived_assets"] = derived_assets
-        derived_assets["assets_dir"] = str(derived_assets.get("assets_dir") or "assets")
-        materialization_status = self._materialization_status_for_record(record_id, record)
-        derived_assets["materialization_status"] = materialization_status
-
-        self.repo.write_json(self.repo.layout.record_metadata_path(record_id), record)
-
-        provenance = self.repo.read_json(provenance_path)
-        if isinstance(provenance, dict):
-            materialization = provenance.setdefault("materialization", {})
-            if not isinstance(materialization, dict):
-                materialization = {}
-                provenance["materialization"] = materialization
-            fingerprint_inputs = materialization.setdefault("fingerprint_inputs", {})
-            if not isinstance(fingerprint_inputs, dict):
-                fingerprint_inputs = {}
-                materialization["fingerprint_inputs"] = fingerprint_inputs
-            fingerprint_inputs["model_py_sha256"] = hashes["model_py_sha256"]
-            fingerprint_inputs["model_urdf_sha256"] = hashes["model_urdf_sha256"]
-            self.repo.write_json(provenance_path, provenance)
-
-        return materialization_status
+        self.materializations.write_compile_report(record_id, report)
 
     def materialize_record_assets(
         self,
@@ -395,10 +346,11 @@ class ViewerStore:
         if not isinstance(record, dict):
             raise FileNotFoundError(f"Record not found: {record_id}")
 
-        model_path, urdf_path, compile_path, provenance_path = self._record_compile_paths(
+        model_path, urdf_path, compile_path = self._record_compile_paths(
             record_id,
             record,
         )
+        record_dir = self.repo.layout.record_dir(record_id)
         compile_report = self.repo.read_json(compile_path)
         existing_compile_status = (
             str(compile_report.get("status"))
@@ -429,10 +381,11 @@ class ViewerStore:
             if not isinstance(refreshed_record, dict):
                 raise FileNotFoundError(f"Record not found: {record_id}")
 
-            model_path, urdf_path, compile_path, provenance_path = self._record_compile_paths(
+            model_path, urdf_path, compile_path = self._record_compile_paths(
                 record_id,
                 refreshed_record,
             )
+            record_dir = self.repo.layout.record_dir(record_id)
             compile_report = self.repo.read_json(compile_path)
             existing_compile_status = (
                 str(compile_report.get("status"))
@@ -458,6 +411,7 @@ class ViewerStore:
             if force:
                 self._clear_derived_asset_outputs(
                     record_id,
+                    record_dir=record_dir,
                     urdf_path=urdf_path,
                     compile_path=compile_path,
                 )
@@ -501,16 +455,10 @@ class ViewerStore:
                     validation_level=validation_level,
                     checks_run=checks_run,
                 )
-                self._update_record_compile_metadata(
-                    record_id=record_id,
-                    record=refreshed_record,
-                    model_path=model_path,
-                    urdf_path=urdf_path,
-                    provenance_path=provenance_path,
-                )
                 raise RuntimeError(f"Failed to compile assets for {record_id}: {exc}") from exc
 
             self.repo.write_text(urdf_path, compile_result.urdf_xml)
+            self._promote_local_materialization_outputs(record_id, record_dir=record_dir)
             warning_lines = [str(item) for item in compile_result.warnings]
             self._write_compile_report(
                 record_id=record_id,
@@ -521,13 +469,7 @@ class ViewerStore:
                 validation_level=validation_level,
                 checks_run=checks_run,
             )
-            materialization_status = self._update_record_compile_metadata(
-                record_id=record_id,
-                record=refreshed_record,
-                model_path=model_path,
-                urdf_path=urdf_path,
-                provenance_path=provenance_path,
-            )
+            materialization_status = self._materialization_status_for_record(record_id)
             return MaterializeRecordAssetsResult(
                 record_id=record_id,
                 status="compiled",
@@ -587,12 +529,13 @@ class ViewerStore:
         artifacts = record.get("artifacts") or {}
         record_dir = self.repo.layout.record_dir(record_id)
 
-        compile_name = artifacts.get("compile_report_json") or "compile_report.json"
-        provenance_name = artifacts.get("provenance_json") or "provenance.json"
+        compile_path = self.repo.layout.record_materialization_compile_report_path(record_id)
+        provenance_name = "provenance.json"
+        provenance_path = record_dir / provenance_name
         cost_name = artifacts.get("cost_json")
-        provenance = self.repo.read_json(record_dir / str(provenance_name))
+        provenance = self.repo.read_json(provenance_path)
         cost = self.repo.read_json(record_dir / str(cost_name)) if cost_name else None
-        materialization_status = self._materialization_status_for_record(record_id, record)
+        materialization_status = self._materialization_status_for_record(record_id)
 
         turn_count: int | None = None
         if isinstance(provenance, dict):
@@ -624,8 +567,8 @@ class ViewerStore:
             run_id=source.get("run_id"),
             collections=[str(item) for item in record.get("collections", [])],
             materialization_status=materialization_status,
-            has_compile_report=(record_dir / str(compile_name)).exists(),
-            has_provenance=(record_dir / str(provenance_name)).exists(),
+            has_compile_report=compile_path.exists(),
+            has_provenance=provenance_path.exists(),
             has_cost=(record_dir / str(cost_name)).exists() if cost_name else False,
         )
 
@@ -639,10 +582,10 @@ class ViewerStore:
             return None
         artifacts = record.get("artifacts") or {}
         record_dir = self.repo.layout.record_dir(record_id)
-        compile_name = str(artifacts.get("compile_report_json") or "compile_report.json")
-        provenance_name = str(artifacts.get("provenance_json") or "provenance.json")
+        compile_path = self.repo.layout.record_materialization_compile_report_path(record_id)
+        provenance_name = "provenance.json"
         cost_name = artifacts.get("cost_json")
-        compile_report = self.repo.read_json(record_dir / compile_name)
+        compile_report = self.repo.read_json(compile_path)
         provenance = self.repo.read_json(record_dir / provenance_name)
         cost = self.repo.read_json(record_dir / str(cost_name)) if cost_name else None
 

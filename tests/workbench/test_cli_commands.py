@@ -175,7 +175,7 @@ def test_workbench_rerun_record_command_accepts_legacy_sdk_docs_mode(
     assert "search_index=" in captured
 
 
-def test_workbench_rerun_record_command_replaces_canonical_derived_assets(
+def test_workbench_rerun_record_command_replaces_cached_materialization_outputs(
     fake_agent: None,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -227,7 +227,8 @@ def test_workbench_rerun_record_command_replaces_canonical_derived_assets(
     assert not (canonical_meshes_dir / "stale.obj").exists()
     assert not (canonical_glb_dir / "stale.glb").exists()
     assert not (canonical_viewer_dir / "stale.json").exists()
-    assert (record_dir / "assets" / "meshes" / "part.obj").exists()
+    materialization_dir = repo_root / "data" / "cache" / "record_materialization" / record_dir.name
+    assert (materialization_dir / "assets" / "meshes" / "part.obj").exists()
 
 
 def test_workbench_init_record_command(
@@ -276,8 +277,8 @@ def test_workbench_init_record_command(
     model_text = (record_dir / "model.py").read_text(encoding="utf-8")
     assert "Draft scaffold created by `articraft-workbench init-record`." in model_text
 
-    compile_report = json.loads((record_dir / "compile_report.json").read_text(encoding="utf-8"))
-    assert compile_report["status"] == "draft"
+    materialization_dir = repo_root / "data" / "cache" / "record_materialization" / record_dir.name
+    assert not (materialization_dir / "compile_report.json").exists()
 
     provenance = json.loads((record_dir / "provenance.json").read_text(encoding="utf-8"))
     assert provenance["generation"]["provider"] == "openai"

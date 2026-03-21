@@ -4,7 +4,8 @@ import hashlib
 import linecache
 import re
 import traceback
-from typing import Iterable
+from dataclasses import dataclass
+from typing import Iterable, Literal, Protocol, TypeAlias, runtime_checkable
 
 from agent.models import CompileSignal, CompileSignalBundle
 
@@ -18,6 +19,207 @@ LOFT_PROFILE_AREA_HINT = (
     "Hint: LoftGeometry checks profile area in the XY projection. "
     "Use closed loops like `(x_i, y_i, z_const)`. "
     "If you need an XZ/YZ section, author it in XY first and rotate the mesh afterward."
+)
+MAX_RISK_PATTERN = re.compile(r"max_risk=(low|medium|high)", re.IGNORECASE)
+
+SignalSeverity: TypeAlias = Literal["failure", "warning", "note"]
+SignalSource: TypeAlias = Literal["compiler", "tests", "harness"]
+SignalGroup: TypeAlias = Literal["build", "qc", "design", "hygiene"]
+CompileStatus: TypeAlias = Literal["success", "failure"]
+
+
+class TestFailureLike(Protocol):
+    name: str
+    details: str
+
+
+@runtime_checkable
+class TestReportLike(Protocol):
+    failures: tuple[TestFailureLike, ...]
+    warnings: tuple[str, ...]
+    allowances: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ParsedTextBlock:
+    text: str
+    headline: str
+    details: str
+    lower: str
+
+
+@dataclass(frozen=True, slots=True)
+class ParsedTestWarning:
+    text: str
+    headline: str
+    details: str
+    lower: str
+    check_name: str
+    detail_text: str
+    max_risk: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class SignalSpec:
+    severity: SignalSeverity
+    kind: str
+    code: str
+    source: SignalSource = "compiler"
+    group: SignalGroup = "qc"
+    blocking: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class CompilerWarningRule:
+    needle: str
+    spec: SignalSpec
+    summary: str
+
+
+COMPILER_WARNING_RULES: tuple[CompilerWarningRule, ...] = (
+    CompilerWarningRule(
+        needle="non-finite or absurd geometry dimensions detected",
+        spec=SignalSpec(
+            severity="warning",
+            kind="geometry_scale",
+            code="WARN_GEOMETRY_ABSURD",
+            group="design",
+        ),
+        summary="Non-finite or absurd geometry dimensions detected.",
+    ),
+    CompilerWarningRule(
+        needle="geometry outlier dimensions detected",
+        spec=SignalSpec(
+            severity="warning",
+            kind="geometry_scale",
+            code="WARN_GEOMETRY_OUTLIER",
+            group="design",
+        ),
+        summary="Geometry outlier dimensions detected.",
+    ),
+    CompilerWarningRule(
+        needle="visual connectivity check failed",
+        spec=SignalSpec(
+            severity="warning",
+            kind="visual_connectivity",
+            code="WARN_VISUAL_CONNECTIVITY",
+            group="design",
+        ),
+        summary="Visual connectivity check failed.",
+    ),
+    CompilerWarningRule(
+        needle="visual/collision geometry appear misaligned",
+        spec=SignalSpec(
+            severity="warning",
+            kind="visual_collision_misalignment",
+            code="WARN_VISUAL_COLLISION_MISALIGNMENT",
+            group="design",
+        ),
+        summary="Visual and collision geometry appear misaligned on some links.",
+    ),
+    CompilerWarningRule(
+        needle="geometry overlap check reported overlaps",
+        spec=SignalSpec(
+            severity="warning",
+            kind="geometry_overlap",
+            code="WARN_GEOMETRY_OVERLAP",
+        ),
+        summary="Geometry overlap check reported overlaps.",
+    ),
+    CompilerWarningRule(
+        needle="cwd-relative asset paths detected",
+        spec=SignalSpec(
+            severity="warning",
+            kind="path_hygiene",
+            code="WARN_CWD_RELATIVE_ASSET_PATH",
+            group="hygiene",
+        ),
+        summary="cwd-relative asset paths detected.",
+    ),
+)
+
+COMPILER_WARNING_FALLBACK_SPEC = SignalSpec(
+    severity="warning",
+    kind="compiler_warning",
+    code="WARN_COMPILER",
+)
+ISOLATED_PART_WARNING_SPEC = SignalSpec(
+    severity="warning",
+    kind="isolated_part",
+    code="WARN_ISOLATED_PART",
+    group="design",
+)
+TEST_FAILURE_SPEC = SignalSpec(
+    severity="failure",
+    kind="test_failure",
+    code="TEST_FAILURE",
+    source="tests",
+    group="qc",
+    blocking=True,
+)
+COPLANAR_HINT_SPEC = SignalSpec(
+    severity="note",
+    kind="coplanar_surface_hint",
+    code="NOTE_COPLANAR_SURFACE",
+    source="tests",
+    group="qc",
+)
+COPLANAR_WARNING_SPEC = SignalSpec(
+    severity="warning",
+    kind="coplanar_surface",
+    code="WARN_COPLANAR_SURFACE",
+    source="tests",
+    group="qc",
+)
+ALLOWED_OVERLAP_SPEC = SignalSpec(
+    severity="note",
+    kind="allowed_overlap",
+    code="NOTE_ALLOWED_OVERLAP",
+    source="tests",
+    group="qc",
+)
+OVERLAP_WARNING_SPEC = SignalSpec(
+    severity="warning",
+    kind="overlap_warning",
+    code="WARN_OVERLAP_SENSOR",
+    source="tests",
+    group="qc",
+)
+DISCONNECTED_GEOMETRY_SPEC = SignalSpec(
+    severity="warning",
+    kind="disconnected_geometry",
+    code="WARN_DISCONNECTED_GEOMETRY",
+    source="tests",
+    group="qc",
+)
+ARTICULATION_ORIGIN_SPEC = SignalSpec(
+    severity="warning",
+    kind="articulation_origin",
+    code="WARN_ARTICULATION_ORIGIN",
+    source="tests",
+    group="qc",
+)
+TEST_WARNING_FALLBACK_SPEC = SignalSpec(
+    severity="warning",
+    kind="test_warning",
+    code="TEST_WARNING",
+    source="tests",
+    group="qc",
+)
+ALLOWANCE_SPEC = SignalSpec(
+    severity="note",
+    kind="allowance",
+    code="ALLOWANCE",
+    source="tests",
+    group="qc",
+)
+COMPILE_RUNTIME_SPEC = SignalSpec(
+    severity="failure",
+    kind="compile_runtime",
+    code="COMPILE_RUNTIME_FAILURE",
+    source="compiler",
+    group="build",
+    blocking=True,
 )
 
 
@@ -89,16 +291,38 @@ def _exception_location_lines(exc: BaseException) -> list[str]:
     return lines
 
 
+def _parse_text_block(text: str) -> ParsedTextBlock:
+    lines = text.splitlines()
+    headline = lines[0] if lines else ""
+    details = "\n".join(lines[1:]).strip()
+    return ParsedTextBlock(text=text, headline=headline, details=details, lower=text.lower())
+
+
+def _parse_test_warning(text: str) -> ParsedTestWarning:
+    parsed = _parse_text_block(text)
+    check_name, has_separator, detail_text = parsed.text.partition(":")
+    max_risk_match = MAX_RISK_PATTERN.search(parsed.text)
+    return ParsedTestWarning(
+        text=parsed.text,
+        headline=parsed.headline,
+        details=parsed.details,
+        lower=parsed.lower,
+        check_name=check_name.strip(),
+        detail_text=detail_text.lstrip() if has_separator else "",
+        max_risk=(max_risk_match.group(1).lower() if max_risk_match is not None else None),
+    )
+
+
 def _make_signal(
     *,
-    severity: str,
+    severity: SignalSeverity,
     kind: str,
     code: str,
     summary: str,
     details: str = "",
     blocking: bool = False,
-    source: str = "compiler",
-    group: str = "qc",
+    source: SignalSource = "compiler",
+    group: SignalGroup = "qc",
     check_name: str | None = None,
 ) -> CompileSignal:
     sig_src = "\n".join(
@@ -115,283 +339,234 @@ def _make_signal(
         ]
     ).encode("utf-8")
     return CompileSignal(
-        severity=severity,  # type: ignore[arg-type]
+        severity=severity,
         kind=kind,
         code=code,
         summary=summary,
         details=details,
         blocking=blocking,
-        source=source,  # type: ignore[arg-type]
-        group=group,  # type: ignore[arg-type]
+        source=source,
+        group=group,
         check_name=check_name,
         dedupe_key=hashlib.sha1(sig_src).hexdigest(),
     )
 
 
-def _warning_signal_from_text(warning: str) -> CompileSignal:
-    text = str(warning).strip()
-    if not text:
-        return _make_signal(
-            severity="warning",
-            kind="compiler_warning",
-            code="WARN_COMPILER",
-            summary="Compiler emitted a warning.",
-        )
-
-    lines = text.splitlines()
-    headline = lines[0]
-    details = "\n".join(lines[1:]).strip()
-
-    if "non-finite or absurd geometry dimensions detected" in text:
-        return _make_signal(
-            severity="warning",
-            kind="geometry_scale",
-            code="WARN_GEOMETRY_ABSURD",
-            summary="Non-finite or absurd geometry dimensions detected.",
-            details=details,
-            group="design",
-        )
-    if "geometry outlier dimensions detected" in text:
-        return _make_signal(
-            severity="warning",
-            kind="geometry_scale",
-            code="WARN_GEOMETRY_OUTLIER",
-            summary="Geometry outlier dimensions detected.",
-            details=details,
-            group="design",
-        )
-    if "visual connectivity check failed" in text:
-        return _make_signal(
-            severity="warning",
-            kind="visual_connectivity",
-            code="WARN_VISUAL_CONNECTIVITY",
-            summary="Visual connectivity check failed.",
-            details=details,
-            group="design",
-        )
-    if "visual/collision geometry appear misaligned" in text:
-        return _make_signal(
-            severity="warning",
-            kind="visual_collision_misalignment",
-            code="WARN_VISUAL_COLLISION_MISALIGNMENT",
-            summary="Visual and collision geometry appear misaligned on some links.",
-            details=details,
-            group="design",
-        )
-    if "isolated parts detected" in text:
-        summary = "Isolated parts detected."
-        if "(visual" in headline or "(visual," in headline:
-            summary = "Isolated visual parts detected."
-        elif "(collision" in headline or "(collision," in headline:
-            summary = "Isolated collision parts detected."
-        return _make_signal(
-            severity="warning",
-            kind="isolated_part",
-            code="WARN_ISOLATED_PART",
-            summary=summary,
-            details=details,
-            group="design",
-        )
-    if "geometry overlap check reported overlaps" in text:
-        return _make_signal(
-            severity="warning",
-            kind="geometry_overlap",
-            code="WARN_GEOMETRY_OVERLAP",
-            summary="Geometry overlap check reported overlaps.",
-            details=details,
-            group="qc",
-        )
-    if "cwd-relative asset paths detected" in text:
-        return _make_signal(
-            severity="warning",
-            kind="path_hygiene",
-            code="WARN_CWD_RELATIVE_ASSET_PATH",
-            summary="cwd-relative asset paths detected.",
-            details=details,
-            group="hygiene",
-        )
+def _signal_from_spec(
+    spec: SignalSpec,
+    *,
+    summary: str,
+    details: str = "",
+    check_name: str | None = None,
+) -> CompileSignal:
     return _make_signal(
-        severity="warning",
-        kind="compiler_warning",
-        code="WARN_COMPILER",
-        summary=headline.replace("IMPORTANT: ", "").strip(),
+        severity=spec.severity,
+        kind=spec.kind,
+        code=spec.code,
+        summary=summary,
         details=details,
+        blocking=spec.blocking,
+        source=spec.source,
+        group=spec.group,
+        check_name=check_name,
     )
 
 
-def _iter_test_failures(test_report: object | None) -> Iterable[CompileSignal]:
-    failures = getattr(test_report, "failures", None)
-    if not isinstance(failures, tuple):
+def _isolated_part_summary(headline: str) -> str:
+    summary = "Isolated parts detected."
+    if "(visual" in headline or "(visual," in headline:
+        return "Isolated visual parts detected."
+    if "(collision" in headline or "(collision," in headline:
+        return "Isolated collision parts detected."
+    return summary
+
+
+def _warning_signal_from_text(warning: str) -> CompileSignal:
+    text = str(warning).strip()
+    if not text:
+        return _signal_from_spec(
+            COMPILER_WARNING_FALLBACK_SPEC,
+            summary="Compiler emitted a warning.",
+        )
+
+    parsed = _parse_text_block(text)
+    if "isolated parts detected" in parsed.text:
+        return _signal_from_spec(
+            ISOLATED_PART_WARNING_SPEC,
+            summary=_isolated_part_summary(parsed.headline),
+            details=parsed.details,
+        )
+
+    for rule in COMPILER_WARNING_RULES:
+        if rule.needle in parsed.text:
+            return _signal_from_spec(
+                rule.spec,
+                summary=rule.summary,
+                details=parsed.details,
+            )
+
+    return _signal_from_spec(
+        COMPILER_WARNING_FALLBACK_SPEC,
+        summary=parsed.headline.replace("IMPORTANT: ", "").strip(),
+        details=parsed.details,
+    )
+
+
+def _as_test_report(test_report: object | None) -> TestReportLike | None:
+    if test_report is None or not isinstance(test_report, TestReportLike):
+        return None
+    if not isinstance(test_report.failures, tuple):
+        return None
+    if not isinstance(test_report.warnings, tuple):
+        return None
+    if not isinstance(test_report.allowances, tuple):
+        return None
+    return test_report
+
+
+def _iter_test_failures(test_report: TestReportLike | None) -> Iterable[CompileSignal]:
+    if test_report is None:
         return ()
 
     signals: list[CompileSignal] = []
-    for failure in failures:
-        name = str(getattr(failure, "name", "unknown"))
-        details = str(getattr(failure, "details", "")).strip()
+    for failure in test_report.failures:
         signals.append(
-            _make_signal(
-                severity="failure",
-                kind="test_failure",
-                code="TEST_FAILURE",
-                summary=name,
-                details=details,
-                blocking=True,
-                source="tests",
-                group="qc",
-                check_name=name,
+            _signal_from_spec(
+                TEST_FAILURE_SPEC,
+                summary=str(failure.name),
+                details=str(failure.details).strip(),
+                check_name=str(failure.name),
             )
         )
     return signals
 
 
-def _iter_test_warnings(test_report: object | None) -> Iterable[CompileSignal]:
-    warnings = getattr(test_report, "warnings", None)
-    if not isinstance(warnings, tuple):
+def _coplanar_signal(parsed: ParsedTestWarning) -> CompileSignal | None:
+    if "coplanar" not in parsed.lower:
+        return None
+    max_risk = parsed.max_risk or "medium"
+    if max_risk == "low":
+        return _signal_from_spec(
+            COPLANAR_HINT_SPEC,
+            summary="Low-confidence coplanar-surface hint.",
+            details=parsed.text,
+        )
+    return _signal_from_spec(
+        COPLANAR_WARNING_SPEC,
+        summary=f"Coplanar-surface heuristic reported {max_risk}-risk pair(s).",
+        details=parsed.text,
+    )
+
+
+def _allowed_overlap_signal(parsed: ParsedTestWarning) -> CompileSignal | None:
+    if not parsed.lower.startswith("overlaps detected but allowed by justification"):
+        return None
+    return _signal_from_spec(
+        ALLOWED_OVERLAP_SPEC,
+        summary="Overlap findings were allowed by justification.",
+        details=parsed.text,
+    )
+
+
+def _overlap_warning_signal(parsed: ParsedTestWarning) -> CompileSignal | None:
+    if not parsed.check_name.startswith("warn_if_overlaps("):
+        return None
+    summary = "Broad overlap sensor reported overlap pair(s)."
+    if parsed.detail_text and "overlaps detected" not in parsed.detail_text.lower():
+        summary = "Broad overlap sensor reported a warning."
+    return _signal_from_spec(
+        OVERLAP_WARNING_SPEC,
+        summary=summary,
+        details=parsed.text,
+        check_name=parsed.check_name,
+    )
+
+
+def _disconnected_geometry_signal(parsed: ParsedTestWarning) -> CompileSignal | None:
+    if not parsed.check_name.startswith("warn_if_part_geometry_connected("):
+        return None
+    summary = "Disconnected geometry islands detected within a part."
+    if (
+        parsed.detail_text
+        and "disconnected geometry islands detected" not in parsed.detail_text.lower()
+    ):
+        summary = "Part-geometry connectivity sensor reported a warning."
+    return _signal_from_spec(
+        DISCONNECTED_GEOMETRY_SPEC,
+        summary=summary,
+        details=parsed.text,
+        check_name=parsed.check_name,
+    )
+
+
+def _articulation_origin_signal(parsed: ParsedTestWarning) -> CompileSignal | None:
+    if not parsed.check_name.startswith(
+        (
+            "warn_if_articulation_origin_near_geometry(",
+            "warn_if_joint_origin_near_geometry(",
+        )
+    ):
+        return None
+    summary = "Articulation-origin heuristic reported distant joint origins."
+    if parsed.detail_text and "far from geometry" not in parsed.detail_text.lower():
+        summary = "Articulation-origin heuristic reported a warning."
+    return _signal_from_spec(
+        ARTICULATION_ORIGIN_SPEC,
+        summary=summary,
+        details=parsed.text,
+        check_name=parsed.check_name,
+    )
+
+
+def _generic_test_warning_signal(parsed: ParsedTestWarning) -> CompileSignal:
+    return _signal_from_spec(
+        TEST_WARNING_FALLBACK_SPEC,
+        summary=parsed.headline,
+        details=parsed.details,
+    )
+
+
+def _warning_signal_from_test_text(text: str) -> CompileSignal:
+    parsed = _parse_test_warning(text)
+    for classifier in (
+        _coplanar_signal,
+        _allowed_overlap_signal,
+        _overlap_warning_signal,
+        _disconnected_geometry_signal,
+        _articulation_origin_signal,
+    ):
+        signal = classifier(parsed)
+        if signal is not None:
+            return signal
+    return _generic_test_warning_signal(parsed)
+
+
+def _iter_test_warnings(test_report: TestReportLike | None) -> Iterable[CompileSignal]:
+    if test_report is None:
         return ()
+
     signals: list[CompileSignal] = []
-    for warning in warnings:
+    for warning in test_report.warnings:
         text = str(warning).strip()
         if not text:
             continue
-        lower = text.lower()
-        if "coplanar" in lower:
-            max_risk = "medium"
-            risk_match = re.search(r"max_risk=(low|medium|high)", text, re.IGNORECASE)
-            if risk_match is not None:
-                max_risk = risk_match.group(1).lower()
-            if max_risk == "low":
-                signals.append(
-                    _make_signal(
-                        severity="note",
-                        kind="coplanar_surface_hint",
-                        code="NOTE_COPLANAR_SURFACE",
-                        summary="Low-confidence coplanar-surface hint.",
-                        details=text,
-                        source="tests",
-                        group="qc",
-                    )
-                )
-                continue
-            signals.append(
-                _make_signal(
-                    severity="warning",
-                    kind="coplanar_surface",
-                    code="WARN_COPLANAR_SURFACE",
-                    summary=f"Coplanar-surface heuristic reported {max_risk}-risk pair(s).",
-                    details=text,
-                    source="tests",
-                    group="qc",
-                )
-            )
-            continue
-        if lower.startswith("overlaps detected but allowed by justification"):
-            signals.append(
-                _make_signal(
-                    severity="note",
-                    kind="allowed_overlap",
-                    code="NOTE_ALLOWED_OVERLAP",
-                    summary="Overlap findings were allowed by justification.",
-                    details=text,
-                    source="tests",
-                    group="qc",
-                )
-            )
-            continue
-
-        check_name, has_separator, detail_text = text.partition(":")
-        check_name = check_name.strip()
-        detail_text = detail_text.lstrip() if has_separator else ""
-
-        if check_name.startswith("warn_if_overlaps("):
-            summary = "Broad overlap sensor reported overlap pair(s)."
-            if detail_text and "overlaps detected" not in detail_text.lower():
-                summary = "Broad overlap sensor reported a warning."
-            signals.append(
-                _make_signal(
-                    severity="warning",
-                    kind="overlap_warning",
-                    code="WARN_OVERLAP_SENSOR",
-                    summary=summary,
-                    details=text,
-                    source="tests",
-                    group="qc",
-                    check_name=check_name,
-                )
-            )
-            continue
-
-        if check_name.startswith("warn_if_part_geometry_connected("):
-            summary = "Disconnected geometry islands detected within a part."
-            if detail_text and "disconnected geometry islands detected" not in detail_text.lower():
-                summary = "Part-geometry connectivity sensor reported a warning."
-            signals.append(
-                _make_signal(
-                    severity="warning",
-                    kind="disconnected_geometry",
-                    code="WARN_DISCONNECTED_GEOMETRY",
-                    summary=summary,
-                    details=text,
-                    source="tests",
-                    group="qc",
-                    check_name=check_name,
-                )
-            )
-            continue
-
-        if check_name.startswith(
-            (
-                "warn_if_articulation_origin_near_geometry(",
-                "warn_if_joint_origin_near_geometry(",
-            )
-        ):
-            summary = "Articulation-origin heuristic reported distant joint origins."
-            if detail_text and "far from geometry" not in detail_text.lower():
-                summary = "Articulation-origin heuristic reported a warning."
-            signals.append(
-                _make_signal(
-                    severity="warning",
-                    kind="articulation_origin",
-                    code="WARN_ARTICULATION_ORIGIN",
-                    summary=summary,
-                    details=text,
-                    source="tests",
-                    group="qc",
-                    check_name=check_name,
-                )
-            )
-            continue
-
-        signals.append(
-            _make_signal(
-                severity="warning",
-                kind="test_warning",
-                code="TEST_WARNING",
-                summary=text.splitlines()[0],
-                details="\n".join(text.splitlines()[1:]).strip(),
-                source="tests",
-                group="qc",
-            )
-        )
+        signals.append(_warning_signal_from_test_text(text))
     return signals
 
 
-def _iter_allowance_notes(test_report: object | None) -> Iterable[CompileSignal]:
-    allowances = getattr(test_report, "allowances", None)
-    if not isinstance(allowances, tuple):
+def _iter_allowance_notes(test_report: TestReportLike | None) -> Iterable[CompileSignal]:
+    if test_report is None:
         return ()
+
     signals: list[CompileSignal] = []
-    for allowance in allowances:
+    for allowance in test_report.allowances:
         text = str(allowance).strip()
         if not text:
             continue
         signals.append(
-            _make_signal(
-                severity="note",
-                kind="allowance",
-                code="ALLOWANCE",
+            _signal_from_spec(
+                ALLOWANCE_SPEC,
                 summary=text,
-                source="tests",
-                group="qc",
             )
         )
     return signals
@@ -405,72 +580,72 @@ def _runtime_failure_signal(exc: BaseException) -> CompileSignal:
         first = detail_lines[0]
         if first:
             summary = f"{type(exc).__name__}: {first}"
-    return _make_signal(
-        severity="failure",
-        kind="compile_runtime",
-        code="COMPILE_RUNTIME_FAILURE",
+    return _signal_from_spec(
+        COMPILE_RUNTIME_SPEC,
         summary=summary,
         details="\n".join(detail_lines),
-        blocking=True,
-        source="compiler",
-        group="build",
     )
 
 
-def build_compile_signal_bundle(
-    *,
-    status: str,
-    warnings: Iterable[str] = (),
-    test_report: object | None = None,
-    exc: BaseException | None = None,
-) -> CompileSignalBundle:
-    deduped: dict[str, CompileSignal] = {}
+def _signal_key(signal: CompileSignal) -> str:
+    return signal.dedupe_key or signal.summary
 
-    for warning in warnings:
-        signal = _warning_signal_from_text(str(warning))
-        deduped[signal.dedupe_key or signal.summary] = signal
 
-    for signal in _iter_test_warnings(test_report):
-        deduped[signal.dedupe_key or signal.summary] = signal
-
-    for signal in _iter_allowance_notes(test_report):
-        deduped[signal.dedupe_key or signal.summary] = signal
-
-    failure_signals = list(_iter_test_failures(test_report))
-    if failure_signals:
-        for signal in failure_signals:
-            deduped[signal.dedupe_key or signal.summary] = signal
-    elif exc is not None:
-        runtime_signal = _runtime_failure_signal(exc)
-        deduped[runtime_signal.dedupe_key or runtime_signal.summary] = runtime_signal
-
-    signals = tuple(deduped.values())
+def _build_bundle_summary(status: CompileStatus, signals: tuple[CompileSignal, ...]) -> str:
     failure_count = sum(1 for signal in signals if signal.severity == "failure")
     warning_count = sum(1 for signal in signals if signal.severity == "warning")
     note_count = sum(1 for signal in signals if signal.severity == "note")
 
     if failure_count:
         if any(signal.kind == "test_failure" for signal in signals):
-            summary = (
+            return (
                 f"status={status} failures={failure_count} warnings={warning_count} notes={note_count}\n"
                 "Primary issue: required QC tests failed."
             )
-        else:
-            summary = (
-                f"status={status} failures={failure_count} warnings={warning_count} notes={note_count}\n"
-                "Primary issue: compile execution failed."
-            )
-    elif warning_count:
-        summary = (
+        return (
+            f"status={status} failures={failure_count} warnings={warning_count} notes={note_count}\n"
+            "Primary issue: compile execution failed."
+        )
+    if warning_count:
+        return (
             f"status={status} failures=0 warnings={warning_count} notes={note_count}\n"
             "Primary issue: compile passed with warnings."
         )
-    else:
-        summary = (
-            f"status={status} failures=0 warnings=0 notes={note_count}\nCompile passed cleanly."
-        )
+    return f"status={status} failures=0 warnings=0 notes={note_count}\nCompile passed cleanly."
 
-    return CompileSignalBundle(status=status, summary=summary, signals=signals)  # type: ignore[arg-type]
+
+def build_compile_signal_bundle(
+    *,
+    status: CompileStatus,
+    warnings: Iterable[str] = (),
+    test_report: TestReportLike | None = None,
+    exc: BaseException | None = None,
+) -> CompileSignalBundle:
+    deduped: dict[str, CompileSignal] = {}
+    normalized_test_report = _as_test_report(test_report)
+
+    for warning in warnings:
+        signal = _warning_signal_from_text(str(warning))
+        deduped[_signal_key(signal)] = signal
+
+    for signal in _iter_test_warnings(normalized_test_report):
+        deduped[_signal_key(signal)] = signal
+
+    for signal in _iter_allowance_notes(normalized_test_report):
+        deduped[_signal_key(signal)] = signal
+
+    failure_signals = list(_iter_test_failures(normalized_test_report))
+    if failure_signals:
+        for signal in failure_signals:
+            deduped[_signal_key(signal)] = signal
+    elif exc is not None:
+        runtime_signal = _runtime_failure_signal(exc)
+        deduped[_signal_key(runtime_signal)] = runtime_signal
+
+    signals = tuple(deduped.values())
+    summary = _build_bundle_summary(status, signals)
+
+    return CompileSignalBundle(status=status, summary=summary, signals=signals)
 
 
 def compile_signal_bundle_from_exception(exc: BaseException) -> CompileSignalBundle:
@@ -483,7 +658,7 @@ def compile_signal_bundle_from_exception(exc: BaseException) -> CompileSignalBun
     return build_compile_signal_bundle(
         status="failure",
         warnings=warning_items,
-        test_report=test_report,
+        test_report=_as_test_report(test_report),
         exc=exc,
     )
 

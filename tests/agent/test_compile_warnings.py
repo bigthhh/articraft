@@ -158,6 +158,63 @@ def test_compile_signal_bundle_downgrades_low_risk_coplanar_warning_to_note() ->
     assert signal.summary == "Low-confidence coplanar-surface hint."
 
 
+def test_compile_signal_bundle_unknown_compiler_warning_uses_fallback() -> None:
+    bundle = build_compile_signal_bundle(
+        status="success",
+        warnings=[
+            "IMPORTANT: URDF compile warning (non-blocking): custom compiler warning\nextra details"
+        ],
+    )
+
+    signal = next(signal for signal in bundle.signals if signal.kind == "compiler_warning")
+    assert signal.code == "WARN_COMPILER"
+    assert signal.summary == "URDF compile warning (non-blocking): custom compiler warning"
+    assert signal.details == "extra details"
+
+
+def test_compile_signal_bundle_unknown_test_warning_uses_fallback() -> None:
+    bundle = build_compile_signal_bundle(
+        status="success",
+        test_report=SDKTestReport(
+            passed=True,
+            checks_run=1,
+            checks=("custom_check",),
+            failures=(),
+            warnings=("custom test warning\nextra context",),
+            allowances=(),
+        ),
+    )
+
+    signal = next(signal for signal in bundle.signals if signal.kind == "test_warning")
+    assert signal.code == "TEST_WARNING"
+    assert signal.summary == "custom test warning"
+    assert signal.details == "extra context"
+
+
+def test_runtime_error_failure_omits_location_lines() -> None:
+    bundle = build_compile_signal_bundle(
+        status="failure",
+        exc=RuntimeError("ValueError: bad loft"),
+    )
+
+    signal = next(signal for signal in bundle.signals if signal.kind == "compile_runtime")
+    assert "Location:" not in signal.details
+    assert "Code:" not in signal.details
+
+
+def test_compile_signal_bundle_accepts_protocol_shaped_test_report() -> None:
+    report = SimpleNamespace(
+        failures=(),
+        warnings=("custom protocol warning",),
+        allowances=("allow_overlap('door', 'frame'): hinge nesting",),
+    )
+
+    bundle = build_compile_signal_bundle(status="success", test_report=report)
+
+    assert any(signal.kind == "test_warning" for signal in bundle.signals)
+    assert any(signal.kind == "allowance" for signal in bundle.signals)
+
+
 def test_harness_injects_structured_compile_signals() -> None:
     agent = ArticraftAgent.__new__(ArticraftAgent)
     agent._seen_compile_signal_sigs = set()

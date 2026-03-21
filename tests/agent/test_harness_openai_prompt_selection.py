@@ -86,7 +86,8 @@ def test_openai_prompt_resolution_and_payload_preview() -> None:
     assert "silhouette-critical visible forms" in instructions
     assert "If the real object should be hollow, thin-walled, or cavity-bearing" in instructions
     assert "Do not omit important internal structures" in instructions
-    assert payload["prompt_cache_key"].startswith("articraft-v1:")
+    assert payload["prompt_cache_key"].startswith("ac1:")
+    assert len(payload["prompt_cache_key"]) <= 64
     assert payload["prompt_cache_retention"] == "24h"
     assert "## sdk/_docs/common/00_quickstart.md" in docs_message
     assert "## sdk/_docs/common/80_testing.md" in docs_message
@@ -186,7 +187,19 @@ def test_openai_prompt_cache_retention_can_be_disabled_by_env(
     payload = _build_openai_preview()
 
     assert "prompt_cache_retention" not in payload
-    assert payload["prompt_cache_key"].startswith("articraft-v1:")
+    assert payload["prompt_cache_key"].startswith("ac1:")
+    assert len(payload["prompt_cache_key"]) <= 64
+
+
+def test_openai_prompt_cache_key_stays_within_length_limit_with_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENAI_PROMPT_CACHE_KEY_PREFIX", "workspace/very-long-prefix-value")
+
+    payload = _build_openai_preview()
+
+    assert payload["prompt_cache_key"].startswith("ac1:")
+    assert len(payload["prompt_cache_key"]) <= 64
 
 
 def test_gemini_prompt_resolution_and_payload_preview() -> None:

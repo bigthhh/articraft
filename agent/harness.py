@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import json
 import logging
@@ -70,6 +71,11 @@ def _sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _short_cache_digest(text: str) -> str:
+    digest = hashlib.sha256(text.encode("utf-8")).digest()
+    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+
+
 def _canonical_json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
@@ -133,10 +139,15 @@ def build_openai_prompt_cache_settings(
         "sdk_docs_sha256": _sha256_text(sdk_docs_context),
         "tool_schema_sha256": _sha256_text(_canonical_json(tools)),
     }
-    digest = _sha256_text(_canonical_json(key_payload))
-    key = f"articraft-v1:{digest}"
-    if prefix:
-        key = f"{prefix}:{key}"
+    digest = _short_cache_digest(_canonical_json(key_payload))
+    visible_prefix = "".join(
+        ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in prefix
+    ).strip("-_")[:16]
+    key = f"ac1:{digest}"
+    if visible_prefix:
+        key = f"ac1:{visible_prefix}:{digest}"
+    if len(key) > 64:
+        key = f"ac1:{digest}"
 
     logger.info(
         "OpenAI prompt caching enabled (strategy=%s, retention=%s, prefix=%s)",

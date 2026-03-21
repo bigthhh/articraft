@@ -194,6 +194,59 @@ def test_compile_urdf_report_does_not_ignore_non_geometry_failures(tmp_path: Pat
         compile_urdf_report(script_path, ignore_geom_qc=True)
 
 
+def test_compile_urdf_report_rejects_base_sdk_imports_for_hybrid_runs(tmp_path: Path) -> None:
+    script_path = tmp_path / "model.py"
+    script_path.write_text(
+        "\n".join(
+            [
+                "from __future__ import annotations",
+                "",
+                "from sdk import ArticulatedObject, Box, Origin",
+                "",
+                "object_model = ArticulatedObject(name='wrong_sdk')",
+                "base = object_model.part('base')",
+                "base.visual(Box((0.1, 0.1, 0.1)), origin=Origin(xyz=(0.0, 0.0, 0.05)))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="import from `sdk_hybrid`, not `sdk`"):
+        compile_urdf_report(script_path, sdk_package="sdk_hybrid", run_checks=False)
+
+
+def test_compile_urdf_report_runs_hybrid_dependency_preflight_before_execution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script_path = tmp_path / "model.py"
+    marker_path = tmp_path / "executed.txt"
+    script_path.write_text(
+        "\n".join(
+            [
+                "from __future__ import annotations",
+                "",
+                f"open({marker_path!r}, 'w', encoding='utf-8').write('ran')",
+                "object_model = None",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    def fail_preflight() -> None:
+        raise RuntimeError(
+            "`sdk_hybrid` requires the `cadquery` package, but it is not installed in the current environment. "
+            "Run `uv sync --group dev` from the repository root, then retry."
+        )
+
+    monkeypatch.setattr("agent.compiler.ensure_sdk_hybrid_dependencies", fail_preflight)
+
+    with pytest.raises(RuntimeError, match="`cadquery` package"):
+        compile_urdf_report(script_path, sdk_package="sdk_hybrid", run_checks=False)
+
+    assert not marker_path.exists()
+
+
 def test_compile_urdf_report_visual_target_skips_generated_collisions(tmp_path: Path) -> None:
     script_path = tmp_path / "model.py"
     script_path.write_text(

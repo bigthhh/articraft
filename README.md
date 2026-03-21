@@ -72,12 +72,6 @@ If you want the full artifact path instead, including collision geometry, use:
 just compile-all
 ```
 
-If you want the slower validation-heavy variant of the full path, use:
-
-```bash
-just compile-all-strict
-```
-
 Then open the viewer:
 
 ```bash
@@ -184,7 +178,6 @@ Bulk compile variants:
 ```bash
 just compile-all-visual
 just compile-all
-just compile-all-strict
 just force-compile-all-visual
 just force-compile-all
 ```

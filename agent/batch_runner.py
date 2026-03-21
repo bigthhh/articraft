@@ -13,26 +13,27 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 from rich.console import Console
 
-from agent.harness import ArticraftAgent
 from agent.runner import (
     _build_prompt_with_qc,
     _build_single_run_context,
-    _default_model_id,
+    _execute_single_run,
     _relative_to_repo,
     _timestamp_token,
-    _write_success_record,
-    compile_urdf_report_maybe_timeout,
 )
 from agent.tools import build_initial_user_content
 from agent.tui.batch_run import BatchRunDisplay
 from storage.batch_specs import BatchSpecStore
 from storage.categories import CategoryStore
 from storage.collections import CollectionStore
-from storage.dataset_workflow import next_dataset_id, upsert_category_metadata
+from storage.dataset_workflow import (
+    next_dataset_id,
+    parse_canonical_dataset_sequence,
+    reconcile_category_metadata,
+)
 from storage.datasets import DatasetStore
 from storage.models import RunRecord
 from storage.queries import StorageQueries
@@ -191,6 +192,7 @@ class PauseController:
         pause_file: Path | None,
         poll_seconds: float,
         keyboard_enabled: bool,
+        on_state_change: Callable[[bool, str], None] | None = None,
     ) -> None:
         self.pause_file = pause_file
         self.poll_seconds = max(0.1, float(poll_seconds))
@@ -199,6 +201,7 @@ class PauseController:
         self._resume_event.set()
         self._stop_event = asyncio.Event()
         self._keyboard_enabled = keyboard_enabled
+        self._on_state_change = on_state_change
         self._keyboard_stop = threading.Event()
         self._keyboard_thread: threading.Thread | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -217,6 +220,8 @@ class PauseController:
         else:
             self._resume_event.set()
             logger.info("Batch pause cleared (%s).", reason)
+        if self._on_state_change is not None:
+            self._on_state_change(paused, reason)
 
     async def watch(self) -> None:
         if self.pause_file is None:
@@ -739,6 +744,63 @@ class BatchRowOutcome:
     model_id: str
 
 
+def _load_persisted_batch_row_outcome(
+    repo: StorageRepo,
+    *,
+    run_id: str,
+    batch_spec_id: str,
+    row: BatchRowSpec,
+    allocation: BatchRowAllocation,
+) -> BatchRowOutcome | None:
+    record = repo.read_json(repo.layout.record_metadata_path(allocation.record_id))
+    if not isinstance(record, dict):
+        return None
+    source = record.get("source")
+    if not isinstance(source, dict):
+        return None
+    if str(source.get("run_id") or "") != run_id:
+        return None
+    if str(source.get("batch_spec_id") or "") != batch_spec_id:
+        return None
+    if str(source.get("row_id") or "") != row.row_id:
+        return None
+    prompt_index = source.get("prompt_index")
+    if isinstance(prompt_index, int) and prompt_index != allocation.prompt_index:
+        return None
+
+    dataset_entry = repo.read_json(repo.layout.record_dataset_entry_path(allocation.record_id))
+    if not isinstance(dataset_entry, dict):
+        return None
+    if str(dataset_entry.get("dataset_id") or "") != allocation.dataset_id:
+        return None
+    if str(dataset_entry.get("category_slug") or "") != row.category_slug:
+        return None
+
+    provenance = repo.read_json(
+        repo.layout.record_dir(allocation.record_id) / "provenance.json", default={}
+    )
+    run_summary = provenance.get("run_summary") if isinstance(provenance, dict) else None
+    turn_count = run_summary.get("turn_count") if isinstance(run_summary, dict) else None
+    tool_call_count = run_summary.get("tool_call_count") if isinstance(run_summary, dict) else None
+    compile_attempt_count = (
+        run_summary.get("compile_attempt_count") if isinstance(run_summary, dict) else None
+    )
+
+    return BatchRowOutcome(
+        row_id=row.row_id,
+        success=True,
+        message=None,
+        turn_count=turn_count if isinstance(turn_count, int) else None,
+        tool_call_count=tool_call_count if isinstance(tool_call_count, int) else None,
+        compile_attempt_count=compile_attempt_count
+        if isinstance(compile_attempt_count, int)
+        else None,
+        record_dir=repo.layout.record_dir(allocation.record_id),
+        staging_dir=repo.layout.run_staging_dir(run_id) / allocation.record_id,
+        model_id=str(record.get("model_id") or row.model_id),
+    )
+
+
 async def _run_batch_row(
     *,
     config: BatchRunConfig,
@@ -784,162 +846,108 @@ async def _run_batch_row(
         )
         await _write_run_metadata(RunStore(repo), config=config, status="running")
 
-    actual_model_id = _default_model_id(
+    outcome = await _execute_single_run(
+        user_content,
+        prompt_text=prompt_with_qc,
+        display_prompt=row.prompt,
+        resolved_repo_root=config.repo_root,
+        storage_repo=repo,
+        record_store=RecordStore(repo),
+        collections=CollectionStore(repo),
+        datasets=DatasetStore(repo),
+        run_store=RunStore(repo),
+        image_path=None,
         provider=row.provider,
         model_id=row.model_id,
-        thinking_level=row.thinking_level,
         openai_transport="http",
+        thinking_level=row.thinking_level,
+        max_turns=row.max_turns,
+        system_prompt_path=config.system_prompt_path,
+        display_enabled=False,
+        on_turn_start=lambda turn: display.update_run_progress(context.record_id, turn, 0.0),
+        sdk_package=row.sdk_package,
+        sdk_docs_mode=config.sdk_docs_mode,
         openai_reasoning_summary="auto",
+        label=row.label,
+        tags=[],
+        collection="dataset",
+        category_slug=row.category_slug,
+        dataset_id=allocation.dataset_id,
+        run_mode="dataset_batch",
+        context=context,
+        persist_run_metadata=False,
+        persist_run_result=False,
+        update_dataset_manifest=False,
+        reconcile_category_after_success=False,
+        cleanup_staging_dir=True,
+        batch_spec_id=config.batch_spec_id,
+        row_id=row.row_id,
+        prompt_index=allocation.prompt_index,
     )
-    loaded_system_prompt_path = config.system_prompt_path
-    try:
-        async with ArticraftAgent(
-            file_path=str(context.script_path),
-            provider=row.provider,
-            model_id=row.model_id,
-            thinking_level=row.thinking_level,
-            max_turns=row.max_turns,
-            system_prompt_path=config.system_prompt_path,
-            trace_dir=str(context.trace_dir),
-            display_enabled=False,
-            on_turn_start=lambda turn: display.update_run_progress(context.record_id, turn, 0.0),
-            checkpoint_urdf_path=context.checkpoint_urdf_path,
-            sdk_package=row.sdk_package,
-            sdk_docs_mode=config.sdk_docs_mode,
-            openai_reasoning_summary="auto",
-        ) as agent:
-            loaded_system_prompt_path = agent.loaded_system_prompt_path
-            actual_model_id = agent.llm.model_id
-            result = await agent.run(user_content)
-    except Exception as exc:
-        return BatchRowOutcome(
-            row_id=row.row_id,
-            success=False,
-            message=f"Runtime error: {exc}",
-            turn_count=None,
-            tool_call_count=None,
-            compile_attempt_count=None,
-            record_dir=None,
-            staging_dir=context.staging_dir,
-            model_id=actual_model_id,
-        )
-
-    if not result.success:
-        return BatchRowOutcome(
-            row_id=row.row_id,
-            success=False,
-            message=result.message,
-            turn_count=result.turn_count,
-            tool_call_count=result.tool_call_count,
-            compile_attempt_count=result.compile_attempt_count,
-            record_dir=None,
-            staging_dir=context.staging_dir,
-            model_id=actual_model_id,
-        )
-
-    if result.urdf_xml is not None:
-        urdf_xml = result.urdf_xml
-        compile_warnings = list(result.compile_warnings)
-    else:
-        try:
-            report = await asyncio.to_thread(
-                compile_urdf_report_maybe_timeout,
-                context.script_path,
-                sdk_package=row.sdk_package,
-            )
-        except Exception as exc:
-            return BatchRowOutcome(
-                row_id=row.row_id,
-                success=False,
-                message=f"Failed to compile URDF: {exc}",
-                turn_count=result.turn_count,
-                tool_call_count=result.tool_call_count,
-                compile_attempt_count=result.compile_attempt_count,
-                record_dir=None,
-                staging_dir=context.staging_dir,
-                model_id=actual_model_id,
-            )
-        urdf_xml = report.urdf_xml
-        compile_warnings = list(report.warnings)
-
-    final_code = result.final_code
-    if final_code is None:
-        final_code = await asyncio.to_thread(context.script_path.read_text, encoding="utf-8")
-
-    async with commit_lock:
-        record_store = RecordStore(repo)
-        collections = CollectionStore(repo)
-        datasets = DatasetStore(repo)
-        queries = StorageQueries(repo)
-        existing_record = await asyncio.to_thread(record_store.load_record, allocation.record_id)
-        dataset_entry = await asyncio.to_thread(
-            repo.read_json,
-            repo.layout.record_dataset_entry_path(allocation.record_id),
-        )
-        record_dir = await asyncio.to_thread(
-            _write_success_record,
-            repo_root=config.repo_root,
-            storage_repo=repo,
-            record_store=record_store,
-            collections=collections,
-            datasets=datasets,
-            context=context,
-            prompt_text=prompt_with_qc,
-            display_prompt=row.prompt,
-            image_path=None,
-            provider=row.provider,
-            model_id=actual_model_id,
-            openai_transport="http",
-            thinking_level=row.thinking_level,
-            max_turns=row.max_turns,
-            system_prompt_path=Path(loaded_system_prompt_path),
-            sdk_package=row.sdk_package,
-            sdk_docs_mode=config.sdk_docs_mode,
-            openai_reasoning_summary="auto",
-            final_code=final_code,
-            urdf_xml=urdf_xml,
-            compile_warnings=compile_warnings,
-            turn_count=result.turn_count,
-            tool_call_count=result.tool_call_count,
-            compile_attempt_count=result.compile_attempt_count,
-            label=row.label,
-            tags=[],
-            collection="dataset",
-            category_slug=row.category_slug,
-            dataset_id=allocation.dataset_id,
-            batch_spec_id=config.batch_spec_id,
-            row_id=row.row_id,
-            prompt_index=allocation.prompt_index,
-            existing_record=existing_record if isinstance(existing_record, dict) else None,
-            dataset_entry=dataset_entry if isinstance(dataset_entry, dict) else None,
-        )
-        persisted_record = await asyncio.to_thread(record_store.load_record, allocation.record_id)
-        if not isinstance(persisted_record, dict):
-            raise ValueError(f"Failed to load persisted record {allocation.record_id}")
-        await asyncio.to_thread(
-            upsert_category_metadata,
-            repo,
-            queries,
-            record=persisted_record,
-            category_title=row.category_title or row.category_slug,
-            category_slug=row.category_slug,
-            now=_utc_now(),
-            sequence=int(allocation.dataset_id.rsplit("_", 1)[1]),
-        )
-        await _remove_staging_dir(context.staging_dir)
-        await _write_run_metadata(RunStore(repo), config=config, status="running")
-
     return BatchRowOutcome(
         row_id=row.row_id,
-        success=True,
-        message=None,
-        turn_count=result.turn_count,
-        tool_call_count=result.tool_call_count,
-        compile_attempt_count=result.compile_attempt_count,
-        record_dir=record_dir,
-        staging_dir=context.staging_dir,
-        model_id=actual_model_id,
+        success=outcome.status == "success",
+        message=outcome.message,
+        turn_count=outcome.turn_count,
+        tool_call_count=outcome.tool_call_count,
+        compile_attempt_count=outcome.compile_attempt_count,
+        record_dir=outcome.record_dir,
+        staging_dir=outcome.staging_dir or context.staging_dir,
+        model_id=outcome.model_id or row.model_id,
     )
+
+
+async def _finalize_batch_dataset_artifacts(
+    *,
+    repo: StorageRepo,
+    config: BatchRunConfig,
+    final_status_by_row: dict[str, str],
+) -> None:
+    datasets = DatasetStore(repo)
+    queries = StorageQueries(repo)
+    await asyncio.to_thread(datasets.write_dataset_manifest)
+
+    rows_by_category: dict[str, list[BatchRowSpec]] = {}
+    for row in config.rows:
+        rows_by_category.setdefault(row.category_slug, []).append(row)
+
+    for category_slug, category_rows in rows_by_category.items():
+        sequence: int | None = None
+        record: dict[str, Any] | None = None
+        category_title = (
+            next(
+                (
+                    candidate.category_title
+                    for candidate in category_rows
+                    if candidate.category_title and candidate.category_title.strip()
+                ),
+                None,
+            )
+            or category_slug
+        )
+        for row in category_rows:
+            if final_status_by_row.get(row.row_id) != "success":
+                continue
+            allocation = config.allocations[row.row_id]
+            maybe_record = await asyncio.to_thread(
+                repo.read_json,
+                repo.layout.record_metadata_path(allocation.record_id),
+            )
+            if isinstance(maybe_record, dict):
+                record = maybe_record
+            parsed_sequence = parse_canonical_dataset_sequence(allocation.dataset_id, category_slug)
+            if parsed_sequence is not None:
+                sequence = max(sequence or 0, parsed_sequence)
+        await asyncio.to_thread(
+            reconcile_category_metadata,
+            repo,
+            queries,
+            category_slug=category_slug,
+            category_title=category_title,
+            record=record,
+            now=_utc_now(),
+            sequence=sequence,
+        )
 
 
 async def run_dataset_batch(config: BatchRunConfig) -> dict[str, Any]:
@@ -964,6 +972,10 @@ async def run_dataset_batch(config: BatchRunConfig) -> dict[str, Any]:
         pause_file=config.pause_file,
         poll_seconds=config.pause_poll_seconds,
         keyboard_enabled=config.keyboard_pause_enabled,
+        on_state_change=lambda paused, reason: display.print_pause_state(
+            paused=paused,
+            reason=reason,
+        ),
     )
     pause_controller.start_keyboard_listener()
     watcher_task = asyncio.create_task(pause_controller.watch())
@@ -984,6 +996,49 @@ async def run_dataset_batch(config: BatchRunConfig) -> dict[str, Any]:
 
     work_queue: asyncio.Queue[BatchRowSpec] = asyncio.Queue()
     final_status_by_row: dict[str, str] = {}
+    preserved_success_count = 0
+    skipped_row_count = 0
+
+    async def _commit_preserved_success(row: BatchRowSpec, outcome: BatchRowOutcome) -> None:
+        allocation = config.allocations[row.row_id]
+        result_row = {
+            "record_id": allocation.record_id,
+            "dataset_id": allocation.dataset_id,
+            "category_slug": row.category_slug,
+            "prompt_index": allocation.prompt_index,
+            "status": "success",
+            "message": None,
+            "turn_count": outcome.turn_count,
+            "tool_call_count": outcome.tool_call_count,
+            "compile_attempt_count": outcome.compile_attempt_count,
+            "record_dir": (
+                _relative_to_repo(outcome.record_dir, config.repo_root)
+                if outcome.record_dir is not None
+                else None
+            ),
+            "staging_dir": _relative_to_repo(outcome.staging_dir, config.repo_root),
+        }
+        async with commit_lock:
+            await asyncio.to_thread(
+                _write_row_state,
+                repo,
+                run_id=config.run_id,
+                row=row,
+                allocation=allocation,
+                latest_status="success",
+                latest_error_message=None,
+            )
+            await _upsert_run_result(
+                run_store, run_id=config.run_id, row_id=row.row_id, payload=result_row
+            )
+            await _write_run_metadata(run_store, config=config, status="running")
+        final_status_by_row[row.row_id] = "success"
+        display.complete_run(
+            slug=allocation.record_id,
+            success=True,
+            cost=0.0,
+            error=None,
+        )
 
     for row in config.rows:
         state = await asyncio.to_thread(
@@ -992,8 +1047,25 @@ async def run_dataset_batch(config: BatchRunConfig) -> dict[str, Any]:
         latest_status = (
             str(state.get("latest_status") or "pending") if isinstance(state, dict) else "pending"
         )
+        if config.resume:
+            persisted_success = await asyncio.to_thread(
+                _load_persisted_batch_row_outcome,
+                repo,
+                run_id=config.run_id,
+                batch_spec_id=config.batch_spec_id,
+                row=row,
+                allocation=config.allocations[row.row_id],
+            )
+            if persisted_success is not None:
+                preserved_success_count += 1
+                await _commit_preserved_success(row, persisted_success)
+                continue
         if config.resume and not _resume_policy_should_run(latest_status, config.resume_policy):
             final_status_by_row[row.row_id] = latest_status
+            if latest_status == "success":
+                preserved_success_count += 1
+            else:
+                skipped_row_count += 1
             display.complete_run(
                 slug=config.allocations[row.row_id].record_id,
                 success=latest_status == "success",
@@ -1004,6 +1076,13 @@ async def run_dataset_batch(config: BatchRunConfig) -> dict[str, Any]:
             )
             continue
         work_queue.put_nowait(row)
+
+    if config.resume:
+        display.print_resume_summary(
+            preserved_successes=preserved_success_count,
+            queued_rows=work_queue.qsize(),
+            skipped_rows=skipped_row_count,
+        )
 
     async def _commit_outcome(row: BatchRowSpec, outcome: BatchRowOutcome) -> None:
         allocation = config.allocations[row.row_id]
@@ -1090,7 +1169,6 @@ async def run_dataset_batch(config: BatchRunConfig) -> dict[str, Any]:
     finally:
         pause_controller.stop()
         await watcher_task
-        display.stop()
 
     overall_status = "success"
     if any(status != "success" for status in final_status_by_row.values()) or len(
@@ -1098,9 +1176,24 @@ async def run_dataset_batch(config: BatchRunConfig) -> dict[str, Any]:
     ) != len(config.rows):
         overall_status = "failed"
 
-    async with commit_lock:
-        await _write_run_metadata(run_store, config=config, status=overall_status)
-        await asyncio.to_thread(search.rebuild)
+    try:
+        async with commit_lock:
+            display.print_finalizing("rebuilding dataset manifests and categories")
+            await _finalize_batch_dataset_artifacts(
+                repo=repo,
+                config=config,
+                final_status_by_row=final_status_by_row,
+            )
+            await _write_run_metadata(run_store, config=config, status=overall_status)
+            display.print_finalizing("rebuilding search index")
+            await asyncio.to_thread(search.rebuild)
+    except Exception as exc:
+        async with commit_lock:
+            await _write_run_metadata(run_store, config=config, status="failed")
+        display.print_finalizing(f"failed: {exc}")
+        raise
+
+    display.stop()
 
     return {
         "run_id": config.run_id,

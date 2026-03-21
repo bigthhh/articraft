@@ -8,10 +8,11 @@ from pathlib import Path
 
 import pytest
 
-from agent import batch_runner
+from agent import batch_runner, runner
 from agent.models import AgentResult, TerminateReason
 from cli.dataset import main as dataset_main
 from storage.categories import CategoryStore
+from storage.datasets import DatasetStore
 from storage.models import CategoryRecord
 from storage.queries import StorageQueries
 from storage.repo import StorageRepo
@@ -124,6 +125,54 @@ class FlakyBatchAgent(SuccessBatchAgent):
         return await super().run(user_content)
 
 
+class FailIfRunAgent(SuccessBatchAgent):
+    call_count = 0
+
+    async def run(self, user_content: object) -> AgentResult:
+        type(self).call_count += 1
+        raise AssertionError("resume should not rerun a durably completed row")
+
+
+class RecordingBatchDisplay:
+    events: list[str] = []
+
+    def __init__(self, **_: object) -> None:
+        return None
+
+    def add_run(self, slug: str, prompt: str) -> None:
+        return None
+
+    def start(self) -> None:
+        type(self).events.append("start")
+
+    def stop(self) -> None:
+        type(self).events.append("stop")
+
+    def start_run(self, slug: str) -> None:
+        type(self).events.append(f"start_run:{slug}")
+
+    def update_run_progress(self, slug: str, turn: int, cost: float) -> None:
+        return None
+
+    def complete_run(self, slug: str, success: bool, cost: float, error: str | None = None) -> None:
+        type(self).events.append(f"complete_run:{slug}:{success}")
+
+    def print_resume_summary(
+        self,
+        *,
+        preserved_successes: int,
+        queued_rows: int,
+        skipped_rows: int,
+    ) -> None:
+        type(self).events.append(f"resume:{preserved_successes}:{queued_rows}:{skipped_rows}")
+
+    def print_pause_state(self, *, paused: bool, reason: str) -> None:
+        type(self).events.append(f"pause:{paused}:{reason}")
+
+    def print_finalizing(self, message: str) -> None:
+        type(self).events.append(f"finalize:{message}")
+
+
 @pytest.fixture(autouse=True)
 def reset_agents() -> None:
     SuccessBatchAgent.active = 0
@@ -131,6 +180,8 @@ def reset_agents() -> None:
     FlakyBatchAgent.active = 0
     FlakyBatchAgent.max_active = 0
     FlakyBatchAgent.attempts_by_record = {}
+    FailIfRunAgent.call_count = 0
+    RecordingBatchDisplay.events = []
 
 
 def test_build_batch_config_validates_csv_rows(tmp_path: Path) -> None:
@@ -305,16 +356,23 @@ def test_run_batch_persists_records_and_batch_metadata(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(batch_runner, "ArticraftAgent", SuccessBatchAgent)
+    monkeypatch.setattr(runner, "ArticraftAgent", SuccessBatchAgent)
 
     thread_ids: list[int] = []
-    original_write_success_record = batch_runner._write_success_record
+    manifest_write_calls: list[int] = []
+    original_write_success_record = runner._write_success_record
+    original_write_dataset_manifest = DatasetStore.write_dataset_manifest
 
     def wrapped_write_success_record(*args: object, **kwargs: object) -> Path:
         thread_ids.append(threading.get_ident())
         return original_write_success_record(*args, **kwargs)
 
-    monkeypatch.setattr(batch_runner, "_write_success_record", wrapped_write_success_record)
+    def wrapped_write_dataset_manifest(self: DatasetStore) -> Path:
+        manifest_write_calls.append(1)
+        return original_write_dataset_manifest(self)
+
+    monkeypatch.setattr(runner, "_write_success_record", wrapped_write_success_record)
+    monkeypatch.setattr(DatasetStore, "write_dataset_manifest", wrapped_write_dataset_manifest)
 
     spec_path = tmp_path / "source_specs" / "mixed_batch.csv"
     _write_csv(
@@ -359,6 +417,7 @@ def test_run_batch_persists_records_and_batch_metadata(
     assert SuccessBatchAgent.max_active >= 2
     assert thread_ids
     assert all(thread_id != threading.main_thread().ident for thread_id in thread_ids)
+    assert len(manifest_write_calls) == 1
 
     repo = StorageRepo(tmp_path)
     copied_spec = repo.layout.batch_spec_path("mixed_batch")
@@ -408,7 +467,7 @@ def test_run_batch_resume_reuses_allocations_and_only_reruns_failed_rows(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(batch_runner, "ArticraftAgent", FlakyBatchAgent)
+    monkeypatch.setattr(runner, "ArticraftAgent", FlakyBatchAgent)
 
     spec_path = tmp_path / "source_specs" / "resume_batch.csv"
     _write_csv(
@@ -507,3 +566,136 @@ def test_run_batch_resume_reuses_allocations_and_only_reruns_failed_rows(
     record = repo.read_json(repo.layout.record_metadata_path(failed_record_id))
     assert record["source"]["row_id"] == "retry_row"
     assert record["source"]["run_id"] == run_id
+
+
+def test_run_batch_resume_reconciles_durable_success_without_rerunning(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(runner, "ArticraftAgent", SuccessBatchAgent)
+
+    spec_path = tmp_path / "source_specs" / "resume_reconcile.csv"
+    _write_csv(
+        spec_path,
+        [
+            {
+                "row_id": "ok_row",
+                "category_slug": "hinge",
+                "category_title": "Hinge",
+                "prompt": "make a hinge",
+                "provider": "openai",
+                "model_id": "gpt-5.4",
+                "thinking_level": "high",
+                "max_turns": "12",
+                "sdk_package": "sdk",
+            },
+        ],
+    )
+
+    first_exit_code = dataset_main(
+        [
+            "--repo-root",
+            str(tmp_path),
+            "run-batch",
+            str(spec_path),
+            "--concurrency",
+            "1",
+        ]
+    )
+    assert first_exit_code == 0
+
+    repo = StorageRepo(tmp_path)
+    run_id = next(path.name for path in repo.layout.runs_root.iterdir() if path.is_dir())
+    row_state_path = repo.layout.run_row_state_path(run_id, "ok_row")
+    row_state = repo.read_json(row_state_path)
+    assert isinstance(row_state, dict)
+    row_state["latest_status"] = "running"
+    row_state["latest_error_message"] = None
+    row_state["current_attempt_started_at"] = "2026-03-20T00:00:00Z"
+    repo.write_json(row_state_path, row_state)
+
+    results_path = repo.layout.run_results_path(run_id)
+    result_rows = [
+        json.loads(line) for line in results_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert len(result_rows) == 1
+    result_rows[0]["status"] = "running"
+    result_rows[0]["record_dir"] = None
+    results_path.write_text(
+        "".join(json.dumps(row) + "\n" for row in result_rows),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(runner, "ArticraftAgent", FailIfRunAgent)
+
+    second_exit_code = dataset_main(
+        [
+            "--repo-root",
+            str(tmp_path),
+            "run-batch",
+            str(spec_path),
+            "--concurrency",
+            "1",
+            "--resume",
+        ]
+    )
+    assert second_exit_code == 0
+    assert FailIfRunAgent.call_count == 0
+
+    repaired_state = repo.read_json(row_state_path)
+    assert repaired_state["latest_status"] == "success"
+    assert repaired_state["attempt_count"] == row_state["attempt_count"]
+
+    repaired_rows = [
+        json.loads(line) for line in results_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert len(repaired_rows) == 1
+    assert repaired_rows[0]["status"] == "success"
+    assert repaired_rows[0]["record_dir"] == "data/records/rec_hinge_0001"
+
+
+def test_run_batch_display_stops_after_finalization(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(runner, "ArticraftAgent", SuccessBatchAgent)
+    monkeypatch.setattr(batch_runner, "BatchRunDisplay", RecordingBatchDisplay)
+
+    spec_path = tmp_path / "source_specs" / "display_order.csv"
+    _write_csv(
+        spec_path,
+        [
+            {
+                "row_id": "display_row",
+                "category_slug": "hinge",
+                "category_title": "Hinge",
+                "prompt": "make a hinge",
+                "provider": "openai",
+                "model_id": "gpt-5.4",
+                "thinking_level": "high",
+                "max_turns": "12",
+                "sdk_package": "sdk",
+            },
+        ],
+    )
+
+    exit_code = dataset_main(
+        [
+            "--repo-root",
+            str(tmp_path),
+            "run-batch",
+            str(spec_path),
+            "--concurrency",
+            "1",
+        ]
+    )
+    assert exit_code == 0
+
+    finalize_indices = [
+        index
+        for index, event in enumerate(RecordingBatchDisplay.events)
+        if event.startswith("finalize:")
+    ]
+    assert finalize_indices
+    stop_index = RecordingBatchDisplay.events.index("stop")
+    assert stop_index > max(finalize_indices)

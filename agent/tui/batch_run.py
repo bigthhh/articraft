@@ -60,6 +60,14 @@ class BatchRunDisplay:
             err.append(raw_line, style=style)
             self.console.print(err)
 
+    def _print_event(
+        self, label: str, message: str, *, label_style: str, message_style: str
+    ) -> None:
+        line = Text()
+        line.append(f"  {label:<8}", style=label_style)
+        line.append(message, style=message_style)
+        self.console.print(line)
+
     def _compute_checkpoint_interval(self) -> int:
         if self.total_runs <= 10:
             return 2
@@ -79,7 +87,9 @@ class BatchRunDisplay:
         queued = max(0, self.total_runs - self.completed - active)
         failures = self.completed - self.successes
 
-        completed_per_min = (self.completed / elapsed * 60.0) if elapsed > 0 and self.completed > 0 else 0.0
+        completed_per_min = (
+            (self.completed / elapsed * 60.0) if elapsed > 0 and self.completed > 0 else 0.0
+        )
         if self.completed > 0 and elapsed > 0:
             remaining = max(0, self.total_runs - self.completed)
             eta_seconds = (remaining / self.completed) * elapsed
@@ -144,6 +154,42 @@ class BatchRunDisplay:
         self.console.print()
         self._print_progress_rule()
 
+    def print_resume_summary(
+        self,
+        *,
+        preserved_successes: int,
+        queued_rows: int,
+        skipped_rows: int,
+    ) -> None:
+        if not self.enabled:
+            return
+        self._print_event(
+            "resume",
+            (f"preserved={preserved_successes}  queued={queued_rows}  skipped={skipped_rows}"),
+            label_style="bold magenta",
+            message_style="bold",
+        )
+
+    def print_pause_state(self, *, paused: bool, reason: str) -> None:
+        if not self.enabled:
+            return
+        self._print_event(
+            "pause" if paused else "resume",
+            reason,
+            label_style="bold yellow" if paused else "bold green",
+            message_style="yellow" if paused else "green",
+        )
+
+    def print_finalizing(self, message: str) -> None:
+        if not self.enabled:
+            return
+        self._print_event(
+            "finalize",
+            message,
+            label_style="bold cyan",
+            message_style="dim",
+        )
+
     def stop(self):
         if not self.enabled:
             return
@@ -152,7 +198,9 @@ class BatchRunDisplay:
         line = Text()
         line.append(
             "batch done ",
-            style="bold white on green" if self.successes == self.completed else "bold white on dark_orange",
+            style="bold white on green"
+            if self.successes == self.completed
+            else "bold white on dark_orange",
         )
         line.append(" ", style="")
         line.append(f"{self.successes}", style="bold green")

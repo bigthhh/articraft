@@ -5,6 +5,8 @@ from typing import Literal, Mapping, Optional, Sequence
 
 import numpy as np
 
+from sdk._dependencies import require_cadquery
+
 from .errors import ValidationError
 from .mesh import MeshGeometry, _geometry_from_manifold, _manifold_from_geometry
 
@@ -137,14 +139,14 @@ def _coerce_loft_spec(
 
 
 def _require_cadquery():
+    cq = require_cadquery(feature="section lofts")
     try:
-        from cadquery.occ_impl import shapes as cq_shapes
-    except Exception as exc:  # pragma: no cover - optional import path
+        return cq.occ_impl.shapes
+    except Exception as exc:  # pragma: no cover - defensive
         raise RuntimeError(
-            "section lofts require the optional `cadquery` dependency. "
-            "Install project dependencies again after updating `pyproject.toml`."
+            "section lofts require a working `cadquery` installation. "
+            "Run `uv sync --group dev` from the repository root, then retry."
         ) from exc
-    return cq_shapes
 
 
 def _require_trimesh():
@@ -152,8 +154,8 @@ def _require_trimesh():
         import trimesh
     except Exception as exc:  # pragma: no cover - optional import path
         raise RuntimeError(
-            "repair_loft requires the optional `trimesh` dependency. "
-            "Install project dependencies again after updating `pyproject.toml`."
+            "repair_loft requires the `trimesh` package, but it is not installed in the current "
+            "environment. Run `uv sync --group dev` from the repository root, then retry."
         ) from exc
     return trimesh
 

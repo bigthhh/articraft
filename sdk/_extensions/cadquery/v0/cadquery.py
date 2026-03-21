@@ -11,6 +11,7 @@ from typing import Any
 
 from sdk._core.v0.assets import AssetContextLike, resolve_asset_context
 from sdk._core.v0.types import Mesh
+from sdk._dependencies import require_cadquery
 
 Vec3 = tuple[float, float, float]
 AABB = tuple[Vec3, Vec3]
@@ -33,14 +34,7 @@ class _CadQueryMeshCacheMetadata:
 
 
 def _require_cadquery() -> Any:
-    try:
-        import cadquery as cq
-    except Exception as exc:
-        raise RuntimeError(
-            "CadQuery support requires the optional `cadquery` dependency. "
-            "Install project dependencies again after updating `pyproject.toml`."
-        ) from exc
-    return cq
+    return require_cadquery(feature="CadQuery support in `sdk_hybrid`")
 
 
 def _vector_xyz(value: Any) -> Vec3:

@@ -21,7 +21,7 @@ When a `just` recipe supports optional settings, pass them as overrides before t
 - `just compile-all` runs the full artifact path, including collision geometry, when that matters for inspection.
 - `just compile-all-strict` runs the validation-heavy full compile path.
 - `just name=<batch-id> batch-spec-new` creates `data/batch_specs/<batch-id>.csv` with the canonical batch CSV header.
-- `just spec=data/batch_specs/<batch-id>.csv concurrency=8 dataset-batch` runs the dataset batch shortcut; batch row provider/model settings come from the CSV.
+- `just concurrency=8 dataset-batch data/batch_specs/<batch-id>.csv` runs the dataset batch shortcut; batch row provider/model settings come from the CSV.
 - `just wb-init "prompt text"` creates a draft workbench record without running generation, which is useful when you want an empty record directory to work in.
 - `just image=reference.png wb-init "prompt text"` stores a reference image with the draft so later reruns keep the same conditioning.
 - `just compile-visual data/records/<id>` recompiles only the visual viewer artifacts for a single record.

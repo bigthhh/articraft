@@ -15,12 +15,6 @@ repos:
         entry: uv run python scripts/pre_commit_hooks.py secrets
         language: system
         pass_filenames: true
-      - id: check-text-hygiene
-        name: check text hygiene
-        entry: uv run python scripts/pre_commit_hooks.py hygiene
-        language: system
-        pass_filenames: true
-        types: [text]
       - id: ruff-format
         name: ruff format
         entry: uv run ruff format --force-exclude

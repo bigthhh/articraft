@@ -1,3 +1,0 @@
-row_id,category_slug,category_title,prompt,provider,model_id,thinking_level,max_turns,sdk_package,label
-revolute_smoke,threejoint_revolute_chain,Threejoint Revolute Chain,"Create a simple three-link revolute chain with a fixed base and moderate link lengths.",gemini,gemini-3-flash-preview,high,20,sdk,Revolute Smoke
-prismatic_smoke,threejoint_prismatic_chain,Threejoint Prismatic Chain,"Create a simple three-stage telescoping prismatic chain with axis-aligned sliders and clean travel limits.",gemini,gemini-3-flash-preview,high,20,sdk,Prismatic Smoke

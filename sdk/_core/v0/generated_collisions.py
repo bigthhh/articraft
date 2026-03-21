@@ -472,15 +472,27 @@ def _write_cached_hull_paths(
             if not isinstance(hull, Iterable):
                 raise ValidationError(f"Unexpected CoACD hull payload for {mesh_path}")
             hull_vertices, hull_faces = hull
+            hull_vertices_array = np.asarray(hull_vertices, dtype=np.float64)
+            hull_faces_array = np.asarray(hull_faces, dtype=np.int64)
+            if hull_vertices_array.size == 0 or hull_faces_array.size == 0:
+                raise ValidationError(
+                    "CoACD produced an empty hull during collision generation: "
+                    f"{mesh_path} (component {component_index}, hull {hull_index})"
+                )
             hull_mesh = trimesh.Trimesh(
-                vertices=np.asarray(hull_vertices, dtype=np.float64),
-                faces=np.asarray(hull_faces, dtype=np.int64),
+                vertices=hull_vertices_array,
+                faces=hull_faces_array,
                 process=False,
             )
             out_name = f"{cache_key}__component_{component_index:03d}__hull_{hull_index:03d}.obj"
             out_path = cache_dir / out_name
             hull_mesh.export(out_path)
             hull_paths.append(out_path)
+
+    if not hull_paths:
+        raise ValidationError(
+            f"CoACD produced no valid hulls for collision generation: {mesh_path}"
+        )
 
     manifest_path = _collision_cache_manifest_path(cache_dir, cache_key)
     manifest_path.write_text(

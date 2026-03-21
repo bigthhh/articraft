@@ -494,6 +494,10 @@ def _load_fcl_mesh(
     loaded = trimesh.load_mesh(mesh_path, force="mesh")
     if not isinstance(loaded, trimesh.Trimesh):
         raise ValidationError(f"Expected mesh geometry at {mesh_path}, got {type(loaded).__name__}")
+    if loaded.vertices.size == 0:
+        raise ValidationError(f"OBJ contains no vertices: {mesh_path}")
+    if loaded.faces.size == 0:
+        raise ValidationError(f"OBJ contains no triangles: {mesh_path}")
     model = fcl.BVHModel()
     model.beginModel(len(loaded.vertices), len(loaded.faces))
     model.addSubModel(loaded.vertices, loaded.faces)

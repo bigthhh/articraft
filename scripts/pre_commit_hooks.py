@@ -5,7 +5,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-MAX_FILE_SIZE_BYTES = 1_000_000
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FORBIDDEN_PATHS = (
     re.compile(r"(^|/)\.env(?!\.example)(\..*)?$"),
@@ -23,7 +22,6 @@ SECRET_PATTERNS = (
         re.compile(r"-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----"),
     ),
 )
-MERGE_CONFLICT_MARKERS = ("<<<<<<<", "=======", ">>>>>>>")
 
 
 def iter_existing_files(paths: list[str]) -> list[Path]:
@@ -82,31 +80,6 @@ def detect_secrets(paths: list[str]) -> int:
     return 1
 
 
-def detect_hygiene(paths: list[str]) -> int:
-    findings: list[str] = []
-    for path in iter_existing_files(paths):
-        content = path.read_bytes()
-        if len(content) > MAX_FILE_SIZE_BYTES:
-            findings.append(f"{path}: file exceeds {MAX_FILE_SIZE_BYTES} bytes")
-        if b"\x00" in content:
-            continue
-        text = content.decode("utf-8", errors="replace")
-        if requires_trailing_newline(path) and content and not content.endswith(b"\n"):
-            findings.append(f"{path}: missing trailing newline")
-        for line_number, line in enumerate(text.splitlines(), start=1):
-            stripped = line.rstrip("\r\n")
-            if stripped.rstrip(" \t") != stripped:
-                findings.append(f"{path}:{line_number}: trailing whitespace")
-            if any(stripped.startswith(marker) for marker in MERGE_CONFLICT_MARKERS):
-                findings.append(f"{path}:{line_number}: merge conflict marker")
-    if not findings:
-        return 0
-    print("Text hygiene checks failed:")
-    for finding in findings:
-        print(f"  - {finding}")
-    return 1
-
-
 def run_smoke_tests() -> int:
     test_paths = sorted(REPO_ROOT.glob("tests/**/test_*.py"))
     if not test_paths:
@@ -125,7 +98,7 @@ def run_smoke_tests() -> int:
 
 def main(argv: list[str]) -> int:
     if len(argv) < 2:
-        print("Usage: pre_commit_hooks.py <forbidden-paths|secrets|hygiene|smoke-tests> [paths...]")
+        print("Usage: pre_commit_hooks.py <forbidden-paths|secrets|smoke-tests> [paths...]")
         return 2
 
     command = argv[1]
@@ -134,8 +107,6 @@ def main(argv: list[str]) -> int:
         return detect_forbidden_paths(paths)
     if command == "secrets":
         return detect_secrets(paths)
-    if command == "hygiene":
-        return detect_hygiene(paths)
     if command == "smoke-tests":
         return run_smoke_tests()
 

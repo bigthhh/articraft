@@ -231,3 +231,35 @@ def test_generated_collisions_runs_coacd_per_disconnected_component(
 
     assert calls == [1, 2]
     assert len(compiled.parts[0].collisions) == 2
+
+
+def test_generated_collisions_rejects_empty_coacd_hulls(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assets = AssetContext(tmp_path)
+    mesh_path = assets.mesh_path("single_triangle.obj")
+    mesh_path.parent.mkdir(parents=True, exist_ok=True)
+    mesh_path.write_text(
+        "\n".join(
+            [
+                "v 0 0 0",
+                "v 1 0 0",
+                "v 0 1 0",
+                "f 1 2 3",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_run_coacd_on_trimesh(_tm, *, mesh_path, settings, component_index):
+        return [([], [])]
+
+    monkeypatch.setattr(gc, "_run_coacd_on_trimesh", fake_run_coacd_on_trimesh)
+
+    with pytest.raises(gc.ValidationError, match="empty hull"):
+        gc.compile_object_model_with_generated_collisions(
+            _build_model_with_mesh(tmp_path, Mesh(filename="assets/meshes/single_triangle.obj")),
+            asset_root=tmp_path,
+        )

@@ -153,7 +153,7 @@ uv run articraft-dataset --repo-root . run-batch data/batch_specs/<batch-id>.csv
 Or use the `just` shortcut:
 
 ```bash
-just spec=data/batch_specs/<batch-id>.csv concurrency=8 dataset-batch
+just concurrency=8 dataset-batch data/batch_specs/<batch-id>.csv
 ```
 
 Batch rows run concurrently up to the requested limit, successful outputs are promoted into canonical dataset storage under `data/records/`, and resumable batch state is stored under `data/cache/runs/<run_id>/`.

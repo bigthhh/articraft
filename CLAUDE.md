@@ -129,7 +129,7 @@ The API (`viewer/api/app.py`) is a FastAPI app that serves both the REST API and
 
 ## Pre-commit Hooks
 
-Pre-commit runs on commit: forbidden path check, secret scanning, text hygiene (trailing whitespace/newlines), ruff format, ruff check, viewer lint, viewer typecheck. Smoke tests run on pre-push.
+Pre-commit runs on commit: forbidden path check, secret scanning, ruff format, ruff check, viewer lint, viewer typecheck. Smoke tests run on pre-push.
 
 Files under `data/` are exempt from the trailing-newline requirement. Paths like `.env`, `data/cache/`, `data/local/`, generated URDFs, and asset dirs are blocked from commits.
 

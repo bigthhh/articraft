@@ -221,13 +221,17 @@ dataset-promote record_ref category_title:
       "$record_ref" \
       "$category_title"
 
-dataset-batch:
+dataset-batch spec_path="":
     #!/usr/bin/env bash
     set -euo pipefail
+    spec_path_arg={{ quote(spec_path) }}
     spec_path={{ quote(spec) }}
     concurrency_value={{ quote(concurrency) }}
+    if [ -n "$spec_path_arg" ]; then
+      spec_path="$spec_path_arg"
+    fi
     if [ -z "$spec_path" ]; then
-      echo "Set spec=path/to/batch.csv" >&2
+      echo "Usage: just concurrency=<n> dataset-batch path/to/batch.csv" >&2
       exit 1
     fi
     exec uv run articraft-dataset --repo-root . run-batch "$spec_path" --concurrency "$concurrency_value"

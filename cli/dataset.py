@@ -68,6 +68,7 @@ class DeleteRecordPreview:
 @dataclass(slots=True, frozen=True)
 class PruneCachePreview:
     failed_staging_dirs: list[Path]
+    legacy_files: list[Path]
     empty_dirs: list[Path]
 
 
@@ -275,6 +276,9 @@ def _print_delete_record_preview(preview: DeleteRecordPreview) -> None:
 
 def _build_prune_cache_preview(repo: StorageRepo) -> PruneCachePreview:
     cache_root = repo.layout.cache_root.resolve()
+    legacy_files = [
+        path for path in (cache_root / "search.sqlite",) if path.exists() and path.is_file()
+    ]
     protected_dirs = {
         cache_root,
         repo.layout.runs_root.resolve(),
@@ -335,8 +339,13 @@ def _build_prune_cache_preview(repo: StorageRepo) -> PruneCachePreview:
     if cache_root.exists():
         visit(cache_root)
     failed_staging_dirs.sort(key=lambda path: path.as_posix())
+    legacy_files.sort(key=lambda path: path.as_posix())
     empty_dirs.sort(key=lambda path: (len(path.relative_to(cache_root).parts), path.as_posix()))
-    return PruneCachePreview(failed_staging_dirs=failed_staging_dirs, empty_dirs=empty_dirs)
+    return PruneCachePreview(
+        failed_staging_dirs=failed_staging_dirs,
+        legacy_files=legacy_files,
+        empty_dirs=empty_dirs,
+    )
 
 
 def _print_prune_cache_preview(repo: StorageRepo, preview: PruneCachePreview) -> None:
@@ -344,6 +353,7 @@ def _print_prune_cache_preview(repo: StorageRepo, preview: PruneCachePreview) ->
     print("Prune cache preview")
     print(f"cache_root={cache_root}")
     print(f"failed_staging_dirs_to_remove={len(preview.failed_staging_dirs)}")
+    print(f"legacy_files_to_remove={len(preview.legacy_files)}")
     print(f"empty_dirs_to_remove={len(preview.empty_dirs)}")
     if preview.failed_staging_dirs:
         for path in preview.failed_staging_dirs[:10]:
@@ -353,6 +363,14 @@ def _print_prune_cache_preview(repo: StorageRepo, preview: PruneCachePreview) ->
             print(f"sample_failed_staging_dirs_remaining={remaining_failed}")
     else:
         print("sample_failed_staging_dir=(none)")
+    if preview.legacy_files:
+        for path in preview.legacy_files[:10]:
+            print(f"sample_legacy_file={path.relative_to(cache_root)}")
+        remaining_legacy = len(preview.legacy_files) - 10
+        if remaining_legacy > 0:
+            print(f"sample_legacy_files_remaining={remaining_legacy}")
+    else:
+        print("sample_legacy_file=(none)")
     if preview.empty_dirs:
         for path in preview.empty_dirs[:10]:
             print(f"sample_dir={path.relative_to(cache_root)}")
@@ -368,6 +386,10 @@ def _prune_cache(repo: StorageRepo, preview: PruneCachePreview) -> int:
     for path in preview.failed_staging_dirs:
         if path.exists() and path.is_dir():
             shutil.rmtree(path)
+            removed += 1
+    for path in preview.legacy_files:
+        if path.exists() and path.is_file():
+            path.unlink()
             removed += 1
     for path in sorted(preview.empty_dirs, key=lambda item: len(item.parts), reverse=True):
         if path.exists() and path.is_dir() and not any(path.iterdir()):

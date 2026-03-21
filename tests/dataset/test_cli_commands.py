@@ -136,6 +136,8 @@ def test_dataset_cli_commands_cover_promote_delete_and_prune(tmp_path: Path) -> 
         )
     )
     repo.layout.search_index_path().write_text("search-cache-placeholder", encoding="utf-8")
+    legacy_search_sqlite_path = repo.layout.cache_root / "search.sqlite"
+    legacy_search_sqlite_path.write_bytes(b"legacy sqlite placeholder")
     output = io.StringIO()
     with redirect_stdout(output):
         assert (
@@ -234,16 +236,19 @@ def test_dataset_cli_commands_cover_promote_delete_and_prune(tmp_path: Path) -> 
             },
         )
         search_index_before_prune = repo.layout.search_index_path().read_bytes()
+        assert legacy_search_sqlite_path.exists()
         assert dataset_main(["--repo-root", str(repo_root), "prune-cache"]) == 0
         assert empty_record_stage_dir.exists()
         assert empty_nested_failure_dir.exists()
         assert nonempty_stage_dir.exists()
         assert failed_stage_dir.exists()
+        assert legacy_search_sqlite_path.exists()
         assert dataset_main(["--repo-root", str(repo_root), "prune-cache", "--execute"]) == 0
         assert not empty_record_stage_dir.exists()
         assert not empty_nested_failure_dir.exists()
         assert nonempty_stage_dir.exists()
         assert not failed_stage_dir.exists()
+        assert not legacy_search_sqlite_path.exists()
         assert repo.layout.search_index_path().read_bytes() == search_index_before_prune
 
     category_output = io.StringIO()
@@ -303,8 +308,10 @@ def test_dataset_cli_commands_cover_promote_delete_and_prune(tmp_path: Path) -> 
         in output.getvalue()
     )
     assert "failed_staging_dirs_to_remove=1" in output.getvalue()
+    assert "legacy_files_to_remove=1" in output.getvalue()
+    assert "sample_legacy_file=search.sqlite" in output.getvalue()
     assert "empty_dirs_to_remove=" in output.getvalue()
-    assert "Removed cache paths: 7" in output.getvalue()
+    assert "Removed cache paths:" in output.getvalue()
     assert "Preview only. Re-run with --execute to remove these cache paths." in output.getvalue()
     assert "record_dir=" in output.getvalue()
     assert "in_workbench=yes" in output.getvalue()

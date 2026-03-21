@@ -47,10 +47,14 @@ def _build_overlapping_parts_model() -> ArticulatedObject:
     model = ArticulatedObject(name="overlapping_parts")
 
     base = model.part("base")
-    base.visual(Box((0.2, 0.2, 0.2)), origin=Origin(xyz=(0.0, 0.0, 0.1)))
+    base.visual(Box((0.2, 0.2, 0.2)), origin=Origin(xyz=(0.0, 0.0, 0.1)), name="base_box")
 
     child = model.part("child")
-    child.visual(Box((0.2, 0.2, 0.2)), origin=Origin(xyz=(0.0, 0.0, 0.1)))
+    child.visual(
+        Box((0.2, 0.2, 0.2)),
+        origin=Origin(xyz=(0.0, 0.0, 0.1)),
+        name="child_box",
+    )
 
     return model
 
@@ -203,7 +207,7 @@ def test_warn_if_part_geometry_connected_records_warning_only() -> None:
 def test_warn_if_overlaps_records_warning_only() -> None:
     ctx = SDKTestContext(_build_overlapping_parts_model(), geometry_source="visual")
 
-    assert not ctx.warn_if_overlaps(max_pose_samples=8)
+    assert not ctx.warn_if_overlaps(max_pose_samples=8, overlap_tol=0.001, overlap_volume_tol=0.0)
 
     report = ctx.report()
     assert report.passed
@@ -214,6 +218,12 @@ def test_warn_if_overlaps_records_warning_only() -> None:
         "warn_if_overlaps(samples=8,ignore_adjacent=False,ignore_fixed=True)" in report.warnings[0]
     )
     assert "Overlaps detected" in report.warnings[0]
+    assert "overlap_tol=0.001" in report.warnings[0]
+    assert "overlap_volume_tol=0" in report.warnings[0]
+    assert "relation=unrelated" in report.warnings[0]
+    assert "depth=(0.2,0.2,0.2)" in report.warnings[0]
+    assert "elem_a=#0 'base_box':Box" in report.warnings[0]
+    assert "elem_b=#0 'child_box':Box" in report.warnings[0]
 
 
 def test_check_articulation_overlaps_fails_for_revolute_pair() -> None:

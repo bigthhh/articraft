@@ -253,7 +253,8 @@ def _iter_test_warnings(test_report: object | None) -> Iterable[CompileSignal]:
         text = str(warning).strip()
         if not text:
             continue
-        if "coplanar" in text.lower():
+        lower = text.lower()
+        if "coplanar" in lower:
             max_risk = "medium"
             risk_match = re.search(r"max_risk=(low|medium|high)", text, re.IGNORECASE)
             if risk_match is not None:
@@ -283,6 +284,83 @@ def _iter_test_warnings(test_report: object | None) -> Iterable[CompileSignal]:
                 )
             )
             continue
+        if lower.startswith("overlaps detected but allowed by justification"):
+            signals.append(
+                _make_signal(
+                    severity="note",
+                    kind="allowed_overlap",
+                    code="NOTE_ALLOWED_OVERLAP",
+                    summary="Overlap findings were allowed by justification.",
+                    details=text,
+                    source="tests",
+                    group="qc",
+                )
+            )
+            continue
+
+        check_name, has_separator, detail_text = text.partition(":")
+        check_name = check_name.strip()
+        detail_text = detail_text.lstrip() if has_separator else ""
+
+        if check_name.startswith("warn_if_overlaps("):
+            summary = "Broad overlap sensor reported overlap pair(s)."
+            if detail_text and "overlaps detected" not in detail_text.lower():
+                summary = "Broad overlap sensor reported a warning."
+            signals.append(
+                _make_signal(
+                    severity="warning",
+                    kind="overlap_warning",
+                    code="WARN_OVERLAP_SENSOR",
+                    summary=summary,
+                    details=text,
+                    source="tests",
+                    group="qc",
+                    check_name=check_name,
+                )
+            )
+            continue
+
+        if check_name.startswith("warn_if_part_geometry_connected("):
+            summary = "Disconnected geometry islands detected within a part."
+            if detail_text and "disconnected geometry islands detected" not in detail_text.lower():
+                summary = "Part-geometry connectivity sensor reported a warning."
+            signals.append(
+                _make_signal(
+                    severity="warning",
+                    kind="disconnected_geometry",
+                    code="WARN_DISCONNECTED_GEOMETRY",
+                    summary=summary,
+                    details=text,
+                    source="tests",
+                    group="qc",
+                    check_name=check_name,
+                )
+            )
+            continue
+
+        if check_name.startswith(
+            (
+                "warn_if_articulation_origin_near_geometry(",
+                "warn_if_joint_origin_near_geometry(",
+            )
+        ):
+            summary = "Articulation-origin heuristic reported distant joint origins."
+            if detail_text and "far from geometry" not in detail_text.lower():
+                summary = "Articulation-origin heuristic reported a warning."
+            signals.append(
+                _make_signal(
+                    severity="warning",
+                    kind="articulation_origin",
+                    code="WARN_ARTICULATION_ORIGIN",
+                    summary=summary,
+                    details=text,
+                    source="tests",
+                    group="qc",
+                    check_name=check_name,
+                )
+            )
+            continue
+
         signals.append(
             _make_signal(
                 severity="warning",

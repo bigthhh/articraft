@@ -77,6 +77,64 @@ def test_compile_signal_bundle_includes_test_warnings_and_allowances() -> None:
     assert any(signal.kind == "allowance" for signal in bundle.signals)
 
 
+def test_compile_signal_bundle_parses_common_broad_qc_warning_families() -> None:
+    bundle = build_compile_signal_bundle(
+        status="success",
+        test_report=SDKTestReport(
+            passed=True,
+            checks_run=4,
+            checks=(
+                "warn_if_overlaps",
+                "warn_if_part_geometry_connected",
+                "warn_if_articulation_origin_near_geometry",
+                "warn_if_coplanar_surfaces",
+            ),
+            failures=(),
+            warnings=(
+                "warn_if_overlaps(samples=8,ignore_adjacent=True,ignore_fixed=True): "
+                "Overlaps detected (geometry_source=collision, overlap_tol=0.001, overlap_volume_tol=0):\n"
+                "relation=adjacent-revolute pair=('body','door') pose_index=0 depth=(0.01,0.02,0.03) "
+                "min_depth=0.01 vol=6e-06 elem_a=#0 'hinge_leaf':Box elem_b=#1 'door_shell':Box pose={}",
+                "warn_if_part_geometry_connected(use=visual,tol=0.005): "
+                "Disconnected geometry islands detected:\n"
+                "part='frame' connected=2/3 use=visual",
+                "warn_if_articulation_origin_near_geometry(tol=0.015): "
+                "Articulation origin(s) far from geometry:\n"
+                "joint='hinge' parent='body' child='door' dist_parent=0.02 dist_child=0.03 tol=0.015",
+                "Overlaps detected but allowed by justification: 1 overlaps.",
+                "custom fallback warning",
+            ),
+            allowances=(),
+        ),
+    )
+
+    overlap_signal = next(signal for signal in bundle.signals if signal.kind == "overlap_warning")
+    assert overlap_signal.severity == "warning"
+    assert overlap_signal.code == "WARN_OVERLAP_SENSOR"
+    assert (
+        overlap_signal.check_name
+        == "warn_if_overlaps(samples=8,ignore_adjacent=True,ignore_fixed=True)"
+    )
+
+    disconnected_signal = next(
+        signal for signal in bundle.signals if signal.kind == "disconnected_geometry"
+    )
+    assert disconnected_signal.summary == "Disconnected geometry islands detected within a part."
+
+    articulation_signal = next(
+        signal for signal in bundle.signals if signal.kind == "articulation_origin"
+    )
+    assert (
+        articulation_signal.summary
+        == "Articulation-origin heuristic reported distant joint origins."
+    )
+
+    allowed_signal = next(signal for signal in bundle.signals if signal.kind == "allowed_overlap")
+    assert allowed_signal.severity == "note"
+
+    assert any(signal.kind == "test_warning" for signal in bundle.signals)
+
+
 def test_compile_signal_bundle_downgrades_low_risk_coplanar_warning_to_note() -> None:
     bundle = build_compile_signal_bundle(
         status="success",

@@ -1160,20 +1160,43 @@ class TestContext:
             ignore_adjacent=ignore_adjacent,
             ignore_fixed=ignore_fixed,
         )
+        resolved_overlap_tol = (
+            default_overlap_tol_from_env() if overlap_tol is None else float(overlap_tol)
+        )
+        resolved_overlap_volume_tol = (
+            default_overlap_volume_tol_from_env()
+            if overlap_volume_tol is None
+            else float(overlap_volume_tol)
+        )
+
+        pair_relations: Dict[Tuple[str, str], str] = {}
+        joints = getattr(self.model, "articulations", None)
+        if isinstance(joints, list):
+            for joint in joints:
+                parent = getattr(joint, "parent", None)
+                child = getattr(joint, "child", None)
+                if not isinstance(parent, str) or not isinstance(child, str):
+                    continue
+                joint_type = getattr(joint, "articulation_type", None)
+                key = _pair_key(parent, child)
+                if isinstance(joint_type, ArticulationType):
+                    pair_relations[key] = f"adjacent-{joint_type.value.lower()}"
+                else:
+                    pair_relations[key] = "adjacent"
+
+        def format_element(index: int, name: Optional[str], geometry: Optional[str]) -> str:
+            geometry_name = geometry or "?"
+            if isinstance(name, str) and name:
+                return f"#{index} {name!r}:{geometry_name}"
+            return f"#{index} <unnamed>:{geometry_name}"
 
         overlaps = find_geometry_overlaps(
             self.model,
             asset_root=self._asset_root(),
             geometry_source=self.geometry_source,
             max_pose_samples=int(max_pose_samples),
-            overlap_tol=default_overlap_tol_from_env()
-            if overlap_tol is None
-            else float(overlap_tol),
-            overlap_volume_tol=(
-                default_overlap_volume_tol_from_env()
-                if overlap_volume_tol is None
-                else float(overlap_volume_tol)
-            ),
+            overlap_tol=resolved_overlap_tol,
+            overlap_volume_tol=resolved_overlap_volume_tol,
             allowed_pairs=allowed_pairs or None,
             seed=int(self.seed),
         )
@@ -1204,15 +1227,28 @@ class TestContext:
                     break
             if allowed:
                 continue
+            relation = pair_relations.get(key, "unrelated")
             remaining.append(
-                f"pair=({o.link_a!r},{o.link_b!r}) pose_index={o.pose_index} "
-                f"min_depth={min(o.overlap_depth):.4g} vol={o.overlap_volume:.4g} pose={o.pose}"
+                f"relation={relation} pair=({o.link_a!r},{o.link_b!r}) pose_index={o.pose_index} "
+                f"depth=({o.overlap_depth[0]:.4g},{o.overlap_depth[1]:.4g},{o.overlap_depth[2]:.4g}) "
+                f"min_depth={min(o.overlap_depth):.4g} vol={o.overlap_volume:.4g} "
+                f"elem_a={format_element(o.elem_a, o.elem_a_name, o.elem_a_geometry)} "
+                f"elem_b={format_element(o.elem_b, o.elem_b_name, o.elem_b_geometry)} "
+                f"pose={o.pose}"
             )
 
         if remaining:
             preview = "\n".join(remaining[:8])
             more = "" if len(remaining) <= 8 else f"\n... ({len(remaining) - 8} more)"
-            return record(resolved_name, False, f"Overlaps detected:\n{preview}{more}")
+            return record(
+                resolved_name,
+                False,
+                "Overlaps detected "
+                f"(geometry_source={self.geometry_source}, "
+                f"overlap_tol={resolved_overlap_tol:.4g}, "
+                f"overlap_volume_tol={resolved_overlap_volume_tol:.4g}):\n"
+                f"{preview}{more}",
+            )
 
         if relevant_overlaps and (self._allow_pairs or self._allow_elems):
             self.warn(

@@ -70,6 +70,8 @@ class OpenAILLM:
         thinking_level: str = "high",
         reasoning_summary: Optional[str] = "auto",
         transport: str = "http",
+        prompt_cache_key: Optional[str] = None,
+        prompt_cache_retention: Optional[str] = None,
         store: Optional[bool] = None,
         dry_run: bool = False,
     ):
@@ -77,6 +79,8 @@ class OpenAILLM:
         self.reasoning_effort = _effort_from_thinking_level(thinking_level)
         self.reasoning_summary = _normalize_reasoning_summary(reasoning_summary)
         self.transport = _normalize_transport(transport)
+        self.prompt_cache_key = _normalize_prompt_cache_key(prompt_cache_key)
+        self.prompt_cache_retention = _normalize_prompt_cache_retention(prompt_cache_retention)
         self.store = self.transport == "websocket" if store is None else bool(store)
         # Hard timeout for a single OpenAI request. Set to 0/negative to disable.
         self.request_timeout_seconds = _env_float("OPENAI_REQUEST_TIMEOUT_SECONDS", 900.0)
@@ -262,6 +266,10 @@ class OpenAILLM:
         if self.reasoning_summary:
             reasoning["summary"] = self.reasoning_summary
         request_payload["reasoning"] = reasoning
+        if self.prompt_cache_key:
+            request_payload["prompt_cache_key"] = self.prompt_cache_key
+        if self.prompt_cache_retention:
+            request_payload["prompt_cache_retention"] = self.prompt_cache_retention
         if previous_response_id:
             request_payload["previous_response_id"] = previous_response_id
         return request_payload
@@ -851,6 +859,26 @@ def _extract_reasoning_summary(summary: Any) -> str:
 
 
 def _normalize_reasoning_summary(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.lower() in {"0", "false", "none", "off"}:
+        return None
+    return text
+
+
+def _normalize_prompt_cache_key(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    return text
+
+
+def _normalize_prompt_cache_retention(value: Optional[str]) -> Optional[str]:
     if value is None:
         return None
     text = str(value).strip()

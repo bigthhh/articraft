@@ -26,6 +26,7 @@ ensure_record_artifacts_exist = importlib.import_module(
     "storage.materialize"
 ).ensure_record_artifacts_exist
 MaterializationStore = importlib.import_module("storage.materialize").MaterializationStore
+trajectories = importlib.import_module("storage.trajectories")
 
 storage_models = importlib.import_module("storage.models")
 CategoryRecord = storage_models.CategoryRecord
@@ -42,6 +43,11 @@ RunRecord = storage_models.RunRecord
 RunSummary = storage_models.RunSummary
 SdkSettings = storage_models.SdkSettings
 SourceRef = storage_models.SourceRef
+COMPRESSED_TRAJECTORY_FILENAME = trajectories.COMPRESSED_TRAJECTORY_FILENAME
+LEGACY_CONVERSATION_FILENAME = trajectories.LEGACY_CONVERSATION_FILENAME
+TRAJECTORY_FILENAME = trajectories.TRAJECTORY_FILENAME
+compress_trajectory_file = trajectories.compress_trajectory_file
+ensure_shared_system_prompt_file = trajectories.ensure_shared_system_prompt_file
 
 EXPECTED_CATEGORY_COUNT = 202
 EXPECTED_ACCEPTED_ITEM_COUNT = 256
@@ -102,6 +108,7 @@ class LegacyItem:
     urdf_source_path: Path
     cost_source_path: Path
     traces_dir: Path
+    trajectory_source_path: Path
     meshes_dir: Path | None
     system_prompt_source_path: Path | None
 
@@ -450,7 +457,13 @@ def _collect_items(
         traces_dir = item_dir / "traces"
         if not traces_dir.exists() or not traces_dir.is_dir():
             raise MigrationError(f"Missing traces directory for {item_id}: {traces_dir}")
-        _require_file(traces_dir / "conversation.jsonl", label="conversation trace")
+        trajectory_source_path = traces_dir / TRAJECTORY_FILENAME
+        if not trajectory_source_path.exists():
+            trajectory_source_path = traces_dir / LEGACY_CONVERSATION_FILENAME
+        trajectory_source_path = _require_file(
+            trajectory_source_path,
+            label="trajectory trace",
+        )
 
         system_prompt_name = Path(
             str(item_payload.get("system_prompt_path") or "designer_system_prompt.txt")
@@ -510,6 +523,7 @@ def _collect_items(
                 urdf_source_path=urdf_source_path,
                 cost_source_path=cost_source_path,
                 traces_dir=traces_dir,
+                trajectory_source_path=trajectory_source_path,
                 meshes_dir=meshes_dir if meshes_dir.exists() else None,
                 system_prompt_source_path=system_prompt_source_path,
             )
@@ -858,7 +872,17 @@ def _import_item(
     )
     _copy_file(item.cost_source_path, record_dir / "cost.json")
     repo.write_text(record_dir / "prompt.txt", item.prompt_text)
-    _copy_tree(item.traces_dir, repo.layout.record_traces_dir(item.canonical_record_id))
+    record_traces_dir = repo.layout.record_traces_dir(item.canonical_record_id)
+    record_traces_dir.mkdir(parents=True, exist_ok=True)
+    compress_trajectory_file(
+        item.trajectory_source_path,
+        record_traces_dir / COMPRESSED_TRAJECTORY_FILENAME,
+    )
+
+    system_prompt_sha256: str | None = None
+    if item.system_prompt_source_path is not None:
+        shared_prompt_path = ensure_shared_system_prompt_file(repo, item.system_prompt_source_path)
+        system_prompt_sha256 = shared_prompt_path.stem
 
     if item.meshes_dir is not None:
         destination_meshes_dir = repo.layout.record_materialization_asset_meshes_dir(
@@ -909,9 +933,7 @@ def _import_item(
             system_prompt_file=item.system_prompt_source_path.name
             if item.system_prompt_source_path is not None
             else "unknown",
-            system_prompt_sha256=_sha256_file(item.system_prompt_source_path)
-            if item.system_prompt_source_path is not None
-            else None,
+            system_prompt_sha256=system_prompt_sha256,
             sdk_docs_mode="legacy_import",
         ),
         sdk=SdkSettings(

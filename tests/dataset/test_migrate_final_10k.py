@@ -460,6 +460,15 @@ def test_migrate_final_10k_import_and_replace(tmp_path: Path) -> None:
     assert trace_response.status_code == 200
     assert '"role":"assistant"' in trace_response.text
     assert repo.layout.record_traces_dir("rec_category_000_0001").exists()
+    assert (
+        repo.layout.record_traces_dir("rec_category_000_0001") / "trajectory.jsonl.zst"
+    ).exists()
+    assert not (
+        repo.layout.record_traces_dir("rec_category_000_0001") / "conversation.jsonl"
+    ).exists()
+    provenance = repo.read_json(repo.layout.record_dir("rec_category_000_0001") / "provenance.json")
+    prompt_sha = provenance["prompting"]["system_prompt_sha256"]
+    assert repo.layout.system_prompt_path(prompt_sha).exists()
     assert not list(repo.layout.runs_root.glob("*/staging/rec_category_000_0001/traces"))
 
     bootstrap = client.get("/api/bootstrap").json()

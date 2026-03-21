@@ -10,6 +10,21 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
+from agent.prompts import (
+    DESIGNER_PROMPT_NAME,
+    GEMINI_DESIGNER_PROMPT_NAME,
+    HYBRID_GEMINI_DESIGNER_PROMPT_NAME,
+    HYBRID_OPENAI_DESIGNER_PROMPT_NAME,
+    LEGACY_DESIGNER_PROMPT_NAME,
+    OPENAI_DESIGNER_PROMPT_NAME,
+)
+from storage.trajectories import (
+    COMPRESSED_TRAJECTORY_FILENAME,
+    LEGACY_CONVERSATION_FILENAME,
+    SYSTEM_PROMPT_FILENAMES,
+    TRAJECTORY_FILENAME,
+    unroll_record_trajectory,
+)
 from viewer.api.schemas import (
     CategoryOptionResponse,
     DatasetEntryResponse,
@@ -53,6 +68,16 @@ def _open_in_file_manager(target: Path) -> None:
         subprocess.Popen(["xdg-open", str(target)])
         return
     raise RuntimeError(f"Unsupported platform: {sys.platform}")
+
+
+SYSTEM_PROMPT_REQUEST_NAMES = SYSTEM_PROMPT_FILENAMES | {
+    LEGACY_DESIGNER_PROMPT_NAME,
+    DESIGNER_PROMPT_NAME,
+    OPENAI_DESIGNER_PROMPT_NAME,
+    HYBRID_OPENAI_DESIGNER_PROMPT_NAME,
+    GEMINI_DESIGNER_PROMPT_NAME,
+    HYBRID_GEMINI_DESIGNER_PROMPT_NAME,
+}
 
 
 def create_app(*, repo_root: Path | None = None) -> FastAPI:
@@ -140,6 +165,84 @@ def create_app(*, repo_root: Path | None = None) -> FastAPI:
 
         return root, target
 
+    def resolve_record_trace_target(record_id: str, file_path: str) -> tuple[Path, str]:
+        if not record_id.startswith("rec_"):
+            raise HTTPException(status_code=400, detail="Invalid record ID format")
+
+        from storage.repo import StorageRepo
+
+        repo = StorageRepo(app.state.repo_root)
+        record_dir = repo.layout.record_dir(record_id)
+        record = repo.read_json(repo.layout.record_metadata_path(record_id))
+        provenance = repo.read_json(record_dir / "provenance.json")
+
+        if not record_dir.exists() or not isinstance(record, dict):
+            raise HTTPException(status_code=404, detail=f"Record not found: {record_id}")
+
+        requested_path = Path(file_path)
+        if requested_path.is_absolute() or ".." in requested_path.parts:
+            raise HTTPException(status_code=400, detail="Invalid file path")
+        if len(requested_path.parts) != 1:
+            raise HTTPException(status_code=404, detail=f"Trace file not found: {file_path}")
+
+        requested_name = requested_path.name
+        trace_root = repo.layout.record_traces_dir(record_id).resolve()
+
+        if requested_name in {LEGACY_CONVERSATION_FILENAME, TRAJECTORY_FILENAME}:
+            try:
+                target = unroll_record_trajectory(repo, record_id)
+            except FileNotFoundError as exc:
+                raise HTTPException(
+                    status_code=404, detail=f"Trace file not found: {file_path}"
+                ) from exc
+            return target, "application/x-ndjson"
+
+        if requested_name == COMPRESSED_TRAJECTORY_FILENAME:
+            target = (trace_root / requested_name).resolve()
+            if not target.exists() or not target.is_file():
+                raise HTTPException(status_code=404, detail=f"Trace file not found: {file_path}")
+            return target, "application/zstd"
+
+        prompting = provenance.get("prompting") if isinstance(provenance, dict) else None
+        prompt_sha = (
+            str(prompting.get("system_prompt_sha256"))
+            if isinstance(prompting, dict) and prompting.get("system_prompt_sha256")
+            else None
+        )
+        prompt_name = (
+            str(prompting.get("system_prompt_file"))
+            if isinstance(prompting, dict) and prompting.get("system_prompt_file")
+            else None
+        )
+        if requested_name in SYSTEM_PROMPT_REQUEST_NAMES or (
+            prompt_name is not None and requested_name == prompt_name
+        ):
+            if prompt_sha:
+                target = repo.layout.system_prompt_path(prompt_sha)
+                if target.exists() and target.is_file():
+                    return target, "text/plain"
+            fallback_name = prompt_name or requested_name
+            target = (trace_root / Path(fallback_name).name).resolve()
+            if target.exists() and target.is_file():
+                return target, "text/plain"
+            raise HTTPException(status_code=404, detail=f"Trace file not found: {file_path}")
+
+        target = (trace_root / requested_path).resolve()
+        try:
+            target.relative_to(trace_root)
+        except ValueError as exc:
+            raise HTTPException(status_code=403, detail="Access denied") from exc
+
+        if not target.exists() or not target.is_file():
+            raise HTTPException(status_code=404, detail=f"Trace file not found: {file_path}")
+        media_type = {
+            ".jsonl": "application/x-ndjson",
+            ".txt": "text/plain",
+            ".json": "application/json",
+            ".zst": "application/zstd",
+        }.get(target.suffix.lower(), "application/octet-stream")
+        return target, media_type
+
     async def resolve_record_target_with_materialization(
         record_id: str, file_path: str
     ) -> tuple[Path, Path]:
@@ -217,6 +320,43 @@ def create_app(*, repo_root: Path | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
 
         return staging_dir, target
+
+    def resolve_staging_trace_target(
+        run_id: str,
+        record_id: str,
+        file_path: str,
+    ) -> tuple[Path, str]:
+        requested_path = Path(file_path)
+        if (
+            requested_path.is_absolute()
+            or ".." in requested_path.parts
+            or len(requested_path.parts) != 1
+        ):
+            raise HTTPException(status_code=400, detail="Invalid file path")
+
+        requested_name = requested_path.name
+        preferred_name = (
+            TRAJECTORY_FILENAME
+            if requested_name == LEGACY_CONVERSATION_FILENAME
+            else requested_name
+        )
+        try:
+            _, target = resolve_staging_target(run_id, record_id, f"traces/{preferred_name}")
+        except HTTPException:
+            if preferred_name == requested_name:
+                raise
+            _, target = resolve_staging_target(run_id, record_id, f"traces/{requested_name}")
+
+        media_type = {
+            ".jsonl": "application/x-ndjson",
+            ".txt": "text/plain",
+            ".json": "application/json",
+            ".zst": "application/zstd",
+        }.get(
+            target.suffix.lower(),
+            media_type_map.get(target.suffix.lower(), "application/octet-stream"),
+        )
+        return target, media_type
 
     def read_text_file_payload(
         target: Path, *, preview_bytes: int, full: bool
@@ -493,47 +633,16 @@ def create_app(*, repo_root: Path | None = None) -> FastAPI:
 
     @app.get("/api/records/{record_id}/traces/{file_path:path}")
     async def record_trace_file(record_id: str, file_path: str) -> FileResponse:
-        if not record_id.startswith("rec_"):
-            raise HTTPException(status_code=400, detail="Invalid record ID format")
-
-        from storage.repo import StorageRepo
-
-        repo = StorageRepo(app.state.repo_root)
-        record_dir = repo.layout.record_dir(record_id)
-        record = repo.read_json(repo.layout.record_metadata_path(record_id))
-
-        if not record_dir.exists() or not isinstance(record, dict):
-            raise HTTPException(status_code=404, detail=f"Record not found: {record_id}")
-
-        requested_path = Path(file_path)
-        if requested_path.is_absolute() or ".." in requested_path.parts:
-            raise HTTPException(status_code=400, detail="Invalid file path")
-
-        trace_root = repo.layout.record_traces_dir(record_id).resolve()
-        target = (trace_root / requested_path).resolve()
-
-        try:
-            target.relative_to(trace_root)
-        except ValueError as exc:
-            raise HTTPException(status_code=403, detail="Access denied") from exc
-
-        if not target.exists() or not target.is_file():
-            raise HTTPException(status_code=404, detail=f"Trace file not found: {file_path}")
-
-        media_type_map = {
-            ".jsonl": "application/x-ndjson",
-            ".txt": "text/plain",
-            ".json": "application/json",
-        }
-        media_type = media_type_map.get(target.suffix.lower(), "application/octet-stream")
+        target, media_type = await asyncio.to_thread(
+            resolve_record_trace_target, record_id, file_path
+        )
         return FileResponse(target, media_type=media_type)
 
     @app.get("/api/staging/{run_id}/{record_id}/traces/{file_path:path}")
     async def staging_trace_file(run_id: str, record_id: str, file_path: str) -> FileResponse:
         if not file_path:
             raise HTTPException(status_code=400, detail="Invalid file path")
-        _, target = resolve_staging_target(run_id, record_id, f"traces/{file_path}")
-        media_type = media_type_map.get(target.suffix.lower(), "application/octet-stream")
+        target, media_type = resolve_staging_trace_target(run_id, record_id, file_path)
         return FileResponse(target, media_type=media_type)
 
     dist_dir = Path(__file__).resolve().parents[1] / "web" / "dist"

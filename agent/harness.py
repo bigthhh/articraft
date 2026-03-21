@@ -66,6 +66,87 @@ object_model = build_object_model()
 """
 
 
+def _sha256_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _prompt_cache_key_strategy_from_env() -> str:
+    raw = os.environ.get("OPENAI_PROMPT_CACHE_KEY_STRATEGY")
+    if raw is None:
+        return "articraft-v1"
+    value = raw.strip().lower()
+    if not value:
+        return "articraft-v1"
+    if value in {"articraft-v1", "off"}:
+        return value
+    logger.warning(
+        "Unknown OPENAI_PROMPT_CACHE_KEY_STRATEGY=%r; falling back to articraft-v1",
+        raw,
+    )
+    return "articraft-v1"
+
+
+def _prompt_cache_retention_from_env(*, model_id: str) -> Optional[str]:
+    raw = os.environ.get("OPENAI_PROMPT_CACHE_RETENTION")
+    if raw is None:
+        if model_id.strip().lower().startswith("gpt-5.4"):
+            return "24h"
+        return None
+    value = raw.strip()
+    if not value or value.lower() in {"0", "false", "none", "off"}:
+        return None
+    return value
+
+
+def build_openai_prompt_cache_settings(
+    *,
+    model_id: str,
+    sdk_package: str,
+    sdk_docs_mode: str,
+    system_prompt: str,
+    sdk_docs_context: str,
+    tools: list[dict[str, Any]],
+) -> tuple[Optional[str], Optional[str]]:
+    strategy = _prompt_cache_key_strategy_from_env()
+    retention = _prompt_cache_retention_from_env(model_id=model_id)
+
+    if strategy == "off":
+        logger.info(
+            "OpenAI prompt caching disabled (strategy=off, retention=%s)",
+            retention or "off",
+        )
+        return None, retention
+
+    normalized_sdk_package = _normalize_sdk_package(sdk_package)
+    normalized_docs_mode = _normalize_sdk_docs_mode(sdk_docs_mode)
+    prefix = (os.environ.get("OPENAI_PROMPT_CACHE_KEY_PREFIX") or "").strip()
+    key_payload = {
+        "provider": "openai",
+        "model_id": model_id.strip(),
+        "sdk_package": normalized_sdk_package,
+        "sdk_docs_mode": normalized_docs_mode,
+        "system_prompt_sha256": _sha256_text(system_prompt),
+        "sdk_docs_sha256": _sha256_text(sdk_docs_context),
+        "tool_schema_sha256": _sha256_text(_canonical_json(tools)),
+    }
+    digest = _sha256_text(_canonical_json(key_payload))
+    key = f"articraft-v1:{digest}"
+    if prefix:
+        key = f"{prefix}:{key}"
+
+    logger.info(
+        "OpenAI prompt caching enabled (strategy=%s, retention=%s, prefix=%s)",
+        strategy,
+        retention or "off",
+        prefix or "<none>",
+    )
+    return key, retention
+
+
 class ArticraftAgent:
     def __init__(
         self,
@@ -158,8 +239,17 @@ class ArticraftAgent:
             sdk_package=self.sdk_package,
             docs_mode=self.sdk_docs_mode,
         )
-        if self.trace_writer:
-            self.trace_writer.write_system_prompt(self.system_prompt)
+        if self.provider == "openai":
+            prompt_cache_key, prompt_cache_retention = build_openai_prompt_cache_settings(
+                model_id=actual_model_id,
+                sdk_package=self.sdk_package,
+                sdk_docs_mode=self.sdk_docs_mode,
+                system_prompt=self.system_prompt,
+                sdk_docs_context=self.sdk_docs_context,
+                tools=self.tool_registry.get_tool_schemas(),
+            )
+            self.llm.prompt_cache_key = prompt_cache_key
+            self.llm.prompt_cache_retention = prompt_cache_retention
 
     def _compile_signal_signature(self, bundle: CompileSignalBundle) -> str:
         sig_src = json.dumps(bundle.to_dict(), sort_keys=True, separators=(",", ":")).encode(

@@ -64,7 +64,9 @@ def test_workbench_run_and_rerun_persist_runtime_artifacts(
     assert (record_dir / "provenance.json").exists()
     assert (record_dir / "cost.json").exists()
     assert (record_dir / "traces").exists()
-    assert (record_dir / "traces" / "conversation.jsonl").exists()
+    assert (record_dir / "traces" / "trajectory.jsonl.zst").exists()
+    assert not (record_dir / "traces" / "trajectory.jsonl").exists()
+    assert not (record_dir / "traces" / "conversation.jsonl").exists()
     assert (materialization_dir / "model.urdf").read_text(
         encoding="utf-8"
     ) == "<robot name='test'/>"
@@ -91,6 +93,9 @@ def test_workbench_run_and_rerun_persist_runtime_artifacts(
     original_record = json.loads((record_dir / "record.json").read_text(encoding="utf-8"))
     original_run_id = original_record["source"]["run_id"]
     original_created_at = original_record["created_at"]
+    original_provenance = json.loads((record_dir / "provenance.json").read_text(encoding="utf-8"))
+    system_prompt_sha = original_provenance["prompting"]["system_prompt_sha256"]
+    assert (repo_root / "data" / "system_prompts" / f"{system_prompt_sha}.txt").exists()
 
     workbench["entries"][0]["archived"] = True
     workbench_path.write_text(json.dumps(workbench, indent=2) + "\n", encoding="utf-8")
@@ -130,7 +135,9 @@ def test_workbench_run_and_rerun_persist_runtime_artifacts(
         ]
         == 0.123456
     )
-    assert (record_dir / "traces" / "conversation.jsonl").exists()
+    assert (record_dir / "traces" / "trajectory.jsonl.zst").exists()
+    assert not (record_dir / "traces" / "trajectory.jsonl").exists()
+    assert not (record_dir / "traces" / "conversation.jsonl").exists()
     assert not (record_dir / "traces" / "stale.txt").exists()
     assert not (record_dir / "assets" / "glb").exists()
     assert not (record_dir / "assets" / "viewer").exists()

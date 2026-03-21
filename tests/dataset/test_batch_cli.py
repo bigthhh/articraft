@@ -48,7 +48,13 @@ class SuccessBatchAgent:
         self.file_path = Path(file_path)
         self.trace_dir = Path(trace_dir) if trace_dir else None
         self.provider = provider
-        self.loaded_system_prompt_path = "designer_system_prompt.txt"
+        self.loaded_system_prompt_path = str(
+            runner.resolve_system_prompt_path(
+                "designer_system_prompt.txt",
+                provider=provider,
+                repo_root=Path(__file__).resolve().parents[2],
+            )
+        )
         self.llm = type("LLM", (), {"model_id": model_id or "gpt-5.4"})()
 
     async def __aenter__(self) -> "SuccessBatchAgent":
@@ -78,7 +84,7 @@ class SuccessBatchAgent:
             )
             if self.trace_dir is not None:
                 self.trace_dir.mkdir(parents=True, exist_ok=True)
-                (self.trace_dir / "conversation.jsonl").write_text(
+                (self.trace_dir / "trajectory.jsonl").write_text(
                     '{"type":"message","message":{"role":"assistant","content":"done"}}\n',
                     encoding="utf-8",
                 )

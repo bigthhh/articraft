@@ -83,7 +83,7 @@ export function MetadataPanel(): JSX.Element {
 
       if (stagingHasTraces) {
         promises.push(
-          fetchStagingTraceFile(stagingRunId, stagingRecordId, "conversation.jsonl")
+          fetchStagingTraceFile(stagingRunId, stagingRecordId, "trajectory.jsonl")
             .then((text) => {
               if (!cancelled) setTraceText(text);
             })
@@ -145,7 +145,7 @@ export function MetadataPanel(): JSX.Element {
     }
 
     promises.push(
-      fetchRecordTraceFile(selectedRecordId, "conversation.jsonl")
+      fetchRecordTraceFile(selectedRecordId, "trajectory.jsonl")
         .then((text) => {
           if (!cancelled) setTraceText(text);
         })

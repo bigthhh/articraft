@@ -19,6 +19,7 @@ from storage.models import (
 from storage.records import RecordStore
 from storage.repo import StorageRepo
 from storage.runs import RunStore
+from storage.trajectories import compress_trajectory_file
 from viewer.api.app import create_app
 from viewer.api.store import ViewerStore
 
@@ -147,7 +148,15 @@ def test_viewer_api_end_to_end(tmp_path: Path) -> None:
             "schema_version": 1,
             "record_id": "rec_001",
             "generation": {"provider": "openai", "model_id": "gpt-5.4"},
+            "prompting": {
+                "system_prompt_file": "designer_system_prompt.txt",
+                "system_prompt_sha256": "prompt-sha-001",
+            },
         },
+    )
+    repo.write_text(
+        repo.layout.system_prompt_path("prompt-sha-001"),
+        "shared prompt text\n",
     )
     repo.write_json(
         repo.layout.record_dir("rec_001") / "cost.json",
@@ -165,10 +174,15 @@ def test_viewer_api_end_to_end(tmp_path: Path) -> None:
     )
     trace_dir = repo.layout.record_traces_dir("rec_001")
     trace_dir.mkdir(parents=True, exist_ok=True)
-    (trace_dir / "conversation.jsonl").write_text(
+    (trace_dir / "trajectory.jsonl").write_text(
         '{"type":"message","message":{"role":"assistant","content":"done"}}\n',
         encoding="utf-8",
     )
+    compress_trajectory_file(
+        trace_dir / "trajectory.jsonl",
+        trace_dir / "trajectory.jsonl.zst",
+    )
+    (trace_dir / "trajectory.jsonl").unlink()
 
     collections = CollectionStore(repo)
     collections.append_workbench_entry(
@@ -342,7 +356,7 @@ def test_viewer_api_end_to_end(tmp_path: Path) -> None:
     )
     live_trace_dir = live_stage_dir / "traces"
     live_trace_dir.mkdir(parents=True, exist_ok=True)
-    (live_trace_dir / "conversation.jsonl").write_text(
+    (live_trace_dir / "trajectory.jsonl").write_text(
         '{"type":"message","message":{"role":"assistant","content":"staging"}}\n',
         encoding="utf-8",
     )
@@ -518,6 +532,12 @@ def test_viewer_api_end_to_end(tmp_path: Path) -> None:
     trace_file = client.get("/api/records/rec_001/traces/conversation.jsonl")
     assert trace_file.status_code == 200
     assert '"role":"assistant"' in trace_file.text
+    trajectory_file = client.get("/api/records/rec_001/traces/trajectory.jsonl")
+    assert trajectory_file.status_code == 200
+    assert trajectory_file.text == trace_file.text
+    prompt_trace = client.get("/api/records/rec_001/traces/designer_system_prompt.txt")
+    assert prompt_trace.status_code == 200
+    assert prompt_trace.text == "shared prompt text\n"
 
     mesh_file = client.get("/api/records/rec_001/files/assets/meshes/part.obj")
     assert mesh_file.status_code == 200
@@ -541,6 +561,11 @@ def test_viewer_api_end_to_end(tmp_path: Path) -> None:
     staging_trace = client.get("/api/staging/run_live_001/rec_stage_001/traces/conversation.jsonl")
     assert staging_trace.status_code == 200
     assert '"content":"staging"' in staging_trace.text
+    staging_trajectory = client.get(
+        "/api/staging/run_live_001/rec_stage_001/traces/trajectory.jsonl"
+    )
+    assert staging_trajectory.status_code == 200
+    assert staging_trajectory.text == staging_trace.text
 
     delete_staging_response = client.delete("/api/staging/run_live_001/rec_stage_001")
     assert delete_staging_response.status_code == 200

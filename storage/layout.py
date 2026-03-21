@@ -17,6 +17,10 @@ class StorageLayout:
         return self.data_root / "categories"
 
     @property
+    def system_prompts_root(self) -> Path:
+        return self.data_root / "system_prompts"
+
+    @property
     def batch_specs_root(self) -> Path:
         return self.data_root / "batch_specs"
 
@@ -37,6 +41,18 @@ class StorageLayout:
         return self.cache_root / "manifests"
 
     @property
+    def trajectory_unroll_root(self) -> Path:
+        return self.cache_root / "trajectory_unroll"
+
+    @property
+    def trajectory_unroll_records_root(self) -> Path:
+        return self.trajectory_unroll_root / "records"
+
+    @property
+    def trajectory_unroll_staging_root(self) -> Path:
+        return self.trajectory_unroll_root / "staging"
+
+    @property
     def record_materializations_root(self) -> Path:
         return self.cache_root / "record_materialization"
 
@@ -49,6 +65,9 @@ class StorageLayout:
 
     def category_metadata_path(self, category_slug: str) -> Path:
         return self.category_dir(category_slug) / "category.json"
+
+    def system_prompt_path(self, prompt_sha256: str) -> Path:
+        return self.system_prompts_root / f"{prompt_sha256}.txt"
 
     def prompt_batches_dir(self, category_slug: str) -> Path:
         return self.category_dir(category_slug) / "prompt_batches"
@@ -82,6 +101,9 @@ class StorageLayout:
 
     def record_traces_dir(self, record_id: str) -> Path:
         return self.record_dir(record_id) / "traces"
+
+    def record_trajectory_unroll_path(self, record_id: str) -> Path:
+        return self.trajectory_unroll_records_root / record_id / "trajectory.jsonl"
 
     def record_assets_dir(self, record_id: str) -> Path:
         return self.record_dir(record_id) / "assets"
@@ -119,6 +141,9 @@ class StorageLayout:
     def run_dir(self, run_id: str) -> Path:
         return self.runs_root / run_id
 
+    def staging_trajectory_unroll_path(self, run_id: str, record_id: str) -> Path:
+        return self.trajectory_unroll_staging_root / run_id / record_id / "trajectory.jsonl"
+
     def run_metadata_path(self, run_id: str) -> Path:
         return self.run_dir(run_id) / "run.json"
 
@@ -143,10 +168,13 @@ class StorageLayout:
     def ensure_base_dirs(self) -> None:
         for path in (
             self.categories_root,
+            self.system_prompts_root,
             self.batch_specs_root,
             self.records_root,
             self.local_root,
             self.manifests_root,
+            self.trajectory_unroll_records_root,
+            self.trajectory_unroll_staging_root,
             self.record_materializations_root,
             self.runs_root,
         ):

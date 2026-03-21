@@ -29,7 +29,7 @@ from agent.compiler import (
 from agent.compiler import (
     compile_urdf_report_maybe_timeout as _compile_urdf_report_maybe_timeout,
 )
-from agent.harness import ArticraftAgent
+from agent.harness import ArticraftAgent, build_openai_prompt_cache_settings
 from agent.models import CompileReport as AgentCompileReport
 from agent.prompts import (
     SUPPORTED_SDK_DOCS_MODES,
@@ -82,6 +82,10 @@ from storage.queries import StorageQueries
 from storage.records import RecordStore
 from storage.repo import StorageRepo
 from storage.runs import RunStore
+from storage.trajectories import (
+    canonicalize_record_trace_dir,
+    ensure_shared_system_prompt_file,
+)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -206,6 +210,14 @@ def _sha256_file(path: Path) -> str | None:
     if not path.exists():
         return None
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _ensure_shared_system_prompt(
+    storage_repo: StorageRepo,
+    system_prompt_path: Path,
+) -> str:
+    shared_path = ensure_shared_system_prompt_file(storage_repo, system_prompt_path)
+    return shared_path.stem
 
 
 def _relative_to_repo(path: Path, repo_root: Path) -> str:
@@ -511,6 +523,7 @@ def create_workbench_draft_record(
         sdk_package=sdk_package,
         repo_root=resolved_repo_root,
     )
+    system_prompt_sha = _ensure_shared_system_prompt(storage_repo, loaded_system_prompt_path)
 
     record_store.ensure_record_dirs(context.record_id)
     storage_repo.write_text(context.record_prompt_path, normalized_prompt)
@@ -534,7 +547,7 @@ def create_workbench_draft_record(
         ),
         prompting=PromptingSettings(
             system_prompt_file=loaded_system_prompt_path.name,
-            system_prompt_sha256=_sha256_file(loaded_system_prompt_path),
+            system_prompt_sha256=system_prompt_sha,
             sdk_docs_mode=sdk_docs_mode,
         ),
         sdk=SdkSettings(
@@ -643,6 +656,7 @@ def _write_success_record(
     storage_repo.write_text(context.record_prompt_path, prompt_text)
     storage_repo.write_text(context.record_model_path, final_code)
     storage_repo.write_text(context.record_urdf_path, urdf_xml)
+    system_prompt_sha = _ensure_shared_system_prompt(storage_repo, system_prompt_path)
     stale_record_urdf_path = context.record_dir / "model.urdf"
     if stale_record_urdf_path.exists():
         stale_record_urdf_path.unlink()
@@ -659,6 +673,7 @@ def _write_success_record(
         context.trace_dir,
         storage_repo.layout.record_traces_dir(context.record_id),
     )
+    canonicalize_record_trace_dir(storage_repo, context.record_id)
     if context.trace_dir.exists():
         shutil.rmtree(context.trace_dir)
     _replace_tree_from_source(
@@ -705,7 +720,7 @@ def _write_success_record(
         ),
         prompting=PromptingSettings(
             system_prompt_file=system_prompt_path.name,
-            system_prompt_sha256=_sha256_file(system_prompt_path),
+            system_prompt_sha256=system_prompt_sha,
             sdk_docs_mode=sdk_docs_mode,
         ),
         sdk=SdkSettings(
@@ -864,11 +879,21 @@ def build_provider_payload_preview(
 
     provider_norm = (provider or "").strip().lower()
     if provider_norm == "openai":
+        prompt_cache_key, prompt_cache_retention = build_openai_prompt_cache_settings(
+            model_id=model_id,
+            sdk_package=sdk_package,
+            sdk_docs_mode=sdk_docs_mode,
+            system_prompt=system_prompt,
+            sdk_docs_context=docs,
+            tools=tools,
+        )
         llm = OpenAILLM(
             model_id=model_id,
             thinking_level=thinking_level,
             reasoning_summary=openai_reasoning_summary,
             transport=openai_transport,
+            prompt_cache_key=prompt_cache_key,
+            prompt_cache_retention=prompt_cache_retention,
             dry_run=True,
         )
         return llm.build_request_preview(

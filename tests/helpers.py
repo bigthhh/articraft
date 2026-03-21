@@ -53,7 +53,7 @@ class FakeAgent:
         )
         if self.trace_dir is not None:
             self.trace_dir.mkdir(parents=True, exist_ok=True)
-            (self.trace_dir / "conversation.jsonl").write_text(
+            (self.trace_dir / "trajectory.jsonl").write_text(
                 '{"type":"message","message":{"role":"assistant","content":"done"}}\n',
                 encoding="utf-8",
             )

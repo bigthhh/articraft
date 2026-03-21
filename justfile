@@ -487,6 +487,25 @@ compile-unsafe record_dir:
         print("Warnings: 0")
     PY
 
+unroll-trajectory record_dir:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    record_dir={{ quote(record_dir) }}
+    if [ ! -f "$record_dir/record.json" ]; then
+      echo "Record metadata not found: $record_dir/record.json" >&2
+      exit 1
+    fi
+    uv run python scripts/unroll_trajectory.py --repo-root . "$record_dir"
+
+unroll-all-trajectories:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cmd=(uv run python scripts/unroll_all_trajectories.py --repo-root . --concurrency {{ quote(concurrency) }})
+    if [ -n {{ quote(limit) }} ]; then
+      cmd+=(--limit {{ quote(limit) }})
+    fi
+    exec "${cmd[@]}"
+
 compile-all:
     #!/usr/bin/env bash
     set -euo pipefail

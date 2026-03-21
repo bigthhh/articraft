@@ -186,6 +186,7 @@ export interface SceneCanvasProps {
   jointPoseSignal: Map<string, number>;
   renderOptions: RenderOptions;
   onUrdfSpecChange?: (spec: UrdfSpec | null, jointNodes: Map<string, THREE.Object3D> | null) => void;
+  onInvalidateReady?: (invalidate: (() => void) | null) => void;
   onLoadStateChange?: (state: {
     loading: boolean;
     error: string | null;
@@ -207,6 +208,7 @@ export function SceneCanvas({
   jointPoseSignal,
   renderOptions,
   onUrdfSpecChange,
+  onInvalidateReady,
   onLoadStateChange,
 }: SceneCanvasProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -264,6 +266,14 @@ export function SceneCanvas({
   useEffect(() => {
     onUrdfSpecChange?.(urdfSpec, jointNodes);
   }, [urdfSpec, jointNodes, onUrdfSpecChange]);
+
+  useEffect(() => {
+    onInvalidateReady?.(sceneReady ? invalidate : null);
+
+    return () => {
+      onInvalidateReady?.(null);
+    };
+  }, [invalidate, onInvalidateReady, sceneReady]);
 
   useEffect(() => {
     onLoadStateChange?.({

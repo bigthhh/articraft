@@ -233,6 +233,7 @@ export default function ViewerShell(): JSX.Element {
   const jointValuesRef = useRef<Map<string, number>>(new Map());
   const previewJointValuesRef = useRef<Map<string, number>>(new Map());
   const previewUiLastSyncRef = useRef(0);
+  const viewportInvalidateRef = useRef<(() => void) | null>(null);
 
   const { jointValues, setJointValue, applyJointValues, resetAll } = useJointController(jointNodes, urdfSpec);
 
@@ -263,6 +264,10 @@ export default function ViewerShell(): JSX.Element {
   const handleInspectorExpand = useCallback(() => {
     setInspectorCollapsed(false);
     inspectorPanelRef.current?.expand();
+  }, []);
+
+  const handleViewportInvalidateReady = useCallback((invalidate: (() => void) | null) => {
+    viewportInvalidateRef.current = invalidate;
   }, []);
 
   useEffect(() => {
@@ -334,6 +339,7 @@ export default function ViewerShell(): JSX.Element {
         });
       }
       applyJointValues(nextValues);
+      viewportInvalidateRef.current?.();
       frameId = requestAnimationFrame(tick);
     };
 
@@ -345,6 +351,7 @@ export default function ViewerShell(): JSX.Element {
       previewUiLastSyncRef.current = 0;
       setPreviewJointValues(new Map());
       applyJointValues(jointValuesRef.current);
+      viewportInvalidateRef.current?.();
     };
   }, [applyJointValues, renderOptions.autoAnimate, urdfSpec]);
 
@@ -483,9 +490,10 @@ export default function ViewerShell(): JSX.Element {
             baseFileUrl={baseFileUrl}
             assetRevisionKey={assetRevisionKey}
             selectionKey={selectionKey}
-            jointPoseSignal={jointValues}
+            jointPoseSignal={displayedJointValues}
             renderOptions={renderOptions}
             onUrdfSpecChange={handleUrdfSpecChange}
+            onInvalidateReady={handleViewportInvalidateReady}
             onLoadStateChange={setModelLoadState}
             overlayNotice={collisionNotice}
             disabledOverlay={

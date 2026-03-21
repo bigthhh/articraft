@@ -13,6 +13,7 @@ interface ViewportPanelProps {
   jointPoseSignal: Map<string, number>;
   renderOptions: RenderOptions;
   onUrdfSpecChange: (spec: UrdfSpec | null, jointNodes: Map<string, THREE.Object3D> | null) => void;
+  onInvalidateReady?: (invalidate: (() => void) | null) => void;
   onLoadStateChange?: (state: {
     loading: boolean;
     error: string | null;
@@ -29,6 +30,7 @@ export function ViewportPanel({
   jointPoseSignal,
   renderOptions,
   onUrdfSpecChange,
+  onInvalidateReady,
   onLoadStateChange,
   overlayNotice,
   disabledOverlay,
@@ -61,6 +63,7 @@ export function ViewportPanel({
             jointPoseSignal={jointPoseSignal}
             renderOptions={sceneRenderOptions}
             onUrdfSpecChange={onUrdfSpecChange}
+            onInvalidateReady={onInvalidateReady}
             onLoadStateChange={onLoadStateChange}
           />
         </div>

@@ -32,6 +32,32 @@ We also do not want prompts that depend on exotic sculpting or fragile hacks.
 - Do not add obscure or gimmicky motions that are not central to the category.
 - Choose one coherent variant when the category has several common forms.
 
+## Batch Diversity
+
+Prompt batches for the same category should contain a reasonable amount of
+diversity.
+
+That diversity should come from believable variation inside the category, not
+from drifting into a different object class.
+
+Across prompts for one category, vary things like:
+
+- the chosen real-world variant or subtype
+- proportions and silhouette
+- housing, frame, panel, arm, rail, or bracket layout
+- visible subassemblies and mounting details
+- materials, finishes, and industrial design character
+- the specific canonical articulation emphasis when several are normal
+
+Keep the category boundary stable.
+All prompts in the batch should still read as clear members of the same
+category with the same core articulation model.
+
+Avoid batch rows that are basically the same prompt with a few adjectives
+swapped.
+Avoid diversity that depends on gimmicks, rare attachments, or non-canonical
+motions just to make rows look different.
+
 ## What To Include
 
 Every category prompt should cover:
@@ -156,5 +182,7 @@ Before accepting a category prompt, check:
 - Does it control silhouette and visible structure, not just motion?
 - Would the requested geometry be achievable with `sdk` or `sdk_hybrid`?
 - Does it avoid optional branching and gimmick motions?
+- If this category already has prompts, does this one add meaningful variation
+  without leaving the category?
 
 If any answer is no, rewrite the prompt before running the batch.

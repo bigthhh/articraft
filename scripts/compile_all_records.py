@@ -579,8 +579,8 @@ def _resolve_worker_count(
 
     if normalized == "auto":
         # Align auto behavior across compile-all variants for speed-first throughput.
-        # This mirrors compile-visual's fan-out policy and is intentionally
-        # independent of compile target to avoid unexpectedly conservative defaults.
+        # This keeps fan-out intentionally independent of compile target to avoid
+        # unexpectedly conservative defaults.
         resolved = max(1, min(candidate_count, _VISUAL_AUTO_WORKER_HARD_CAP))
         if open_file_cap is not None:
             resolved = min(resolved, open_file_cap.worker_cap)

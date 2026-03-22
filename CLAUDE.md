@@ -19,14 +19,12 @@ uv run uvicorn viewer.api.app:app --reload --host 127.0.0.1 --port 8765  # Start
 
 just setup                     # First-time setup shortcut
 just smoke-tests               # Run pytest suite
-just compile-all-visual        # Fast path: materialize visual meshes for viewer browsing
-just compile-all               # Full path: materialize full artifacts, including collisions
+just compile-all               # Materialize saved-record artifacts for viewer browsing
 just compile-all-strict        # Full path with validation-heavy geometry checks
 just name=<batch-id> batch-spec-new   # Create an empty tracked batch CSV with the canonical header
 just spec=data/batch_specs/<batch-id>.csv concurrency=8 dataset-batch  # Run a tracked dataset batch CSV
 just wb-init "prompt text"     # Create a draft workbench record to edit manually
 just compile data/records/<id> # Recompile model.py into cache-backed materialization outputs
-just compile-visual data/records/<id> # Recompile only visual viewer artifacts for one record
 just rerun data/records/<id>   # Re-run generation for an existing record
 just search-index              # Rebuild the workbench search index
 just viewer                    # Start viewer
@@ -116,10 +114,9 @@ The API (`viewer/api/app.py`) is a FastAPI app that serves both the REST API and
 
 ### Viewer compile guidance
 
-- For viewer-first inspection, prefer `just compile-all-visual` before `just viewer`. This is the fast path and only materializes visual meshes.
-- Use `just compile-all` when you need full artifacts, including collision geometry.
+- For viewer-first inspection, run `just compile-all` before `just viewer`.
 - Use `just compile-all-strict` when you need the validation-heavy full compile path.
-- For one-off records, `just compile-visual data/records/<id>` is the fast single-record path and `just compile data/records/<id>` is the full single-record path.
+- For one-off records, use `just compile data/records/<id>`.
 
 ## Code Style
 

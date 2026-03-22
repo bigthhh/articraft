@@ -58,19 +58,13 @@ Set `GEMINI_API_KEYS` to your Gemini keys in `.env`
 
 ## 4. Open The Viewer Fast
 
-If you just cloned the repo and want to browse saved records with meshes as quickly as possible, precompile the visual artifacts first:
-
-```bash
-just compile-all-visual
-```
-
-This is the recommended fast path for viewer use. It materializes viewer-ready visual meshes for saved records without doing the full collision-oriented compile.
-
-If you want the full artifact path instead, including collision geometry, use:
+If you just cloned the repo and want to browse saved records in the viewer, precompile the saved records first:
 
 ```bash
 just compile-all
 ```
+
+This materializes the viewer-ready artifacts for saved records.
 
 Then open the viewer:
 
@@ -182,7 +176,6 @@ just search-index
 Recompile one saved record:
 
 ```bash
-just compile-visual data/records/<record-id>
 just compile data/records/<record-id>
 just compile-strict data/records/<record-id>
 just sdk_package=sdk_hybrid compile data/records/<record-id>
@@ -191,9 +184,8 @@ just sdk_package=sdk_hybrid compile data/records/<record-id>
 Bulk compile variants:
 
 ```bash
-just compile-all-visual
 just compile-all
-just force-compile-all-visual
+just compile-all-strict
 just force-compile-all
 ```
 

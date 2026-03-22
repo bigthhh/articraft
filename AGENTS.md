@@ -17,14 +17,12 @@ When a `just` recipe supports optional settings, pass them as overrides before t
 - `uv run --group dev pytest -q` runs the current smoke-test suite.
 - `just setup` handles first-time repo setup and storage initialization.
 - `just smoke-tests` runs the smoke-test suite.
-- `just compile-all-visual` is the recommended fast path before `just viewer`; it materializes visual meshes for saved records.
-- `just compile-all` runs the full artifact path, including collision geometry, when that matters for inspection.
+- `just compile-all` is the recommended path before `just viewer`; it materializes the saved-record artifacts used by the viewer.
 - `just compile-all-strict` runs the validation-heavy full compile path.
 - `just name=<batch-id> batch-spec-new` creates `data/batch_specs/<batch-id>.csv` with the canonical batch CSV header.
 - `just concurrency=8 dataset-batch data/batch_specs/<batch-id>.csv` runs the dataset batch shortcut; batch row provider/model settings come from the CSV.
 - `just wb-init "prompt text"` creates a draft workbench record without running generation, which is useful when you want an empty record directory to work in.
 - `just image=reference.png wb-init "prompt text"` stores a reference image with the draft so later reruns keep the same conditioning.
-- `just compile-visual data/records/<id>` recompiles only the visual viewer artifacts for a single record.
 - `just compile data/records/<id>` recompiles a record's `model.py` into cache-backed materialization outputs under `data/cache/record_materialization/<id>/`.
 - `just rerun data/records/<id>` reruns generation for an existing workbench record in place.
 - `just search-index` rebuilds the workbench search index after record changes.

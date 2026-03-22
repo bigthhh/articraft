@@ -30,6 +30,10 @@ def test_prompt_outputs_are_current() -> None:
         in compiled_by_name["designer_system_prompt_openai.txt"]
     )
     assert (
+        "The scaffold already seeds the default broad checks in `run_tests()`."
+        in compiled_by_name["designer_system_prompt_openai.txt"]
+    )
+    assert (
         "deliberately dumb static sensors" in compiled_by_name["designer_system_prompt_openai.txt"]
     )
     assert "semantic regression" in compiled_by_name["designer_system_prompt_openai.txt"]
@@ -66,6 +70,10 @@ def test_prompt_outputs_are_current() -> None:
     )
     assert (
         "warn_if_part_geometry_disconnected"
+        in compiled_by_name["designer_system_prompt_gemini.txt"]
+    )
+    assert (
+        "The scaffold already seeds the default broad checks in `run_tests()`."
         in compiled_by_name["designer_system_prompt_gemini.txt"]
     )
     assert (

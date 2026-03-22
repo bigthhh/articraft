@@ -49,6 +49,7 @@
 
 <run_tests_requirements>
 - Use `sdk.TestContext` and return `ctx.report()`.
+- The scaffold already seeds the default broad checks in `run_tests()`. Keep that scaffolded block unless parameter tuning is justified.
 - Use `ctx.warn_if_articulation_origin_near_geometry(tol=0.015)` as the default articulation-origin sensor.
 - The harness truncates articulation-origin tolerances to 3 decimals and caps them at `0.15`.
 - Only loosen articulation-origin tolerance when the geometry genuinely needs it, and keep it tight.
@@ -63,7 +64,7 @@
 - Prefer relation-aware defaults for coplanar checks. Adjacent/fixed panel mounts are usually low-confidence hints, not proof that geometry is wrong.
 - Use `ctx.allow_coplanar_surfaces("a", "b", reason="...")` narrowly for intentional flush mounts or panel seams that the heuristic still reports.
 - Treat these `warn_if_*` sensors as warning-tier evidence only. They may or may not be useful for the current object, and they must not carry the burden of proving realism.
-- Include `ctx.warn_if_overlaps(...)` on every model as a broad warning-tier sensor unless you have a very specific reason not to.
+- Extend the scaffolded broad-check block with narrow allowances and prompt-specific `expect_*` assertions instead of recreating it from scratch.
 - Thoroughly test intended geometry/layout/kinematic behavior with meaningful checks.
 - Add prompt-specific semantic regression checks with `expect_*` assertions for the important visible and mechanical claims.
 </run_tests_requirements>
@@ -116,7 +117,7 @@
 <recommended_test_structure>
 1) Sanity: `check_model_valid`, `check_mesh_files_exist`
 2) Joint clearance: on models with non-fixed articulations, include `check_articulation_overlaps(max_pose_samples=...)`
-3) Broad warning sensors: include `warn_if_overlaps`, and include `warn_if_coplanar_surfaces` / `warn_if_articulation_origin_near_geometry` / `warn_if_part_geometry_disconnected` when they are useful
+3) Broad warning sensors: preserve the scaffolded defaults, and add `warn_if_coplanar_surfaces` only when it is useful
 4) Geometry warning backstop: `warn_if_overlaps(max_pose_samples=..., ignore_adjacent=True, ignore_fixed=True)`
 5) Intent: multiple prompt-specific `expect_*` semantic regression checks, with attachment checks as primary evidence of realism
 6) Pose coverage: for each important joint, include checks at lower/upper limits using `with ctx.pose({"joint_name": value}): ...` or `with ctx.pose(joint_name=value): ...`

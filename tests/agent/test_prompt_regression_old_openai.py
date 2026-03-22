@@ -28,6 +28,8 @@ def test_compiled_openai_prompt_keeps_tool_policy_and_design_charter() -> None:
         assert "wrong overall composition" in text
         assert "warn_if_articulation_origin_near_geometry" in text
         assert "warn_if_part_geometry_disconnected" in text
+        assert "The scaffold already seeds the default broad checks in `run_tests()`." in text
+        assert "Extend the scaffolded broad-check block" in text
         assert "deliberately dumb static sensors" in text
         assert "semantic regression" in text
         assert "Do not preserve a scaffold just because parts of it compile" in text

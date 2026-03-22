@@ -25,7 +25,7 @@ If the model was constructed with `ArticulatedObject(..., assets=AssetContext.fr
 
 ## Default broad sensors and backstops
 
-Every generated model should start from these broad sensors and backstops:
+The scaffolded `run_tests()` starts from these broad sensors and backstops:
 
 ```python
 ctx.check_model_valid()
@@ -54,6 +54,7 @@ These broad checks are warning-tier sensors, not semantic proof. The agent still
 
 Recommended default:
 
+- Keep the scaffolded broad-check block unless parameter tuning is justified.
 - Include `warn_if_overlaps(...)` on every generated model as a broad warning-tier sensor, even when you do not want overlap findings to fail the run.
 - Include `check_articulation_overlaps(...)` on articulated models with non-fixed joints when joint clearance is a real requirement.
 - Use `warn_if_coplanar_surfaces(...)` when flush-surface duplication is genuinely a useful sensor for the object, and prefer `ignore_adjacent=True, ignore_fixed=True` unless you have a specific reason not to.

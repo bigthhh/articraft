@@ -332,6 +332,16 @@ def test_workbench_init_record_command(
     assert (record_dir / "prompt.txt").read_text(encoding="utf-8") == "build a folding reading lamp"
     model_text = (record_dir / "model.py").read_text(encoding="utf-8")
     assert "Draft scaffold created by `articraft-workbench init-record`." in model_text
+    assert "def build_object_model() -> ArticulatedObject:" in model_text
+    assert "def run_tests() -> TestReport:" in model_text
+    assert "ctx.warn_if_articulation_origin_near_geometry(tol=0.015)" in model_text
+    assert 'ctx.warn_if_part_geometry_disconnected(use="visual")' in model_text
+    assert "ctx.check_articulation_overlaps(max_pose_samples=128)" in model_text
+    assert (
+        "ctx.warn_if_overlaps(max_pose_samples=128, ignore_adjacent=True, ignore_fixed=True)"
+        in model_text
+    )
+    assert "Default broad sensor; do not remove. Tune params only if warranted." in model_text
 
     materialization_dir = repo_root / "data" / "cache" / "record_materialization" / record_dir.name
     assert not (materialization_dir / "compile_report.json").exists()

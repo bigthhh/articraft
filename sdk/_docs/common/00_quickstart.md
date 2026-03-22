@@ -19,14 +19,14 @@ Do not emit URDF XML yourself. The harness compiles `object_model`, generates co
 2. Author visuals with `part.visual(...)`.
 3. Use `Inertial.from_geometry(...)` for primitive inertials when needed.
 4. Add motion with `model.articulation(...)`.
-5. In `run_tests()`, always include:
+5. The scaffolded `run_tests()` already includes the default broad checks:
    - `ctx.check_model_valid()`
    - `ctx.check_mesh_files_exist()`
    - `ctx.warn_if_articulation_origin_near_geometry(tol=0.015)`
    - `ctx.warn_if_part_geometry_disconnected(use="visual")`
    - `ctx.check_articulation_overlaps(...)` when the model has non-fixed articulations
-   - `ctx.warn_if_coplanar_surfaces(use="visual", ignore_adjacent=True, ignore_fixed=True)` when it is useful
    - `ctx.warn_if_overlaps(..., ignore_adjacent=True, ignore_fixed=True)` as a broad warning-tier backstop
+   Keep that block unless parameter tuning is justified, add `warn_if_coplanar_surfaces(...)` only when it is useful, and extend `run_tests()` with prompt-specific `expect_*` checks.
 
 Joint authoring rules:
 

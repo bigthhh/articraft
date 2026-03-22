@@ -10,7 +10,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from .assets import resolve_asset_root, resolve_mesh_path
 from .errors import ValidationError
-from .generated_collisions import compile_object_model_with_generated_collisions
+from .exact_collisions import compile_object_model_with_exact_collisions
 from .types import ArticulationType, Mesh, Origin, Part
 
 Vec3 = Tuple[float, float, float]
@@ -37,15 +37,6 @@ def _aabb_center(aabb: AABB) -> Vec3:
 def _aabb_size(aabb: AABB) -> Vec3:
     (mn, mx) = aabb
     return (mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2])
-
-
-def _prefer_collisions_from_source(geometry_source: str) -> bool:
-    source = str(geometry_source or "").strip().lower()
-    if source == "collision":
-        return True
-    if source == "visual":
-        return False
-    raise ValidationError("geometry_source must be either 'collision' or 'visual'")
 
 
 @dataclass(frozen=True)
@@ -309,7 +300,6 @@ class UnsupportedPartFinding:
     pose_index: int
     pose: Dict[str, float]
     part: str
-    geometry_source: str
     nearest_part: Optional[str]
     min_distance: Optional[float]
     contact_tol: float
@@ -482,9 +472,11 @@ def _mat4_rotation_translation(
 def _load_fcl_mesh(
     mesh_path: Path,
     *,
-    cache: Dict[Path, object],
+    cache: Dict[tuple[Path, Optional[Vec3]], object],
+    scale: Optional[Vec3] = None,
 ) -> object:
-    cached = cache.get(mesh_path)
+    cache_key = (mesh_path, None if scale is None else tuple(float(v) for v in scale))
+    cached = cache.get(cache_key)
     if cached is not None:
         return cached
 
@@ -498,11 +490,14 @@ def _load_fcl_mesh(
         raise ValidationError(f"OBJ contains no vertices: {mesh_path}")
     if loaded.faces.size == 0:
         raise ValidationError(f"OBJ contains no triangles: {mesh_path}")
+    if scale is not None:
+        loaded = loaded.copy()
+        loaded.apply_scale(scale)
     model = fcl.BVHModel()
     model.beginModel(len(loaded.vertices), len(loaded.faces))
     model.addSubModel(loaded.vertices, loaded.faces)
     model.endModel()
-    cache[mesh_path] = model
+    cache[cache_key] = model
     return model
 
 
@@ -511,7 +506,7 @@ def _collision_object_from_geometry(
     *,
     elem_tf: Mat4,
     asset_root: Optional[Path],
-    mesh_cache: Dict[Path, object],
+    mesh_cache: Dict[tuple[Path, Optional[Vec3]], object],
 ) -> object:
     import fcl
 
@@ -530,11 +525,10 @@ def _collision_object_from_geometry(
             raise ValidationError(
                 f"Only OBJ meshes are supported for geometry QC (got: {mesh_path.name!r})."
             )
+        scale = None
         if geometry.scale is not None:
-            raise ValidationError(
-                f"Generated collision meshes must have baked scale; found scale on {mesh_path.name!r}"
-            )
-        shape = _load_fcl_mesh(mesh_path, cache=mesh_cache)
+            scale = tuple(float(v) for v in geometry.scale)
+        shape = _load_fcl_mesh(mesh_path, cache=mesh_cache, scale=scale)
     else:
         raise ValidationError(f"Unsupported geometry type: {type(geometry).__name__}")
 
@@ -763,7 +757,7 @@ def _find_collision_overlaps_fcl(
 ) -> List[GeometryOverlap]:
     import fcl
 
-    compiled_model = compile_object_model_with_generated_collisions(
+    compiled_model = compile_object_model_with_exact_collisions(
         model,  # type: ignore[arg-type]
         asset_root=asset_root,
     )
@@ -782,7 +776,7 @@ def _find_collision_overlaps_fcl(
     poses = generate_pose_samples(compiled_model, max_samples=max_pose_samples, seed=int(seed))
     overlaps: list[GeometryOverlap] = []
     obj_cache: Dict[Path, AABB] = {}
-    mesh_cache: Dict[Path, object] = {}
+    mesh_cache: Dict[tuple[Path, Optional[Vec3]], object] = {}
     collision_request = fcl.CollisionRequest()
 
     for pose_index, pose in enumerate(poses):
@@ -884,7 +878,6 @@ def _unsupported_parts_from_world_aabbs(
     *,
     pose_index: int,
     pose: Dict[str, float],
-    geometry_source: str,
     contact_tol: float,
     backend: str,
 ) -> List[UnsupportedPartFinding]:
@@ -925,7 +918,6 @@ def _unsupported_parts_from_world_aabbs(
                 pose_index=pose_index,
                 pose=dict(pose),
                 part=name,
-                geometry_source=geometry_source,
                 nearest_part=nearest_part[name],
                 min_distance=nearest_distance[name],
                 contact_tol=float(contact_tol),
@@ -935,7 +927,7 @@ def _unsupported_parts_from_world_aabbs(
     return findings
 
 
-def _find_unsupported_parts_visual(
+def _find_unsupported_parts_physical(
     model: object,
     *,
     asset_root: Optional[Path],
@@ -943,54 +935,7 @@ def _find_unsupported_parts_visual(
     contact_tol: float,
     seed: int,
 ) -> List[UnsupportedPartFinding]:
-    links, _joints = _resolve_model_links_and_joints(model)
-    if len(links) <= 1:
-        return []
-
-    poses = generate_pose_samples(model, max_samples=max_pose_samples, seed=int(seed))
-    obj_cache: Dict[Path, AABB] = {}
-    findings: list[UnsupportedPartFinding] = []
-
-    for pose_index, pose in enumerate(poses):
-        tf = compute_part_world_transforms(model, pose)
-        part_aabbs: Dict[str, AABB] = {}
-        for link in links:
-            name = getattr(link, "name", None)
-            if not isinstance(name, str):
-                continue
-            world_tf = tf.get(name, _identity4())
-            world_aabb = part_world_aabb(
-                link,
-                world_tf,
-                asset_root=asset_root,
-                prefer_collisions=False,
-                _obj_cache=obj_cache,
-            )
-            if world_aabb is not None:
-                part_aabbs[name] = world_aabb
-        findings.extend(
-            _unsupported_parts_from_world_aabbs(
-                part_aabbs,
-                pose_index=pose_index,
-                pose=pose,
-                geometry_source="visual",
-                contact_tol=contact_tol,
-                backend="aabb",
-            )
-        )
-
-    return findings
-
-
-def _find_unsupported_parts_collision(
-    model: object,
-    *,
-    asset_root: Optional[Path],
-    max_pose_samples: int,
-    contact_tol: float,
-    seed: int,
-) -> List[UnsupportedPartFinding]:
-    compiled_model = compile_object_model_with_generated_collisions(
+    compiled_model = compile_object_model_with_exact_collisions(
         model,  # type: ignore[arg-type]
         asset_root=asset_root,
     )
@@ -1003,20 +948,19 @@ def _find_unsupported_parts_collision(
         import fcl  # type: ignore[import-not-found]
     except Exception as exc:
         raise ValidationError(
-            "find_unsupported_parts(..., geometry_source='collision') requires FCL support "
-            "for collision contact queries."
+            "find_unsupported_parts(...) requires FCL support for contact queries."
         ) from exc
 
     poses = generate_pose_samples(compiled_model, max_samples=max_pose_samples, seed=int(seed))
     obj_cache: Dict[Path, AABB] = {}
-    mesh_cache: Dict[Path, object] = {}
+    mesh_cache: Dict[tuple[Path, Optional[Vec3]], object] = {}
     findings: list[UnsupportedPartFinding] = []
 
     collision_request = fcl.CollisionRequest()
     if not all(hasattr(fcl, attr) for attr in ("distance", "DistanceRequest", "DistanceResult")):
         raise ValidationError(
-            "find_unsupported_parts(..., geometry_source='collision') requires FCL distance "
-            "queries (`distance`, `DistanceRequest`, `DistanceResult`)."
+            "find_unsupported_parts(...) requires FCL distance queries "
+            "(`distance`, `DistanceRequest`, `DistanceResult`)."
         )
 
     for pose_index, pose in enumerate(poses):
@@ -1110,7 +1054,6 @@ def _find_unsupported_parts_collision(
                     pose_index=pose_index,
                     pose=dict(pose),
                     part=name,
-                    geometry_source="collision",
                     nearest_part=nearest_part[name],
                     min_distance=nearest_distance[name],
                     contact_tol=float(contact_tol),
@@ -1125,21 +1068,11 @@ def find_unsupported_parts(
     model: object,
     *,
     asset_root: Optional[Path] = None,
-    geometry_source: str = "collision",
     max_pose_samples: int = 1,
     contact_tol: float = 1e-6,
     seed: int = 0,
 ) -> List[UnsupportedPartFinding]:
-    if _prefer_collisions_from_source(geometry_source):
-        return _find_unsupported_parts_collision(
-            model,
-            asset_root=asset_root,
-            max_pose_samples=max_pose_samples,
-            contact_tol=float(contact_tol),
-            seed=int(seed),
-        )
-
-    return _find_unsupported_parts_visual(
+    return _find_unsupported_parts_physical(
         model,
         asset_root=asset_root,
         max_pose_samples=max_pose_samples,
@@ -1152,141 +1085,27 @@ def find_geometry_overlaps(
     model: object,
     *,
     asset_root: Optional[Path] = None,
-    geometry_source: str = "collision",
     max_pose_samples: int = 256,
     overlap_tol: float = 1e-3,
     overlap_volume_tol: float = 0.0,
     allowed_pairs: Optional[Iterable[Tuple[str, str]]] = None,
     seed: int = 0,
 ) -> List[GeometryOverlap]:
-    if _prefer_collisions_from_source(geometry_source):
-        return _find_collision_overlaps_fcl(
-            model,
-            asset_root=asset_root,
-            max_pose_samples=max_pose_samples,
-            overlap_tol=overlap_tol,
-            overlap_volume_tol=overlap_volume_tol,
-            allowed_pairs=allowed_pairs,
-            seed=seed,
-        )
-
-    links = getattr(model, "parts", None)
-    if not isinstance(links, list):
-        links = getattr(model, "links", None)
-    joints = getattr(model, "articulations", None)
-    if not isinstance(joints, list):
-        joints = getattr(model, "joints", None)
-    if not isinstance(links, list) or not isinstance(joints, list):
-        raise ValidationError("model must have .parts and .articulations lists")
-
-    allowed: set[tuple[str, str]] = set()
-    if allowed_pairs:
-        for a, b in allowed_pairs:
-            allowed.add((a, b))
-            allowed.add((b, a))
-
-    prefer_collisions = _prefer_collisions_from_source(geometry_source)
-    obj_cache: Dict[Path, AABB] = {}
-    poses = generate_pose_samples(model, max_samples=max_pose_samples, seed=int(seed))
-    overlaps: list[GeometryOverlap] = []
-
-    for pose_index, pose in enumerate(poses):
-        tf = compute_part_world_transforms(model, pose)
-        link_elem_bounds: Dict[str, List[tuple[AABB, _OBB, object]]] = {}
-        for link in links:
-            name = getattr(link, "name", None)
-            if not isinstance(name, str):
-                continue
-            world_tf = tf.get(name, _identity4())
-
-            # Collect elements (Collision/Visual) with their local AABB (in geometry frame)
-            # and their transform (link_world_tf * elem_origin_tf).
-            elements: list[object]
-            if prefer_collisions and getattr(link, "collisions", None):
-                elements = list(getattr(link, "collisions"))
-            else:
-                elements = list(getattr(link, "visuals", []))
-
-            bounds: list[tuple[AABB, _OBB, object]] = []
-            for item in elements:
-                origin = getattr(item, "origin", Origin())
-                geometry = getattr(item, "geometry", None)
-                if geometry is None:
-                    continue
-                local_aabb = _geometry_local_aabb(
-                    geometry, asset_root=asset_root, _obj_cache=obj_cache
-                )
-                elem_tf = _mat4_mul(world_tf, _origin_to_mat4(origin))
-                bounds.append(
-                    (
-                        _transform_aabb(local_aabb, elem_tf),
-                        _obb_from_local_aabb_and_tf(local_aabb, elem_tf),
-                        item,
-                    )
-                )
-
-            if bounds:
-                link_elem_bounds[name] = bounds
-
-        names = sorted(link_elem_bounds.keys())
-        for i in range(len(names)):
-            for j in range(i + 1, len(names)):
-                a = names[i]
-                b = names[j]
-                if (a, b) in allowed:
-                    continue
-
-                elems_a = link_elem_bounds[a]
-                elems_b = link_elem_bounds[b]
-                for ia, (aabb_a, obb_a, item_a) in enumerate(elems_a):
-                    for ib, (aabb_b, obb_b, item_b) in enumerate(elems_b):
-                        depth = _aabb_intersection_depth(aabb_a, aabb_b)
-                        if not (
-                            depth[0] > overlap_tol
-                            and depth[1] > overlap_tol
-                            and depth[2] > overlap_tol
-                        ):
-                            continue
-                        volume = _aabb_intersection_volume(aabb_a, aabb_b)
-                        if volume <= overlap_volume_tol:
-                            continue
-                        # Narrow-phase filter: if the oriented bounding boxes do not overlap,
-                        # treat this as a conservative AABB false-positive and ignore it.
-                        if not _obb_overlaps(obb_a, obb_b):
-                            continue
-                        overlaps.append(
-                            GeometryOverlap(
-                                pose_index=pose_index,
-                                pose=dict(pose),
-                                link_a=a,
-                                link_b=b,
-                                elem_a=ia,
-                                elem_b=ib,
-                                overlap_depth=depth,
-                                overlap_volume=volume,
-                                aabb_a=aabb_a,
-                                aabb_b=aabb_b,
-                                elem_a_name=getattr(item_a, "name", None),
-                                elem_b_name=getattr(item_b, "name", None),
-                                elem_a_origin=getattr(item_a, "origin", None),
-                                elem_b_origin=getattr(item_b, "origin", None),
-                                elem_a_geometry=type(getattr(item_a, "geometry", None)).__name__
-                                if getattr(item_a, "geometry", None) is not None
-                                else None,
-                                elem_b_geometry=type(getattr(item_b, "geometry", None)).__name__
-                                if getattr(item_b, "geometry", None) is not None
-                                else None,
-                            )
-                        )
-
-    return overlaps
+    return _find_collision_overlaps_fcl(
+        model,
+        asset_root=asset_root,
+        max_pose_samples=max_pose_samples,
+        overlap_tol=overlap_tol,
+        overlap_volume_tol=overlap_volume_tol,
+        allowed_pairs=allowed_pairs,
+        seed=seed,
+    )
 
 
 def validate_no_geometry_overlaps(
     model: object,
     *,
     asset_root: Optional[Path] = None,
-    geometry_source: str = "collision",
     max_pose_samples: int = 256,
     overlap_tol: float = 1e-3,
     overlap_volume_tol: float = 0.0,
@@ -1296,7 +1115,6 @@ def validate_no_geometry_overlaps(
     overlaps = find_geometry_overlaps(
         model,
         asset_root=asset_root,
-        geometry_source=geometry_source,
         max_pose_samples=max_pose_samples,
         overlap_tol=overlap_tol,
         overlap_volume_tol=overlap_volume_tol,
@@ -1342,9 +1160,9 @@ def validate_no_geometry_overlaps(
         f"elem_b=(name={worst.elem_b_name!r} origin_xyz={getattr(worst.elem_b_origin, 'xyz', None)} "
         f"origin_rpy={getattr(worst.elem_b_origin, 'rpy', None)} geom={worst.elem_b_geometry}). "
         f"hint: try moving {worst.link_b!r} by ~{suggested_move:.4g}m along world {axis} "
-        "(or adjust the responsible articulation origin/limits / collision origins). "
+        "(or adjust the responsible articulation origin/limits or element origins). "
         "Note: this QC is conservative (bounding boxes); concave mesh collisions can yield false positives. "
-        "Fix by adjusting articulation origins/limits and/or visual/collision origins so parts do not interpenetrate "
+        "Fix by adjusting articulation origins/limits and/or visual element origins so parts do not interpenetrate "
         "in the rest pose or across the articulated range."
     )
 

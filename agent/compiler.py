@@ -23,7 +23,7 @@ from sdk._dependencies import ensure_sdk_hybrid_dependencies
 
 logger = logging.getLogger(__name__)
 
-_COMPILE_TARGETS = {"full", "visual", "collision"}
+_COMPILE_TARGETS = {"full", "visual"}
 
 _EXCEPTION_PREFIX_RE = re.compile(r"^(?:[A-Za-z_][A-Za-z0-9_]*(?:Error|Exception)):\s*")
 _GEOMETRY_QC_MARKERS = (
@@ -31,7 +31,6 @@ _GEOMETRY_QC_MARKERS = (
     "geometry overlap check reported overlaps",
     "mesh connectivity check failed",
     "visual connectivity check failed",
-    "visual/collision geometry appear misaligned",
     "check_no_overlaps(",
     "expect_aabb_",
     "expect_xy_distance",
@@ -133,7 +132,7 @@ def _extract_urdf_xml(
                 urdf_xml = compile_object_to_urdf_xml(
                     object_model,
                     asset_root=asset_root,
-                    include_generated_collisions=target_key != "visual",
+                    include_physical_collisions=target_key != "visual",
                 )
             else:
                 urdf_xml = compile_object_to_urdf_xml(object_model)
@@ -190,8 +189,8 @@ def _nonblocking_geometry_qc_warning_from_exception(exc: BaseException) -> str |
         if header_end != -1:
             context = message[len("URDF compile failure (") : header_end]
             detail = message[header_end + 2 :].lstrip(": ").lstrip()
-            geometry_source = context.split(",", 1)[0].strip() or "geometry"
-            return f"URDF compile warning ({geometry_source}, non-blocking): {detail}"
+            geometry_label = context.split(",", 1)[0].strip() or "geometry"
+            return f"URDF compile warning ({geometry_label}, non-blocking): {detail}"
 
     return f"URDF compile warning (non-blocking): {message}"
 
@@ -684,15 +683,6 @@ def _validate_geometry_overlaps(
         "allowed_pairs": allowed_pairs,
     }
     try:
-        params = inspect.signature(validate_no_geometry_overlaps).parameters
-    except Exception:
-        params = {}
-    if "geometry_source" in params:
-        overlap_kwargs["geometry_source"] = "collision"
-    else:
-        overlap_kwargs["prefer_collisions"] = True
-
-    try:
         validate_no_geometry_overlaps(
             object_model,
             **overlap_kwargs,
@@ -712,7 +702,7 @@ def _validate_geometry_overlaps(
 
 
 def _format_unsupported_parts_message(
-    geometry_source: str,
+    geometry_label: str,
     findings: list[object],
     *,
     blocking: bool,
@@ -723,7 +713,7 @@ def _format_unsupported_parts_message(
     severity = "failure" if blocking else "warning"
     blocking_label = "blocking" if blocking else "non-blocking"
     lines = [
-        f"URDF compile {severity} ({geometry_source}, {blocking_label}): isolated parts detected "
+        f"URDF compile {severity} ({geometry_label}, {blocking_label}): isolated parts detected "
         "(not contacting any other part in the checked pose)."
     ]
     for finding in findings[:8]:
@@ -755,7 +745,7 @@ def _format_unsupported_parts_message(
 
     if blocking:
         lines.append(
-            "Conservative collision envelopes still do not touch, so this is usually a real floating-part or bad-mount bug."
+            "The part still does not touch anything, so this is usually a real floating-part or bad-mount bug."
         )
     lines.append(
         "Adjust geometry origins or articulation placement so each isolated part is attached."
@@ -788,27 +778,21 @@ def _validate_unsupported_parts(
     contact_tol = float(default_contact_tol_from_env())
     warnings: list[str] = []
 
-    for geometry_source in ("visual", "collision"):
-        findings = find_unsupported_parts(
-            object_model,
-            asset_root=script_dir,
-            geometry_source=geometry_source,
-            max_pose_samples=max_samples,
-            contact_tol=contact_tol,
-            seed=0,
-        )
+    findings = find_unsupported_parts(
+        object_model,
+        asset_root=script_dir,
+        max_pose_samples=max_samples,
+        contact_tol=contact_tol,
+        seed=0,
+    )
 
-        is_blocking = geometry_source == "collision"
-        message = _format_unsupported_parts_message(
-            geometry_source,
-            findings,
-            blocking=is_blocking,
-        )
-        if not message:
-            continue
-        if is_blocking:
-            raise RuntimeError(message)
-        warnings.append(message)
+    message = _format_unsupported_parts_message(
+        "geometry",
+        findings,
+        blocking=True,
+    )
+    if message:
+        raise RuntimeError(message)
 
     return warnings
 
@@ -903,197 +887,9 @@ def _validate_mesh_connectivity(
                 "Mesh connectivity check failed: joint connection point is not near geometry. "
                 f"joint={joint_name!r} parent={parent!r} child={child!r} "
                 f"dist_parent={parent_dist:.4g} dist_child={child_dist:.4g} tol={tol:.4g}. "
-                "Fix by moving the joint origin and/or adjusting link visual/collision origins "
+                "Fix by moving the joint origin and/or adjusting link visual origins "
                 "so the parts touch at the joint."
             )
-
-
-def _warn_visual_connectivity_misalignment(
-    globals_dict: dict,
-    *,
-    script_dir: Path,
-    warnings: list[str],
-    sdk_package: str = "sdk",
-) -> None:
-    if os.environ.get("URDF_DISABLE_VISUAL_CONNECTIVITY_WARNINGS") in {"1", "true", "TRUE"}:
-        return
-
-    tol = float(
-        os.environ.get(
-            "URDF_VISUAL_CONNECTIVITY_TOL", os.environ.get("URDF_MESH_CONNECTIVITY_TOL", "0.02")
-        )
-    )
-    max_center_dist = float(os.environ.get("URDF_VISUAL_COLLISION_MAX_CENTER_DIST", "0.03"))
-    max_size_rel_err = float(os.environ.get("URDF_VISUAL_COLLISION_MAX_SIZE_REL_ERR", "0.35"))
-
-    object_model = globals_dict.get("object_model")
-    if object_model is None:
-        return
-
-    links = getattr(object_model, "links", None)
-    joints = getattr(object_model, "joints", None)
-    if not isinstance(links, list) or not isinstance(joints, list):
-        return
-
-    def union_aabb(
-        aabbs: list[tuple[tuple[float, float, float], tuple[float, float, float]]],
-    ) -> tuple[tuple[float, float, float], tuple[float, float, float]] | None:
-        if not aabbs:
-            return None
-        min_x = min(a[0][0] for a in aabbs)
-        min_y = min(a[0][1] for a in aabbs)
-        min_z = min(a[0][2] for a in aabbs)
-        max_x = max(a[1][0] for a in aabbs)
-        max_y = max(a[1][1] for a in aabbs)
-        max_z = max(a[1][2] for a in aabbs)
-        return (min_x, min_y, min_z), (max_x, max_y, max_z)
-
-    def aabb_center(
-        aabb: tuple[tuple[float, float, float], tuple[float, float, float]],
-    ) -> tuple[float, float, float]:
-        (mn, mx) = aabb
-        return ((mn[0] + mx[0]) * 0.5, (mn[1] + mx[1]) * 0.5, (mn[2] + mx[2]) * 0.5)
-
-    def aabb_size(
-        aabb: tuple[tuple[float, float, float], tuple[float, float, float]],
-    ) -> tuple[float, float, float]:
-        (mn, mx) = aabb
-        return (float(mx[0] - mn[0]), float(mx[1] - mn[1]), float(mx[2] - mn[2]))
-
-    def dist3(a: tuple[float, float, float], b: tuple[float, float, float]) -> float:
-        dx = float(a[0] - b[0])
-        dy = float(a[1] - b[1])
-        dz = float(a[2] - b[2])
-        return float(math.sqrt(dx * dx + dy * dy + dz * dz))
-
-    link_to_vis_aabbs: dict[
-        str, list[tuple[tuple[float, float, float], tuple[float, float, float]]]
-    ] = {}
-    link_to_col_aabbs: dict[
-        str, list[tuple[tuple[float, float, float], tuple[float, float, float]]]
-    ] = {}
-
-    for link in links:
-        name = getattr(link, "name", None)
-        if not isinstance(name, str) or not name:
-            continue
-
-        visuals = getattr(link, "visuals", None)
-        collisions = getattr(link, "collisions", None)
-
-        if isinstance(visuals, list) and visuals:
-            vis_aabbs: list[tuple[tuple[float, float, float], tuple[float, float, float]]] = []
-            for item in visuals:
-                origin = getattr(item, "origin", None)
-                geometry = getattr(item, "geometry", None)
-                if geometry is None:
-                    continue
-                local_min, local_max = _geometry_local_aabb(
-                    geometry,
-                    script_dir=script_dir,
-                    sdk_package=sdk_package,
-                )
-                world_min, world_max = _transform_aabb(local_min, local_max, origin=origin)
-                vis_aabbs.append((world_min, world_max))
-            if vis_aabbs:
-                link_to_vis_aabbs[name] = vis_aabbs
-
-        if isinstance(collisions, list) and collisions:
-            col_aabbs: list[tuple[tuple[float, float, float], tuple[float, float, float]]] = []
-            for item in collisions:
-                origin = getattr(item, "origin", None)
-                geometry = getattr(item, "geometry", None)
-                if geometry is None:
-                    continue
-                local_min, local_max = _geometry_local_aabb(
-                    geometry,
-                    script_dir=script_dir,
-                    sdk_package=sdk_package,
-                )
-                world_min, world_max = _transform_aabb(local_min, local_max, origin=origin)
-                col_aabbs.append((world_min, world_max))
-            if col_aabbs:
-                link_to_col_aabbs[name] = col_aabbs
-
-    if sdk_package not in {"sdk", "sdk_hybrid"}:
-        bad_links: list[str] = []
-        for link_name, vis_aabbs in link_to_vis_aabbs.items():
-            col_aabbs = link_to_col_aabbs.get(link_name)
-            if not col_aabbs:
-                continue
-            vis_u = union_aabb(vis_aabbs)
-            col_u = union_aabb(col_aabbs)
-            if vis_u is None or col_u is None:
-                continue
-
-            c_vis = aabb_center(vis_u)
-            c_col = aabb_center(col_u)
-            d_center = dist3(c_vis, c_col)
-
-            s_vis = aabb_size(vis_u)
-            s_col = aabb_size(col_u)
-            denom = max(1e-9, float(max(s_col)))
-            size_rel_err = float(dist3(s_vis, s_col) / denom)
-            perm_match = float(dist3(tuple(sorted(s_vis)), tuple(sorted(s_col))) / denom)
-
-            if d_center > max_center_dist or size_rel_err > max_size_rel_err:
-                hint = ""
-                if perm_match <= 0.10 and size_rel_err > 0.10:
-                    hint = " (sizes look permuted; common cause is swapped axes / wrong rpy on visuals)"
-                bad_links.append(
-                    f"link={link_name!r} center_dist={d_center:.4g}m max={max_center_dist:.4g} "
-                    f"size_visual={tuple(round(v, 4) for v in s_vis)} size_collision={tuple(round(v, 4) for v in s_col)}{hint}"
-                )
-
-        if bad_links:
-            preview = "\n".join(bad_links[:10])
-            more = "" if len(bad_links) <= 10 else f"\n... ({len(bad_links) - 10} more)"
-            warnings.append(
-                "URDF compile warning (non-blocking): visual/collision geometry appear misaligned on some links.\n"
-                f"{preview}{more}\n"
-                "This often means a mesh was generated in the wrong axis convention (e.g. depth along Z instead of Y), "
-                "or a visual Origin.rpy/xyz differs from the collision origin. Parts may look disconnected in the viewer."
-            )
-
-    vis_failures: list[str] = []
-    for joint in joints:
-        parent = getattr(joint, "parent", None)
-        child = getattr(joint, "child", None)
-        if not isinstance(parent, str) or not isinstance(child, str):
-            continue
-
-        parent_aabbs = link_to_vis_aabbs.get(parent)
-        child_aabbs = link_to_vis_aabbs.get(child)
-        if not parent_aabbs or not child_aabbs:
-            continue
-
-        origin = getattr(joint, "origin", None)
-        parent_point = getattr(origin, "xyz", (0.0, 0.0, 0.0))
-        if not (
-            isinstance(parent_point, tuple)
-            and len(parent_point) == 3
-            and all(isinstance(v, (int, float)) for v in parent_point)
-        ):
-            parent_point = (0.0, 0.0, 0.0)
-        parent_point = (float(parent_point[0]), float(parent_point[1]), float(parent_point[2]))
-
-        parent_dist = min(_point_aabb_distance(parent_point, aabb) for aabb in parent_aabbs)
-        child_dist = min(_point_aabb_distance((0.0, 0.0, 0.0), aabb) for aabb in child_aabbs)
-        if parent_dist > tol or child_dist > tol:
-            joint_name = getattr(joint, "name", "<unnamed>")
-            vis_failures.append(
-                f"joint={joint_name!r} parent={parent!r} child={child!r} "
-                f"dist_parent={parent_dist:.4g} dist_child={child_dist:.4g} tol={tol:.4g}"
-            )
-
-    if vis_failures:
-        preview = "\n".join(vis_failures[:10])
-        more = "" if len(vis_failures) <= 10 else f"\n... ({len(vis_failures) - 10} more)"
-        warnings.append(
-            "URDF compile warning (non-blocking): visual connectivity check failed (collisions may still pass).\n"
-            f"{preview}{more}\n"
-            "Fix by aligning visual geometry with collisions and placing joint origins at the true attachment interface."
-        )
 
 
 def _geometry_local_aabb(

@@ -6,37 +6,32 @@ from pathlib import Path
 
 import pytest
 
-from sdk import ArticulatedObject, Box, Origin, find_geometry_overlaps
+from sdk import ArticulatedObject, Box, Mesh, Origin, find_geometry_overlaps
 from sdk._core.v0 import geometry_qc
-from sdk._core.v0.types import Collision
 
 
 def _build_disjoint_collision_model() -> ArticulatedObject:
     model = ArticulatedObject(name="disjoint_collision_parts")
 
     left = model.part("left")
-    left.collisions.append(
-        Collision(
-            geometry=Box((0.1, 0.1, 0.1)),
-            origin=Origin(xyz=(0.0, 0.0, 0.05)),
-            name="left_box",
-        )
+    left.visual(
+        Box((0.1, 0.1, 0.1)),
+        origin=Origin(xyz=(0.0, 0.0, 0.05)),
+        name="left_box",
     )
 
     right = model.part("right")
-    right.collisions.append(
-        Collision(
-            geometry=Box((0.1, 0.1, 0.1)),
-            origin=Origin(xyz=(1.0, 0.0, 0.05)),
-            name="right_box",
-        )
+    right.visual(
+        Box((0.1, 0.1, 0.1)),
+        origin=Origin(xyz=(1.0, 0.0, 0.05)),
+        name="right_box",
     )
 
     return model
 
 
 def test_collision_overlap_qc_prunes_disjoint_aabbs_before_fcl(
-    monkeypatch: object,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls = {"collide": 0}
 
@@ -59,18 +54,12 @@ def test_collision_overlap_qc_prunes_disjoint_aabbs_before_fcl(
     monkeypatch.setitem(sys.modules, "fcl", fake_fcl)
     monkeypatch.setattr(
         geometry_qc,
-        "compile_object_model_with_generated_collisions",
-        lambda model, asset_root=None: model,
-    )
-    monkeypatch.setattr(
-        geometry_qc,
         "_collision_object_from_geometry",
         lambda geometry, **kwargs: object(),
     )
 
     overlaps = find_geometry_overlaps(
         _build_disjoint_collision_model(),
-        geometry_source="collision",
         max_pose_samples=1,
         overlap_tol=1e-3,
         overlap_volume_tol=0.0,
@@ -112,4 +101,83 @@ def test_load_fcl_mesh_rejects_obj_without_triangles(
     monkeypatch.setitem(sys.modules, "trimesh", fake_trimesh)
 
     with pytest.raises(geometry_qc.ValidationError, match="no triangles"):
-        geometry_qc._load_fcl_mesh(mesh_path, cache={})
+        geometry_qc._load_fcl_mesh(mesh_path, cache={}, scale=None)
+
+
+def test_collision_object_from_geometry_supports_scaled_meshes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mesh_relpath = "assets/meshes/scaled.obj"
+    mesh_path = tmp_path / mesh_relpath
+    mesh_path.parent.mkdir(parents=True, exist_ok=True)
+    mesh_path.write_text("# placeholder\n", encoding="utf-8")
+
+    applied_scales: list[tuple[float, float, float]] = []
+
+    class FakeArray:
+        def __init__(self, values: list[tuple[float, float, float]]) -> None:
+            self._values = values
+            self.size = len(values) * 3
+
+        def __len__(self) -> int:
+            return len(self._values)
+
+    class FakeTrimesh:
+        def __init__(self) -> None:
+            self.vertices = FakeArray([(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)])
+            self.faces = FakeArray([(0, 1, 2)])
+
+        def copy(self) -> "FakeTrimesh":
+            return FakeTrimesh()
+
+        def apply_scale(self, scale: tuple[float, float, float]) -> None:
+            applied_scales.append(tuple(float(v) for v in scale))
+
+    class FakeBVHModel:
+        def beginModel(self, *_args: object) -> None:
+            return None
+
+        def addSubModel(self, *_args: object) -> None:
+            return None
+
+        def endModel(self) -> None:
+            return None
+
+    class FakeTransform:
+        def __init__(self, rot: object, trans: object) -> None:
+            self.rot = rot
+            self.trans = trans
+
+    class FakeCollisionObject:
+        def __init__(self, shape: object, transform: object) -> None:
+            self.shape = shape
+            self.transform = transform
+
+    fake_fcl = types.SimpleNamespace(
+        BVHModel=FakeBVHModel,
+        CollisionObject=FakeCollisionObject,
+        Transform=FakeTransform,
+    )
+    fake_trimesh = types.SimpleNamespace(
+        Trimesh=FakeTrimesh,
+        load_mesh=lambda path, force="mesh": FakeTrimesh(),
+    )
+
+    monkeypatch.setitem(sys.modules, "fcl", fake_fcl)
+    monkeypatch.setitem(sys.modules, "trimesh", fake_trimesh)
+
+    collision_object = geometry_qc._collision_object_from_geometry(
+        Mesh(filename=mesh_relpath, scale=(2.0, 3.0, 4.0)),
+        elem_tf=(
+            (1.0, 0.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0, 0.0),
+            (0.0, 0.0, 1.0, 0.0),
+            (0.0, 0.0, 0.0, 1.0),
+        ),
+        asset_root=tmp_path,
+        mesh_cache={},
+    )
+
+    assert isinstance(collision_object, FakeCollisionObject)
+    assert applied_scales == [(2.0, 3.0, 4.0)]

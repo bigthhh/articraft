@@ -11,7 +11,7 @@ Always define:
 - `def run_tests() -> TestReport:`
 - `object_model = build_object_model()`
 
-Do not emit URDF XML yourself. The harness compiles `object_model`, generates collisions, runs QC, and exports URDF.
+Do not emit URDF XML yourself. The harness compiles `object_model`, derives collisions, runs QC, and exports URDF.
 
 ## Golden path
 
@@ -23,7 +23,7 @@ Do not emit URDF XML yourself. The harness compiles `object_model`, generates co
    - `ctx.check_model_valid()`
    - `ctx.check_mesh_files_exist()`
    - `ctx.warn_if_articulation_origin_near_geometry(tol=0.015)`
-   - `ctx.warn_if_part_geometry_disconnected(use="visual")`
+   - `ctx.warn_if_part_geometry_disconnected()`
    - `ctx.check_articulation_overlaps(...)` when the model has non-fixed articulations
    - `ctx.warn_if_overlaps(..., ignore_adjacent=True, ignore_fixed=True)` as a broad warning-tier backstop
    Keep that block unless parameter tuning is justified, add `warn_if_coplanar_surfaces(...)` only when it is useful, and extend `run_tests()` with prompt-specific `expect_*` checks.
@@ -34,13 +34,13 @@ Joint authoring rules:
 - `ArticulationType.CONTINUOUS` requires `MotionLimits(effort=..., velocity=...)` and must not set `lower` or `upper`.
 - `ArticulationType.FIXED` and `ArticulationType.FLOATING` do not use `motion_limits`.
 
-Collisions are generated automatically at compile time:
+Collisions are derived automatically at compile time:
 
-- primitive visuals become matching primitive collisions
-- mesh visuals are decomposed into convex hulls with CoACD
-- physical overlap checks run on generated collisions, not authored ones
+- every visual element gets a matching collision entry
+- collision geometry mirrors the visual geometry exactly
+- overlap checks run on collisions derived mechanically from visuals, not authored ones
 - overlap QC is conservative; use attachment checks as the primary realism checks
-- compile also checks isolated parts in multi-part objects: `visual` isolation is a warning, while `collision` isolation is a blocking failure by default
+- compile also checks isolated parts in multi-part objects and treats them as blocking failures by default
 
 ## Recommended imports
 
@@ -114,17 +114,17 @@ def build_object_model() -> ArticulatedObject:
 
 
 def run_tests() -> TestReport:
-    ctx = TestContext(object_model, asset_root=HERE, geometry_source="collision")
+    ctx = TestContext(object_model, asset_root=HERE)
     ctx.check_model_valid()
     ctx.check_mesh_files_exist()
     ctx.warn_if_articulation_origin_near_geometry(tol=0.015)
-    ctx.warn_if_part_geometry_disconnected(use="visual")
+    ctx.warn_if_part_geometry_disconnected()
     ctx.check_articulation_overlaps(
         max_pose_samples=128,
         overlap_tol=0.005,
         overlap_volume_tol=0.0,
     )
-    ctx.warn_if_coplanar_surfaces(use="visual", ignore_adjacent=True, ignore_fixed=True)
+    ctx.warn_if_coplanar_surfaces(ignore_adjacent=True, ignore_fixed=True)
     ctx.warn_if_overlaps(
         max_pose_samples=128,
         overlap_tol=0.005,
@@ -141,8 +141,6 @@ def run_tests() -> TestReport:
         axis="z",
         max_gap=0.001,
         max_penetration=0.0,
-        positive_use="visual",
-        negative_use="visual",
         positive_elem="hinge_leaf",
         negative_elem="frame_leaf",
     )
@@ -188,14 +186,14 @@ mesh = mesh_from_geometry(geom, str(MESH_DIR / "part.obj"))
 Important:
 
 - If a model writes or references meshes, prefer `ASSETS = AssetContext.from_script(__file__)`.
-- Construct the model with `ArticulatedObject(..., assets=ASSETS)` so generated collision hulls can also be written under the same asset root.
+- Construct the model with `ArticulatedObject(..., assets=ASSETS)` so compile/test/export can resolve the same mesh paths under the same asset root.
 - In tests, either use `TestContext(object_model)` when the model already has `assets=ASSETS`, or pass `asset_root=ASSETS.asset_root` explicitly.
 
 ## Rules of thumb
 
 - Author the visible shape you actually want to see.
-- Do not hand-author collisions in `sdk`; compile-time generation owns that now.
-- Treat `warn_if_articulation_origin_near_geometry(tol=0.015)`, `warn_if_part_geometry_disconnected(use="visual")`, and `warn_if_coplanar_surfaces(use="visual")` as deliberately dumb static sensors.
+- Do not hand-author collisions in `sdk`; compile-time exact-collision derivation owns that now.
+- Treat `warn_if_articulation_origin_near_geometry(tol=0.015)`, `warn_if_part_geometry_disconnected()`, and `warn_if_coplanar_surfaces()` as deliberately dumb static sensors.
 - These broad checks use static AABB relationships, so they may or may not be useful for a given object.
 - They can surface suspicious composition, but they do not prove realism, attachment quality, or correct motion.
 - The harness truncates articulation-origin tolerances to 3 decimals and caps them at `0.15`.
@@ -207,12 +205,11 @@ Important:
 - Use `ctx.check_articulation_overlaps(...)` as the failure-tier QC gate for `REVOLUTE`, `PRISMATIC`, and `CONTINUOUS` parent/child pairs when you need to prove non-fixed joint clearance.
 - Use prompt-specific `expect_*` assertions as the real regression tests for visible structure, proportions, and mechanism behavior.
 - Make attachment checks primary: use near-zero `expect_aabb_gap(...)`, footprint overlap, `expect_aabb_contact(...)` where appropriate, and pose-specific mounting checks to prove that parts look attached.
-- When whole-link AABBs are too coarse for a small mount or hinge seat, scope `expect_aabb_gap(...)` to named local features with `positive_elem=` and `negative_elem=`. Those names come from the geometry source selected by `positive_use=` and `negative_use=`.
+- When whole-link AABBs are too coarse for a small mount or hinge seat, scope `expect_aabb_gap(...)` to named local features with `positive_elem=` and `negative_elem=`. Those names come directly from `part.visual(..., name=...)`.
 - Slight intended interpenetration can be acceptable when it makes a mounted or nested assembly look seated instead of floating.
 - Use `ctx.allow_overlap(...)` narrowly for legitimate nested mechanisms such as bearing sleeves, hinge barrels, or enclosed hubs, and still call `ctx.warn_if_overlaps(...)` so the allowance is tracked.
 - Use `ctx.warn_if_overlaps(..., ignore_adjacent=True, ignore_fixed=True)` as a conservative warning-tier backstop for non-joint overlap issues, not as proof that attachment quality is good.
-- Overlap QC is also heuristic: generated collisions, AABB reasoning, and convex decomposition can be noisy for thin wires, thin blades, concave shells, and other awkward shapes.
+- Overlap QC is also heuristic: exact visual-derived collisions, AABB reasoning, and mesh/primitive contact queries can still be noisy for thin wires, thin blades, concave shells, and other awkward shapes.
 - The harness also runs automatic isolated-part checks at compile time.
-- `visual` isolated-part findings stay warning-tier because they are based on broad visible-envelope contact.
-- `collision` isolated-part findings fail by default because even the conservative generated collision envelopes still do not touch, which is usually a real floating-geometry or bad-mount bug.
+- isolated-part findings fail by default because the part still does not touch anything, which is usually a real floating-geometry or bad-mount bug.
 - Add selective separation checks only for pairs that truly must remain clear across motion.

@@ -92,12 +92,12 @@ def test_compile_signal_bundle_parses_common_broad_qc_warning_families() -> None
             failures=(),
             warnings=(
                 "warn_if_overlaps(samples=8,ignore_adjacent=True,ignore_fixed=True): "
-                "Overlaps detected (geometry_source=collision, overlap_tol=0.001, overlap_volume_tol=0):\n"
+                "Overlaps detected (overlap_tol=0.001, overlap_volume_tol=0):\n"
                 "relation=adjacent-revolute pair=('body','door') pose_index=0 depth=(0.01,0.02,0.03) "
                 "min_depth=0.01 vol=6e-06 elem_a=#0 'hinge_leaf':Box elem_b=#1 'door_shell':Box pose={}",
-                "warn_if_part_geometry_disconnected(use=visual,tol=0.005): "
+                "warn_if_part_geometry_disconnected(tol=0.005): "
                 "Disconnected geometry islands detected:\n"
-                "part='frame' connected=2/3 use=visual",
+                "part='frame' connected=2/3",
                 "warn_if_articulation_origin_near_geometry(tol=0.015): "
                 "Articulation origin(s) far from geometry:\n"
                 "joint='hinge' parent='body' child='door' dist_parent=0.02 dist_child=0.03 tol=0.015",
@@ -144,9 +144,9 @@ def test_compile_signal_bundle_accepts_legacy_part_geometry_warning_name() -> No
             checks=("warn_if_part_geometry_connected",),
             failures=(),
             warnings=(
-                "warn_if_part_geometry_connected(use=visual,tol=0.005): "
+                "warn_if_part_geometry_connected(tol=0.005): "
                 "Disconnected geometry islands detected:\n"
-                "part='frame' connected=2/3 use=visual",
+                "part='frame' connected=2/3",
             ),
             allowances=(),
         ),
@@ -167,7 +167,7 @@ def test_compile_signal_bundle_downgrades_low_risk_coplanar_warning_to_note() ->
             checks=("warn_if_coplanar_surfaces",),
             failures=(),
             warnings=(
-                "warn_if_coplanar_surfaces(samples=1,use=visual,plane_tol=0.001,min_overlap=0.05,min_overlap_ratio=0.35,ignore_adjacent=True,ignore_fixed=True): "
+                "warn_if_coplanar_surfaces(samples=1,plane_tol=0.001,min_overlap=0.05,min_overlap_ratio=0.35,ignore_adjacent=True,ignore_fixed=True): "
                 "Low-confidence coplanar-surface hints detected (max_risk=low; warning-tier heuristic; adjacent flush mounts can be intentional):\n"
                 "risk=low relation=adjacent-revolute pair=('body','door') pose_index=0 axis=z faces=(max,max) plane_delta=0 "
                 "x_overlap=0.2 y_overlap=0.2 overlap_ratio=1 thin_pair=True elem_a='panel':Box elem_b='door':Box pose={}",
@@ -297,7 +297,7 @@ def test_harness_does_not_inject_only_low_risk_coplanar_notes() -> None:
             checks=("warn_if_coplanar_surfaces",),
             failures=(),
             warnings=(
-                "warn_if_coplanar_surfaces(samples=1,use=visual,plane_tol=0.001,min_overlap=0.05,min_overlap_ratio=0.35,ignore_adjacent=True,ignore_fixed=True): "
+                "warn_if_coplanar_surfaces(samples=1,plane_tol=0.001,min_overlap=0.05,min_overlap_ratio=0.35,ignore_adjacent=True,ignore_fixed=True): "
                 "Low-confidence coplanar-surface hints detected (max_risk=low; warning-tier heuristic; adjacent flush mounts can be intentional):\n"
                 "risk=low relation=adjacent-fixed pair=('bezel','body') pose_index=0 axis=z faces=(max,max) plane_delta=0 "
                 "x_overlap=0.1 y_overlap=0.1 overlap_ratio=1 thin_pair=True elem_a='bezel':Box elem_b='body':Box pose={}",
@@ -313,43 +313,12 @@ def test_harness_does_not_inject_only_low_risk_coplanar_notes() -> None:
     assert conversation == []
 
 
-def test_validate_unsupported_parts_keeps_visual_findings_as_warnings(
+def test_validate_unsupported_parts_promotes_findings_to_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    findings_by_source = {
-        "visual": [
-            SimpleNamespace(
-                part="lid",
-                nearest_part="base",
-                min_distance=0.012,
-                pose_index=0,
-                pose={},
-                backend="aabb",
-            )
-        ],
-        "collision": [],
-    }
-
     fake_sdk = SimpleNamespace(
         default_contact_tol_from_env=lambda: 1e-6,
-        find_unsupported_parts=lambda _model, **kwargs: findings_by_source[
-            kwargs["geometry_source"]
-        ],
-    )
-    monkeypatch.setattr("agent.compiler._import_sdk_module", lambda _sdk_package: fake_sdk)
-
-    warnings = _validate_unsupported_parts({"object_model": object()}, script_dir=Path.cwd())
-
-    assert len(warnings) == 1
-    assert "URDF compile warning (visual, non-blocking): isolated parts detected" in warnings[0]
-
-
-def test_validate_unsupported_parts_promotes_collision_findings_to_failure(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    findings_by_source = {
-        "visual": [],
-        "collision": [
+        find_unsupported_parts=lambda _model, **_kwargs: [
             SimpleNamespace(
                 part="fan",
                 nearest_part="nacelle",
@@ -359,18 +328,11 @@ def test_validate_unsupported_parts_promotes_collision_findings_to_failure(
                 backend="fcl",
             )
         ],
-    }
-
-    fake_sdk = SimpleNamespace(
-        default_contact_tol_from_env=lambda: 1e-6,
-        find_unsupported_parts=lambda _model, **kwargs: findings_by_source[
-            kwargs["geometry_source"]
-        ],
     )
     monkeypatch.setattr("agent.compiler._import_sdk_module", lambda _sdk_package: fake_sdk)
 
     with pytest.raises(
         RuntimeError,
-        match="URDF compile failure \\(collision, blocking\\): isolated parts detected",
+        match="URDF compile failure \\(geometry, blocking\\): isolated parts detected",
     ):
         _validate_unsupported_parts({"object_model": object()}, script_dir=Path.cwd())

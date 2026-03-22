@@ -27,7 +27,6 @@ For overlap QC, `Mesh(...)` must reference an `.obj` file.
 find_geometry_overlaps(
     model,
     asset_root=None,
-    geometry_source="collision",
     max_pose_samples=256,
     overlap_tol=1e-3,
     overlap_volume_tol=0.0,
@@ -36,7 +35,7 @@ find_geometry_overlaps(
 ) -> list[GeometryOverlap]
 ```
 
-Use `geometry_source="collision"` for physical overlap checks. Use `"visual"` when you explicitly want visible-envelope overlap checks.
+`find_geometry_overlaps(...)` runs overlap checks on geometry mirrored from visuals.
 Treat this as a safety backstop, not as the primary proof that parts look attached.
 For author-facing non-fixed joint clearance checks, prefer `TestContext.check_articulation_overlaps(...)` over calling this lower-level helper directly.
 
@@ -46,7 +45,6 @@ For author-facing non-fixed joint clearance checks, prefer `TestContext.check_ar
 find_unsupported_parts(
     model,
     asset_root=None,
-    geometry_source="collision",
     max_pose_samples=1,
     contact_tol=1e-6,
     seed=0,
@@ -55,11 +53,10 @@ find_unsupported_parts(
 
 Find parts in a multi-part object that are not contacting any other part in the checked pose.
 
-- Use `geometry_source="visual"` for visible-envelope support checks based on world AABBs.
-- Use `geometry_source="collision"` for physical support checks on generated collision geometry.
-- Collision-mode support queries require FCL. Missing or broken FCL support is an error; the SDK does not silently fall back.
+- It uses geometry mirrored from visuals.
+- Support queries require FCL. Missing or broken FCL support is an error; the SDK does not silently fall back.
 - This function is used by the harness automatically at compile time.
-- The harness keeps `visual` isolated-part findings as warnings, but promotes `collision` isolated-part findings to blocking failures by default because conservative generated collision envelopes still failing contact is usually a real mount/attachment bug.
+- The harness treats isolated-part findings as blocking failures by default because the part still failing contact is usually a real mount/attachment bug.
 
 ## `validate_no_geometry_overlaps(...)`
 
@@ -71,7 +68,7 @@ Raises `ValidationError` with the worst overlapping pair and a coarse movement h
 
 ## Important limitations
 
-This QC is conservative. It relies on generated collision geometry plus transformed bounding volumes, not exact visual-surface contact.
+This QC is conservative. It relies on exact collision geometry plus transformed bounding volumes and AABB pruning, not semantic reasoning about intended attachment quality.
 
 - It can report false positives for nested mounts, forks, axle supports, and other tightly packed assemblies.
 - It should not be used to force visible air gaps between parts that are supposed to look attached.

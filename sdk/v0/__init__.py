@@ -1,10 +1,6 @@
 from .articulated_object import ArticulatedObject
 from .assets import AssetContext
 from .errors import SDKError, ValidationError
-from .generated_collisions import (
-    CollisionGenerationSettings,
-    collision_generation_settings_from_env,
-)
 from .geometry_qc import (
     GeometryOverlap,
     UnsupportedPartFinding,
@@ -157,8 +153,6 @@ __all__ = [
     "find_geometry_overlaps",
     "find_unsupported_parts",
     "validate_no_geometry_overlaps",
-    "CollisionGenerationSettings",
-    "collision_generation_settings_from_env",
     "TestContext",
     "TestFailure",
     "TestReport",

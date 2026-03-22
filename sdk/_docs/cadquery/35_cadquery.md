@@ -6,7 +6,7 @@ Use this when you want:
 
 - explicit links, joints, and tests to remain in Python/URDF space
 - visible geometry to be authored with CadQuery
-- compile-time generated collisions derived from the exported visual mesh
+- compile-time exact collision geometry derived from the exported visual mesh
 
 ## Optional dependency
 
@@ -81,7 +81,7 @@ def run_tests() -> TestReport:
     ctx.check_model_valid()
     ctx.check_mesh_files_exist()
     ctx.warn_if_articulation_origin_near_geometry(tol=0.015)
-    ctx.warn_if_part_geometry_disconnected(use="visual")
+    ctx.warn_if_part_geometry_disconnected()
     ctx.warn_if_overlaps(max_pose_samples=64)
     return ctx.report()
 ```

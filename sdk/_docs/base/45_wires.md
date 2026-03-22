@@ -151,7 +151,7 @@ intended result is a smooth bent tube. Even with fillets, the result can still
 read as segmented rather than continuously curved. In those cases,
 `tube_from_spline_points(...)` is usually the better fit.
 
-Compile-time collision generation handles the physical geometry for wire visuals automatically.
+Compile-time collision mirroring handles wire visuals automatically.
 
 ## 5) Path authoring builder
 

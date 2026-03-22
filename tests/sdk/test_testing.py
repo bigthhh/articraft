@@ -170,7 +170,7 @@ def _build_element_gap_model() -> ArticulatedObject:
 
 
 def test_articulation_origin_tolerance_is_truncated_to_three_decimals() -> None:
-    ctx = SDKTestContext(_build_joint_origin_model(joint_z=0.115), geometry_source="visual")
+    ctx = SDKTestContext(_build_joint_origin_model(joint_z=0.115))
 
     assert ctx.check_articulation_origin_near_geometry(tol=0.0159)
 
@@ -180,7 +180,7 @@ def test_articulation_origin_tolerance_is_truncated_to_three_decimals() -> None:
 
 
 def test_articulation_origin_tolerance_is_capped_at_point_one_five() -> None:
-    ctx = SDKTestContext(_build_joint_origin_model(joint_z=0.25), geometry_source="visual")
+    ctx = SDKTestContext(_build_joint_origin_model(joint_z=0.25))
 
     assert ctx.check_articulation_origin_near_geometry(tol=0.159)
 
@@ -190,7 +190,7 @@ def test_articulation_origin_tolerance_is_capped_at_point_one_five() -> None:
 
 
 def test_warn_if_articulation_origin_near_geometry_records_warning_only() -> None:
-    ctx = SDKTestContext(_build_joint_origin_model(joint_z=0.2), geometry_source="visual")
+    ctx = SDKTestContext(_build_joint_origin_model(joint_z=0.2))
 
     assert not ctx.warn_if_articulation_origin_near_geometry(tol=0.015)
 
@@ -204,35 +204,35 @@ def test_warn_if_articulation_origin_near_geometry_records_warning_only() -> Non
 
 
 def test_warn_if_part_geometry_disconnected_records_warning_only() -> None:
-    ctx = SDKTestContext(_build_disconnected_part_model(), geometry_source="visual")
+    ctx = SDKTestContext(_build_disconnected_part_model())
 
-    assert not ctx.warn_if_part_geometry_disconnected(use="visual")
+    assert not ctx.warn_if_part_geometry_disconnected()
 
     report = ctx.report()
     assert report.passed
     assert report.failures == ()
-    assert report.checks == ("warn_if_part_geometry_disconnected(use=visual,tol=0.005)",)
+    assert report.checks == ("warn_if_part_geometry_disconnected(tol=0.005)",)
     assert len(report.warnings) == 1
-    assert "warn_if_part_geometry_disconnected(use=visual,tol=0.005)" in report.warnings[0]
+    assert "warn_if_part_geometry_disconnected(tol=0.005)" in report.warnings[0]
     assert "Disconnected geometry islands detected" in report.warnings[0]
 
 
 def test_warn_if_part_geometry_connected_keeps_legacy_alias() -> None:
-    ctx = SDKTestContext(_build_disconnected_part_model(), geometry_source="visual")
+    ctx = SDKTestContext(_build_disconnected_part_model())
 
-    assert not ctx.warn_if_part_geometry_connected(use="visual")
+    assert not ctx.warn_if_part_geometry_connected()
 
     report = ctx.report()
     assert report.passed
     assert report.failures == ()
-    assert report.checks == ("warn_if_part_geometry_connected(use=visual,tol=0.005)",)
+    assert report.checks == ("warn_if_part_geometry_connected(tol=0.005)",)
     assert len(report.warnings) == 1
-    assert "warn_if_part_geometry_connected(use=visual,tol=0.005)" in report.warnings[0]
+    assert "warn_if_part_geometry_connected(tol=0.005)" in report.warnings[0]
     assert "Disconnected geometry islands detected" in report.warnings[0]
 
 
 def test_warn_if_overlaps_records_warning_only() -> None:
-    ctx = SDKTestContext(_build_overlapping_parts_model(), geometry_source="visual")
+    ctx = SDKTestContext(_build_overlapping_parts_model())
 
     assert not ctx.warn_if_overlaps(max_pose_samples=8, overlap_tol=0.001, overlap_volume_tol=0.0)
 
@@ -256,7 +256,6 @@ def test_warn_if_overlaps_records_warning_only() -> None:
 def test_check_articulation_overlaps_fails_for_revolute_pair() -> None:
     ctx = SDKTestContext(
         _build_articulation_overlap_model(joint_type=ArticulationType.REVOLUTE),
-        geometry_source="collision",
     )
 
     assert not ctx.check_articulation_overlaps(max_pose_samples=8)
@@ -272,7 +271,6 @@ def test_check_articulation_overlaps_fails_for_revolute_pair() -> None:
 def test_check_articulation_overlaps_fails_for_prismatic_pair() -> None:
     ctx = SDKTestContext(
         _build_articulation_overlap_model(joint_type=ArticulationType.PRISMATIC),
-        geometry_source="collision",
     )
 
     assert not ctx.check_articulation_overlaps(max_pose_samples=8)
@@ -287,7 +285,6 @@ def test_check_articulation_overlaps_fails_for_prismatic_pair() -> None:
 def test_check_articulation_overlaps_fails_for_continuous_pair() -> None:
     ctx = SDKTestContext(
         _build_articulation_overlap_model(joint_type=ArticulationType.CONTINUOUS),
-        geometry_source="collision",
     )
 
     assert not ctx.check_articulation_overlaps(max_pose_samples=8)
@@ -302,7 +299,6 @@ def test_check_articulation_overlaps_fails_for_continuous_pair() -> None:
 def test_check_articulation_overlaps_ignores_fixed_pairs() -> None:
     ctx = SDKTestContext(
         _build_articulation_overlap_model(joint_type=ArticulationType.FIXED),
-        geometry_source="collision",
     )
 
     assert ctx.check_articulation_overlaps(max_pose_samples=8)
@@ -314,7 +310,7 @@ def test_check_articulation_overlaps_ignores_fixed_pairs() -> None:
 
 
 def test_check_articulation_overlaps_ignores_non_articulation_pairs() -> None:
-    ctx = SDKTestContext(_build_non_articulation_overlap_only_model(), geometry_source="collision")
+    ctx = SDKTestContext(_build_non_articulation_overlap_only_model())
 
     assert ctx.check_articulation_overlaps(max_pose_samples=8)
 
@@ -327,7 +323,6 @@ def test_check_articulation_overlaps_ignores_non_articulation_pairs() -> None:
 def test_allow_overlap_suppresses_reported_articulation_pair() -> None:
     ctx = SDKTestContext(
         _build_articulation_overlap_model(joint_type=ArticulationType.REVOLUTE),
-        geometry_source="collision",
     )
     ctx.allow_overlap("base", "child", reason="bearing sleeve nests around the hinge pin")
 
@@ -345,11 +340,10 @@ def test_allow_overlap_suppresses_reported_articulation_pair() -> None:
 
 
 def test_warn_if_coplanar_surfaces_records_warning_only() -> None:
-    ctx = SDKTestContext(_build_coplanar_surface_model(), geometry_source="visual")
+    ctx = SDKTestContext(_build_coplanar_surface_model())
 
     assert not ctx.warn_if_coplanar_surfaces(
         max_pose_samples=1,
-        use="visual",
         plane_tol=0.001,
         min_overlap=0.05,
         min_overlap_ratio=0.35,
@@ -361,11 +355,11 @@ def test_warn_if_coplanar_surfaces_records_warning_only() -> None:
     assert report.passed
     assert report.failures == ()
     assert report.checks == (
-        "warn_if_coplanar_surfaces(samples=1,use=visual,plane_tol=0.001,min_overlap=0.05,min_overlap_ratio=0.35,ignore_adjacent=False,ignore_fixed=False)",
+        "warn_if_coplanar_surfaces(samples=1,plane_tol=0.001,min_overlap=0.05,min_overlap_ratio=0.35,ignore_adjacent=False,ignore_fixed=False)",
     )
     assert len(report.warnings) == 1
     assert (
-        "warn_if_coplanar_surfaces(samples=1,use=visual,plane_tol=0.001,min_overlap=0.05,min_overlap_ratio=0.35,ignore_adjacent=False,ignore_fixed=False)"
+        "warn_if_coplanar_surfaces(samples=1,plane_tol=0.001,min_overlap=0.05,min_overlap_ratio=0.35,ignore_adjacent=False,ignore_fixed=False)"
         in report.warnings[0]
     )
     assert "Coplanar or nearly coplanar surfaces detected (max_risk=medium" in report.warnings[0]
@@ -373,11 +367,10 @@ def test_warn_if_coplanar_surfaces_records_warning_only() -> None:
 
 
 def test_warn_if_coplanar_surfaces_defaults_ignore_adjacent_pairs() -> None:
-    ctx = SDKTestContext(_build_adjacent_coplanar_surface_model(), geometry_source="visual")
+    ctx = SDKTestContext(_build_adjacent_coplanar_surface_model())
 
     assert ctx.warn_if_coplanar_surfaces(
         max_pose_samples=1,
-        use="visual",
         plane_tol=0.001,
         min_overlap=0.05,
     )
@@ -387,17 +380,16 @@ def test_warn_if_coplanar_surfaces_defaults_ignore_adjacent_pairs() -> None:
     assert report.failures == ()
     assert report.warnings == ()
     assert report.checks == (
-        "warn_if_coplanar_surfaces(samples=1,use=visual,plane_tol=0.001,min_overlap=0.05,min_overlap_ratio=0.35,ignore_adjacent=True,ignore_fixed=True)",
+        "warn_if_coplanar_surfaces(samples=1,plane_tol=0.001,min_overlap=0.05,min_overlap_ratio=0.35,ignore_adjacent=True,ignore_fixed=True)",
     )
 
 
 def test_allow_coplanar_surfaces_suppresses_reported_pair() -> None:
-    ctx = SDKTestContext(_build_coplanar_surface_model(), geometry_source="visual")
+    ctx = SDKTestContext(_build_coplanar_surface_model())
     ctx.allow_coplanar_surfaces("base", "cap", reason="flush mounted cap")
 
     assert ctx.warn_if_coplanar_surfaces(
         max_pose_samples=1,
-        use="visual",
         plane_tol=0.001,
         min_overlap=0.05,
         min_overlap_ratio=0.35,
@@ -413,7 +405,7 @@ def test_allow_coplanar_surfaces_suppresses_reported_pair() -> None:
 
 
 def test_expect_aabb_gap_keeps_whole_link_behavior_by_default() -> None:
-    ctx = SDKTestContext(_build_element_gap_model(), geometry_source="visual")
+    ctx = SDKTestContext(_build_element_gap_model())
 
     assert ctx.expect_aabb_gap("arm", "base", axis="z", max_gap=0.0, max_penetration=0.0)
 
@@ -424,7 +416,7 @@ def test_expect_aabb_gap_keeps_whole_link_behavior_by_default() -> None:
 
 
 def test_expect_aabb_gap_can_target_named_elements() -> None:
-    ctx = SDKTestContext(_build_element_gap_model(), geometry_source="visual")
+    ctx = SDKTestContext(_build_element_gap_model())
 
     assert not ctx.expect_aabb_gap(
         "arm",
@@ -432,8 +424,6 @@ def test_expect_aabb_gap_can_target_named_elements() -> None:
         axis="z",
         max_gap=0.0,
         max_penetration=0.0,
-        positive_use="visual",
-        negative_use="visual",
         positive_elem="hub",
         negative_elem="body",
     )
@@ -448,14 +438,13 @@ def test_expect_aabb_gap_can_target_named_elements() -> None:
 
 
 def test_expect_aabb_gap_reports_missing_named_element() -> None:
-    ctx = SDKTestContext(_build_element_gap_model(), geometry_source="visual")
+    ctx = SDKTestContext(_build_element_gap_model())
 
     assert not ctx.expect_aabb_gap(
         "arm",
         "base",
         axis="z",
         max_gap=0.0,
-        positive_use="visual",
         positive_elem="missing_hub",
     )
 

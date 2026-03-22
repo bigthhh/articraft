@@ -10,7 +10,7 @@ from typing import Iterable, List, Optional, Sequence, Tuple, Union
 import manifold3d as _m3d
 import numpy as np
 
-from .types import Box, Collision, Cylinder, Mesh, Origin, Sphere
+from .types import Box, Cylinder, Mesh, Sphere
 
 Vec2 = Tuple[float, float]
 Vec3 = Tuple[float, float, float]
@@ -94,78 +94,12 @@ def _clone_primitive_geometry(geometry: Box | Cylinder | Sphere) -> Box | Cylind
     return Sphere(radius=float(geometry.radius))
 
 
-def _clone_collision(collision: Collision) -> Collision:
-    geometry = collision.geometry
-    if not isinstance(geometry, (Box, Cylinder, Sphere)):
-        raise TypeError("collision provenance only supports primitive geometry")
-    return Collision(
-        geometry=_clone_primitive_geometry(geometry),
-        origin=Origin(
-            xyz=tuple(float(v) for v in collision.origin.xyz),
-            rpy=tuple(float(v) for v in collision.origin.rpy),
-        ),
-        name=collision.name,
-    )
-
-
-def _set_collision_provenance(geometry: "MeshGeometry", collisions: Sequence[Collision]) -> None:
-    setattr(
-        geometry,
-        "_collision_source",
-        tuple(_clone_collision(collision) for collision in collisions),
-    )
-
-
-def _clear_collision_provenance(geometry: "MeshGeometry") -> None:
-    if hasattr(geometry, "_collision_source"):
-        delattr(geometry, "_collision_source")
-
-
-def _copy_collision_provenance(src: "MeshGeometry", dst: "MeshGeometry") -> None:
-    collisions = _collision_source_collisions(src)
-    if collisions is None:
-        return
-    setattr(
-        dst, "_collision_source", tuple(_clone_collision(collision) for collision in collisions)
-    )
-
-
-def _collision_source_collisions(geometry: "MeshGeometry") -> Optional[Tuple[Collision, ...]]:
-    value = getattr(geometry, "_collision_source", None)
-    if not isinstance(value, tuple):
-        return None
-    collisions: list[Collision] = []
-    for collision in value:
-        if not isinstance(collision, Collision):
-            return None
-        if not isinstance(collision.geometry, (Box, Cylinder, Sphere)):
-            return None
-        collisions.append(collision)
-    return tuple(collisions)
-
-
 def _mat4_vec3(mat: Mat4, vec: Vec3) -> Vec3:
     x, y, z = vec
     return (
         float(mat[0][0]) * x + float(mat[0][1]) * y + float(mat[0][2]) * z + float(mat[0][3]),
         float(mat[1][0]) * x + float(mat[1][1]) * y + float(mat[1][2]) * z + float(mat[1][3]),
         float(mat[2][0]) * x + float(mat[2][1]) * y + float(mat[2][2]) * z + float(mat[2][3]),
-    )
-
-
-def _origin_to_mat4(origin: Origin) -> Mat4:
-    roll, pitch, yaw = (float(v) for v in origin.rpy)
-    cr = cos(roll)
-    sr = sin(roll)
-    cp = cos(pitch)
-    sp = sin(pitch)
-    cy = cos(yaw)
-    sy = sin(yaw)
-    return (
-        (cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr, float(origin.xyz[0])),
-        (sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr, float(origin.xyz[1])),
-        (-sp, cp * sr, cp * cr, float(origin.xyz[2])),
-        (0.0, 0.0, 0.0, 1.0),
     )
 
 
@@ -181,94 +115,6 @@ def _rpy_from_matrix(
         roll = 0.0
         yaw = atan2(-float(mat[0][1]), float(mat[1][1]))
     return (roll, pitch, yaw)
-
-
-def _origin_from_mat4(mat: Mat4) -> Origin:
-    rotation = (
-        (float(mat[0][0]), float(mat[0][1]), float(mat[0][2])),
-        (float(mat[1][0]), float(mat[1][1]), float(mat[1][2])),
-        (float(mat[2][0]), float(mat[2][1]), float(mat[2][2])),
-    )
-    return Origin(
-        xyz=(float(mat[0][3]), float(mat[1][3]), float(mat[2][3])),
-        rpy=_rpy_from_matrix(rotation),
-    )
-
-
-def _transform_collision_recipe_rigid(geometry: "MeshGeometry", transform: Mat4) -> None:
-    collisions = _collision_source_collisions(geometry)
-    if collisions is None:
-        return
-    transformed = []
-    for collision in collisions:
-        collision_tf = _mat4_mul(transform, _origin_to_mat4(collision.origin))
-        transformed.append(
-            Collision(
-                geometry=_clone_primitive_geometry(collision.geometry),
-                origin=_origin_from_mat4(collision_tf),
-                name=collision.name,
-            )
-        )
-    _set_collision_provenance(geometry, transformed)
-
-
-def _approx_equal(a: float, b: float, *, tol: float = 1e-6) -> bool:
-    return abs(float(a) - float(b)) <= float(tol) * max(1.0, abs(float(a)), abs(float(b)))
-
-
-def _uniform_scale_collision_recipe(
-    geometry: "MeshGeometry",
-    *,
-    sx: float,
-    sy: float,
-    sz: float,
-) -> bool:
-    collisions = _collision_source_collisions(geometry)
-    if collisions is None:
-        return True
-    if not (_approx_equal(sx, sy) and _approx_equal(sx, sz)):
-        _clear_collision_provenance(geometry)
-        return False
-
-    scale = float((sx + sy + sz) / 3.0)
-    scaled: list[Collision] = []
-    for collision in collisions:
-        origin = Origin(
-            xyz=(
-                float(collision.origin.xyz[0]) * sx,
-                float(collision.origin.xyz[1]) * sy,
-                float(collision.origin.xyz[2]) * sz,
-            ),
-            rpy=collision.origin.rpy,
-        )
-        primitive = collision.geometry
-        if isinstance(primitive, Box):
-            scaled_geometry: Box | Cylinder | Sphere = Box(
-                (
-                    float(primitive.size[0]) * scale,
-                    float(primitive.size[1]) * scale,
-                    float(primitive.size[2]) * scale,
-                )
-            )
-        elif isinstance(primitive, Cylinder):
-            scaled_geometry = Cylinder(
-                radius=float(primitive.radius) * scale,
-                length=float(primitive.length) * scale,
-            )
-        else:
-            scaled_geometry = Sphere(radius=float(primitive.radius) * scale)
-        scaled.append(Collision(geometry=scaled_geometry, origin=origin, name=collision.name))
-    _set_collision_provenance(geometry, scaled)
-    return True
-
-
-def _primitive_collision_recipe(geometry: Box | Cylinder | Sphere) -> Tuple[Collision, ...]:
-    return (
-        Collision(
-            geometry=_clone_primitive_geometry(geometry),
-            origin=Origin(),
-        ),
-    )
 
 
 def sample_cubic_bezier_spline_2d(
@@ -1454,7 +1300,6 @@ class MeshGeometry:
             faces=[tuple(face) for face in self.faces],
         )
         _copy_primitive_provenance(self, copied)
-        _copy_collision_provenance(self, copied)
         return copied
 
     def clone(self) -> "MeshGeometry":
@@ -1468,21 +1313,10 @@ class MeshGeometry:
         self.faces.append((int(a), int(b), int(c)))
 
     def merge(self, other: "MeshGeometry") -> "MeshGeometry":
-        self_recipe = _collision_source_collisions(self)
-        other_recipe = _collision_source_collisions(other)
-        self_was_empty = not self.vertices and not self.faces
         offset = len(self.vertices)
         self.vertices.extend(other.vertices)
         self.faces.extend((a + offset, b + offset, c + offset) for (a, b, c) in other.faces)
         _clear_primitive_provenance(self)
-        if other_recipe is None and not other.vertices and not other.faces:
-            pass
-        elif self_recipe is None and self_was_empty and other_recipe is not None:
-            _set_collision_provenance(self, other_recipe)
-        elif self_recipe is not None and other_recipe is not None:
-            _set_collision_provenance(self, self_recipe + other_recipe)
-        else:
-            _clear_collision_provenance(self)
         return self
 
     def translate(self, dx: float, dy: float, dz: float) -> "MeshGeometry":
@@ -1494,7 +1328,6 @@ class MeshGeometry:
             (0.0, 0.0, 0.0, 1.0),
         )
         _prepend_primitive_transform(self, transform)
-        _transform_collision_recipe_rigid(self, transform)
         return self
 
     def scale(
@@ -1514,7 +1347,6 @@ class MeshGeometry:
                 (0.0, 0.0, 0.0, 1.0),
             ),
         )
-        _uniform_scale_collision_recipe(self, sx=float(sx), sy=float(sy), sz=float(sz))
         return self
 
     def rotate(
@@ -1559,7 +1391,6 @@ class MeshGeometry:
             for (x, y, z) in self.vertices
         ]
         _prepend_primitive_transform(self, transform)
-        _transform_collision_recipe_rigid(self, transform)
         return self
 
     def rotate_x(self, angle: float) -> "MeshGeometry":
@@ -1617,7 +1448,6 @@ class BoxGeometry(MeshGeometry):
         x, y, z = (float(size[0]), float(size[1]), float(size[2]))
         primitive = Box((x, y, z))
         _set_primitive_provenance(self, primitive)
-        _set_collision_provenance(self, _primitive_collision_recipe(primitive))
         hx, hy, hz = x / 2.0, y / 2.0, z / 2.0
         verts = [
             (-hx, -hy, -hz),
@@ -1662,7 +1492,6 @@ class CylinderGeometry(MeshGeometry):
         radial_segments = max(3, int(radial_segments))
         primitive = Cylinder(radius=radius, length=height)
         _set_primitive_provenance(self, primitive)
-        _set_collision_provenance(self, _primitive_collision_recipe(primitive))
         half = height / 2.0
 
         top_indices = []
@@ -1739,7 +1568,6 @@ class SphereGeometry(MeshGeometry):
         height_segments = max(2, int(height_segments))
         primitive = Sphere(radius=radius)
         _set_primitive_provenance(self, primitive)
-        _set_collision_provenance(self, _primitive_collision_recipe(primitive))
 
         for iy in range(height_segments + 1):
             v = iy / height_segments
@@ -1840,27 +1668,6 @@ class CapsuleGeometry(MeshGeometry):
             )
             return
 
-        _set_collision_provenance(
-            self,
-            (
-                Collision(
-                    geometry=Cylinder(radius=radius, length=length),
-                    origin=Origin(),
-                    name="capsule_cyl",
-                ),
-                Collision(
-                    geometry=Sphere(radius=radius),
-                    origin=Origin(xyz=(0.0, 0.0, length * 0.5)),
-                    name="capsule_top",
-                ),
-                Collision(
-                    geometry=Sphere(radius=radius),
-                    origin=Origin(xyz=(0.0, 0.0, -length * 0.5)),
-                    name="capsule_bottom",
-                ),
-            ),
-        )
-
         half = length * 0.5
         rows: List[Tuple[float, float]] = []
 
@@ -1910,25 +1717,6 @@ class TorusGeometry(MeshGeometry):
         tube = float(tube)
         radial_segments = max(3, int(radial_segments))
         tubular_segments = max(3, int(tubular_segments))
-
-        collision_segments = max(8, min(16, max(8, tubular_segments // 4)))
-        ring_points = [
-            (
-                radius * cos(2.0 * pi * i / collision_segments),
-                radius * sin(2.0 * pi * i / collision_segments),
-                0.0,
-            )
-            for i in range(collision_segments)
-        ]
-        _set_collision_provenance(
-            self,
-            wire_capsules_from_points(
-                ring_points,
-                radius=tube,
-                closed_path=True,
-                corner_mode="miter",
-            ),
-        )
 
         for j in range(radial_segments + 1):
             v = 2 * pi * j / radial_segments
@@ -2810,17 +2598,6 @@ class WirePolylineGeometry(MeshGeometry):
                 up_hint=up_hint_v,
             )
         )
-        _set_collision_provenance(
-            self,
-            wire_capsules_from_points(
-                centerline,
-                radius=radius,
-                closed_path=closed_path,
-                corner_mode=corner_mode,
-                corner_radius=corner_radius,
-                min_segment_length=min_segment_length,
-            ),
-        )
 
 
 def wire_from_points(
@@ -2966,79 +2743,6 @@ def sweep_profile_along_spline(
     )
 
 
-def wire_capsules_from_points(
-    points: Iterable[Tuple[float, float, float]],
-    *,
-    radius: float,
-    closed_path: bool = False,
-    corner_mode: str = "fillet",
-    corner_radius: float = 0.0,
-    min_segment_length: float = 1e-6,
-) -> List[Collision]:
-    radius = float(radius)
-    closed_path = bool(closed_path)
-    corner_mode = str(corner_mode).strip().lower()
-    corner_radius = float(corner_radius)
-    min_segment_length = float(min_segment_length)
-
-    if radius <= 0.0:
-        raise ValueError("radius must be > 0")
-    if corner_mode not in {"fillet", "miter", "bevel"}:
-        raise ValueError("corner_mode must be one of: fillet, miter, bevel")
-    if corner_radius < 0.0:
-        raise ValueError("corner_radius must be >= 0")
-    if min_segment_length <= 0.0:
-        raise ValueError("min_segment_length must be > 0")
-
-    preprocessed = _preprocess_wire_polyline_points(
-        points,
-        min_segment_length=min_segment_length,
-        closed_path=closed_path,
-    )
-    centerline = _build_wire_centerline(
-        preprocessed,
-        closed_path=closed_path,
-        corner_mode=corner_mode,
-        corner_radius=corner_radius,
-        corner_segments=8,
-    )
-    centerline = _dedupe_path_points(centerline)
-    if len(centerline) < 2:
-        raise ValueError("Too few distinct points after corner preprocessing")
-
-    collisions: List[Collision] = []
-    for i in range(len(centerline) - 1):
-        a = centerline[i]
-        b = centerline[i + 1]
-        segment = _v_sub(b, a)
-        length = _v_norm(segment)
-        if length <= _EPS:
-            continue
-        mid = _v_lerp(a, b, 0.5)
-        rpy = _rpy_from_z_axis(segment)
-        collisions.append(
-            Collision(
-                geometry=Cylinder(radius=radius, length=length),
-                origin=Origin(xyz=mid, rpy=rpy),
-                name=f"wire_capsule_{i}_cyl",
-            )
-        )
-
-    node_points = (
-        centerline[:-1] if _v_norm(_v_sub(centerline[0], centerline[-1])) <= _EPS else centerline
-    )
-    for i, point in enumerate(node_points):
-        collisions.append(
-            Collision(
-                geometry=Sphere(radius=radius),
-                origin=Origin(xyz=point),
-                name=f"wire_capsule_{i}_sph",
-            )
-        )
-
-    return collisions
-
-
 def _vec3_quant_key(point: Vec3, *, tol: float) -> Tuple[int, int, int]:
     scale = 1.0 / max(float(tol), _EPS)
     return (
@@ -3078,39 +2782,6 @@ def _collect_shared_network_nodes(paths: Sequence[Sequence[Vec3]], *, tol: float
         for key in seen:
             counts[key] = counts.get(key, 0) + 1
     return [canonical[key] for key, count in counts.items() if count > 1]
-
-
-def _dedupe_network_collisions(
-    collisions: Sequence[Collision],
-    *,
-    tol: float,
-) -> List[Collision]:
-    deduped: List[Collision] = []
-    seen: set[Tuple[object, ...]] = set()
-
-    def round_scalar(value: float) -> int:
-        scale = 1.0 / max(float(tol), _EPS)
-        return int(round(float(value) * scale))
-
-    for collision in collisions:
-        geom = collision.geometry
-        origin = collision.origin
-        origin_key = (
-            _vec3_quant_key(origin.xyz, tol=tol),
-            _vec3_quant_key(origin.rpy, tol=tol),
-        )
-        if isinstance(geom, Sphere):
-            key = ("sphere", round_scalar(geom.radius), origin_key)
-        elif isinstance(geom, Cylinder):
-            key = ("cylinder", round_scalar(geom.radius), round_scalar(geom.length), origin_key)
-        else:
-            deduped.append(collision)
-            continue
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(collision)
-    return deduped
 
 
 def _segment_cylinder_geometry(
@@ -3286,49 +2957,7 @@ def tube_network_from_paths(
             min_segment_length=min_segment_length,
             shared_node_radius=node_radius if cap_ends else 0.0,
         )
-    _set_collision_provenance(
-        out,
-        tube_network_capsules_from_paths(
-            path_list,
-            radius=radius,
-            corner_mode=corner_mode,
-            corner_radius=corner_radius,
-            min_segment_length=min_segment_length,
-        ),
-    )
     return out
-
-
-def tube_network_capsules_from_paths(
-    paths: Iterable[Iterable[Vec3]],
-    *,
-    radius: float,
-    corner_mode: str = "fillet",
-    corner_radius: float = 0.0,
-    min_segment_length: float = 1e-6,
-) -> List[Collision]:
-    """
-    Build capsule-chain collisions for a multi-path tube network.
-
-    Closed paths are inferred when a path repeats its start point at the end.
-    Shared node spheres are deduplicated so frame intersections do not create
-    redundant identical collision elements.
-    """
-    tol = max(float(min_segment_length), _EPS)
-    path_list = _coerce_tube_network_paths(paths)
-    collisions: List[Collision] = []
-    for path in path_list:
-        collisions.extend(
-            wire_capsules_from_points(
-                path,
-                radius=radius,
-                closed_path=_is_closed_network_path(path, tol=tol),
-                corner_mode=corner_mode,
-                corner_radius=corner_radius,
-                min_segment_length=min_segment_length,
-            )
-        )
-    return _dedupe_network_collisions(collisions, tol=tol)
 
 
 def cut_opening_on_face(
@@ -3495,7 +3124,6 @@ def mesh_from_geometry(
         filename=_export_friendly_mesh_filename(filename_s),
         source_geometry=_primitive_source_geometry(geometry),
         source_transform=_primitive_source_transform(geometry),
-        source_collisions=_collision_source_collisions(geometry),
     )
 
 

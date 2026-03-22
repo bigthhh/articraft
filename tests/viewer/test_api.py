@@ -626,16 +626,19 @@ def test_viewer_api_end_to_end(tmp_path: Path) -> None:
     }
     assert stats_payload["category_stats"]["hinges"] == {
         "count": 1,
+        "sdk_package": None,
         "average_rating": 4.0,
         "average_cost_usd": 0.05,
     }
     assert stats_payload["category_stats"]["dj_equipment"] == {
         "count": 1,
+        "sdk_package": None,
         "average_rating": None,
         "average_cost_usd": None,
     }
     assert stats_payload["category_stats"]["exercise_bikes"] == {
         "count": 1,
+        "sdk_package": "sdk",
         "average_rating": 2.0,
         "average_cost_usd": 0.15,
     }

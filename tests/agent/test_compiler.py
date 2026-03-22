@@ -115,19 +115,19 @@ def test_compile_urdf_report_can_ignore_geometry_qc_after_materialization(
 
     def fake_run_required_tests(*_args, **_kwargs):
         raise RuntimeError(
-            "URDF compile failure (collision, blocking): isolated parts detected "
+            "URDF compile failure (physical, blocking): isolated parts detected "
             "(not contacting any other part in the checked pose)."
         )
 
     monkeypatch.setattr("agent.compiler._run_required_tests", fake_run_required_tests)
 
-    with pytest.raises(RuntimeError, match="URDF compile failure \\(collision, blocking\\)"):
+    with pytest.raises(RuntimeError, match="URDF compile failure \\(physical, blocking\\)"):
         compile_urdf_report(script_path)
 
     report = compile_urdf_report(script_path, ignore_geom_qc=True)
     assert "<robot" in report.urdf_xml
     assert any(
-        "URDF compile warning (collision, non-blocking): isolated parts detected" in warning
+        "URDF compile warning (physical, non-blocking): isolated parts detected" in warning
         for warning in report.warnings
     )
     assert report.signal_bundle.status == "success"
@@ -152,7 +152,7 @@ def test_compile_urdf_report_full_validation_runs_only_run_tests(
                 "base.visual(Box((0.1, 0.1, 0.1)), origin=Origin(xyz=(0.0, 0.0, 0.05)))",
                 "",
                 "def run_tests():",
-                "    ctx = TestContext(object_model, asset_root=HERE, geometry_source='collision')",
+                "    ctx = TestContext(object_model, asset_root=HERE)",
                 "    return ctx.report()",
             ]
         ),
@@ -247,7 +247,7 @@ def test_compile_urdf_report_runs_hybrid_dependency_preflight_before_execution(
     assert not marker_path.exists()
 
 
-def test_compile_urdf_report_visual_target_skips_generated_collisions(tmp_path: Path) -> None:
+def test_compile_urdf_report_visual_target_omits_collision_entries(tmp_path: Path) -> None:
     script_path = tmp_path / "model.py"
     script_path.write_text(
         "\n".join(
@@ -271,7 +271,7 @@ def test_compile_urdf_report_visual_target_skips_generated_collisions(tmp_path: 
     assert report.signal_bundle.status == "success"
 
 
-def test_compile_urdf_report_collision_target_includes_generated_collisions(tmp_path: Path) -> None:
+def test_compile_urdf_report_rejects_removed_collision_target(tmp_path: Path) -> None:
     script_path = tmp_path / "model.py"
     script_path.write_text(
         "\n".join(
@@ -280,7 +280,7 @@ def test_compile_urdf_report_collision_target_includes_generated_collisions(tmp_
                 "",
                 "from sdk import ArticulatedObject, Box, Origin",
                 "",
-                "object_model = ArticulatedObject(name='collision_only')",
+                "object_model = ArticulatedObject(name='full_only')",
                 "base = object_model.part('base')",
                 "base.visual(Box((0.1, 0.1, 0.1)), origin=Origin(xyz=(0.0, 0.0, 0.05)))",
             ]
@@ -288,8 +288,5 @@ def test_compile_urdf_report_collision_target_includes_generated_collisions(tmp_
         encoding="utf-8",
     )
 
-    report = compile_urdf_report(script_path, target="collision", run_checks=False)
-
-    assert "<visual" in report.urdf_xml
-    assert "<collision" in report.urdf_xml
-    assert report.signal_bundle.status == "success"
+    with pytest.raises(ValueError, match="Unsupported compile target 'collision'"):
+        compile_urdf_report(script_path, target="collision", run_checks=False)

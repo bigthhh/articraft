@@ -12,7 +12,6 @@ mode := "prod"
 api_host := host
 api_port := port
 sdk_package := "sdk"
-sdk_override := ""
 viewer_target := "/"
 concurrency := "auto"
 limit := ""
@@ -258,7 +257,22 @@ rerun record:
     record={{ quote(record) }}
     model_override={{ quote(model) }}
     thinking_override={{ quote(thinking) }}
-    sdk_override={{ quote(sdk_override) }}
+    sdk={{ quote(sdk) }}
+    case "$sdk" in
+      "")
+        sdk_package=""
+        ;;
+      sdk|base)
+        sdk_package="sdk"
+        ;;
+      sdk_hybrid|hybrid)
+        sdk_package="sdk_hybrid"
+        ;;
+      *)
+        echo "Unsupported sdk '$sdk'. Supported values: sdk, base, sdk_hybrid, hybrid." >&2
+        exit 1
+        ;;
+    esac
     cmd=(
       uv run articraft-workbench
       --repo-root .
@@ -271,8 +285,8 @@ rerun record:
     if [ -n "$thinking_override" ]; then
       cmd+=(--thinking-level "$thinking_override")
     fi
-    if [ -n "$sdk_override" ]; then
-      cmd+=(--sdk-package "$sdk_override")
+    if [ -n "$sdk_package" ]; then
+      cmd+=(--sdk-package "$sdk_package")
     fi
     exec "${cmd[@]}"
 

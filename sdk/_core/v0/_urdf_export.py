@@ -7,7 +7,7 @@ from typing import Sequence
 
 from .articulated_object import ArticulatedObject
 from .errors import ValidationError
-from .generated_collisions import compile_object_model_with_generated_collisions
+from .exact_collisions import compile_object_model_with_exact_collisions
 from .types import (
     Articulation,
     ArticulationType,
@@ -30,15 +30,15 @@ def compile_object_to_urdf_xml(
     *,
     pretty: bool = True,
     asset_root: str | os.PathLike[str] | Path | None = None,
-    include_generated_collisions: bool = True,
+    include_physical_collisions: bool = True,
 ) -> str:
     object_model.validate(strict=True)
     compiled_model = (
-        compile_object_model_with_generated_collisions(
+        compile_object_model_with_exact_collisions(
             object_model,
             asset_root=asset_root,
         )
-        if include_generated_collisions
+        if include_physical_collisions
         else object_model
     )
     root = ET.Element("robot", {"name": object_model.name})

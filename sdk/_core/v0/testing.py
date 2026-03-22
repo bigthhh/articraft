@@ -8,7 +8,6 @@ from typing import Dict, Iterator, List, Optional, Sequence, Set, Tuple, Union
 
 from .assets import resolve_asset_root
 from .errors import ValidationError
-from .generated_collisions import compile_object_model_with_generated_collisions
 from .geometry_qc import (
     compute_part_world_transforms,
     default_overlap_tol_from_env,
@@ -78,18 +77,6 @@ def _parse_xyz(xyz: str) -> Optional[Vec3]:
         return None
 
 
-def _aabb_union(aabbs: Sequence[AABB]) -> Optional[AABB]:
-    if not aabbs:
-        return None
-    mnx = min(a[0][0] for a in aabbs)
-    mny = min(a[0][1] for a in aabbs)
-    mnz = min(a[0][2] for a in aabbs)
-    mxx = max(a[1][0] for a in aabbs)
-    mxy = max(a[1][1] for a in aabbs)
-    mxz = max(a[1][2] for a in aabbs)
-    return (mnx, mny, mnz), (mxx, mxy, mxz)
-
-
 def _aabb_center(aabb: AABB) -> Vec3:
     (mn, mx) = aabb
     return ((mn[0] + mx[0]) * 0.5, (mn[1] + mx[1]) * 0.5, (mn[2] + mx[2]) * 0.5)
@@ -106,13 +93,6 @@ def _aabbs_touch_or_overlap(a: AABB, b: AABB, *, tol: float) -> bool:
         if b[1][axis] + tol < a[0][axis]:
             return False
     return True
-
-
-def _normalize_geometry_source(value: str, *, field_name: str) -> str:
-    source = str(value or "").strip().lower()
-    if source not in {"collision", "visual"}:
-        raise ValidationError(f"{field_name} must be either 'collision' or 'visual'")
-    return source
 
 
 def _truncate_decimal(value: float, *, decimals: int) -> float:
@@ -292,7 +272,6 @@ def _named_ref(value: object, *, kind: str) -> str:
 class TestContext:
     model: object
     asset_root: Optional[Union[str, Path]] = None
-    geometry_source: str = "collision"
     seed: int = 0
 
     checks_run: int = 0
@@ -312,30 +291,9 @@ class TestContext:
     _pose: Dict[str, float] = field(default_factory=dict)
     _world_tfs_cache: Optional[Dict[str, object]] = None
     _parts_by_name_cache: Optional[Dict[str, object]] = field(default=None, repr=False)
-    _compiled_collision_model: Optional[object] = field(default=None, repr=False)
-    _compiled_collision_error: Optional[Exception] = field(default=None, repr=False)
-    _collision_parts_by_name_cache: Optional[Dict[str, object]] = field(default=None, repr=False)
     _mesh_aabb_cache: Dict[Path, AABB] = field(default_factory=dict, repr=False)
-    _part_local_aabbs_cache: Dict[Tuple[str, bool], Tuple[AABB, ...]] = field(
-        default_factory=dict, repr=False
-    )
-    _part_world_aabb_cache: Dict[Tuple[str, str], Optional[AABB]] = field(
-        default_factory=dict, repr=False
-    )
-
-    def __post_init__(self) -> None:
-        self.geometry_source = _normalize_geometry_source(
-            self.geometry_source,
-            field_name="geometry_source",
-        )
-        try:
-            self._compiled_collision_model = compile_object_model_with_generated_collisions(
-                self.model,  # type: ignore[arg-type]
-                asset_root=self.asset_root,
-            )
-        except Exception as exc:
-            self._compiled_collision_model = None
-            self._compiled_collision_error = exc
+    _part_local_aabbs_cache: Dict[str, Tuple[AABB, ...]] = field(default_factory=dict, repr=False)
+    _part_world_aabb_cache: Dict[str, Optional[AABB]] = field(default_factory=dict, repr=False)
 
     def report(self) -> TestReport:
         failures = tuple(self._failures)
@@ -400,39 +358,18 @@ class TestContext:
     def _part_by_name(self, part_name: str) -> Optional[object]:
         return self._parts_by_name().get(part_name)
 
-    def _collision_parts_by_name(self) -> Dict[str, object]:
-        if self._collision_parts_by_name_cache is None:
-            parts = getattr(self._compiled_collision_model, "parts", None)
-            if not isinstance(parts, list):
-                self._collision_parts_by_name_cache = {}
-            else:
-                self._collision_parts_by_name_cache = {
-                    name: part
-                    for part in parts
-                    if isinstance((name := getattr(part, "name", None)), str)
-                }
-        return self._collision_parts_by_name_cache
-
     def _part_local_aabbs(
         self,
         part: object,
-        *,
-        prefer_collisions: bool,
     ) -> Tuple[AABB, ...]:
         from .geometry_qc import part_local_aabbs  # local import
 
         part_name = _named_ref(part, kind="part")
-        cache_key = (part_name, bool(prefer_collisions))
-        cached = self._part_local_aabbs_cache.get(cache_key)
+        cached = self._part_local_aabbs_cache.get(part_name)
         if cached is not None:
             return cached
 
-        if prefer_collisions and self._compiled_collision_model is not None:
-            part_obj = self._collision_parts_by_name().get(part_name)
-        else:
-            if prefer_collisions and self._compiled_collision_error is not None:
-                raise ValidationError(str(self._compiled_collision_error))
-            part_obj = self._part_by_name(part_name)
+        part_obj = self._part_by_name(part_name)
         if part_obj is None:
             return ()
 
@@ -440,38 +377,25 @@ class TestContext:
             part_local_aabbs(
                 part_obj,
                 asset_root=self._asset_root(),
-                prefer_collisions=prefer_collisions,
+                prefer_collisions=False,
                 _obj_cache=self._mesh_aabb_cache,
             )
         )
-        self._part_local_aabbs_cache[cache_key] = cached
+        self._part_local_aabbs_cache[part_name] = cached
         return cached
 
     def _part_geometry_items_with_local_aabbs(
         self,
         part: object,
-        *,
-        use: str,
     ) -> List[Tuple[Optional[str], Optional[str], AABB]]:
         part_name = _named_ref(part, kind="part")
-        use_key = _normalize_geometry_source(use, field_name="use")
-        prefer_collisions = use_key == "collision"
-
-        if prefer_collisions and self._compiled_collision_model is not None:
-            part_obj = self._collision_parts_by_name().get(part_name)
-        else:
-            if prefer_collisions and self._compiled_collision_error is not None:
-                raise ValidationError(str(self._compiled_collision_error))
-            part_obj = self._part_by_name(part_name)
+        part_obj = self._part_by_name(part_name)
         if part_obj is None:
             return []
 
-        if prefer_collisions and getattr(part_obj, "collisions", None):
-            raw_items = list(getattr(part_obj, "collisions", []) or [])
-        else:
-            raw_items = list(getattr(part_obj, "visuals", []) or [])
+        raw_items = list(getattr(part_obj, "visuals", []) or [])
         items = [item for item in raw_items if getattr(item, "geometry", None) is not None]
-        aabbs = self._part_local_aabbs(part_name, prefer_collisions=prefer_collisions)
+        aabbs = self._part_local_aabbs(part_name)
 
         out: List[Tuple[Optional[str], Optional[str], AABB]] = []
         for idx, local_aabb in enumerate(aabbs):
@@ -497,8 +421,8 @@ class TestContext:
         """
         Allow a specific overlap with justification.
 
-        By default, allowances apply at the link-pair level. If you name collision elements
-        (via `link.collision(..., name=...)`), you can scope an allowance to a specific
+        By default, allowances apply at the link-pair level. If you name visual elements
+        (via `part.visual(..., name=...)`), you can scope an allowance to a specific
         element pair by passing `elem_a`/`elem_b`.
         """
 
@@ -590,30 +514,12 @@ class TestContext:
     def link_world_position(self, link: object) -> Optional[Vec3]:
         return self.part_world_position(link)
 
-    def part_world_aabb(
-        self,
-        part: object,
-        *,
-        use: Optional[str] = None,
-    ) -> Optional[AABB]:
+    def part_world_aabb(self, part: object) -> Optional[AABB]:
         part_name = _named_ref(part, kind="part")
+        if part_name in self._part_world_aabb_cache:
+            return self._part_world_aabb_cache[part_name]
 
-        use_key = (
-            self.geometry_source
-            if use is None
-            else _normalize_geometry_source(use, field_name="use")
-        )
-        cache_key = (part_name, use_key)
-        if cache_key in self._part_world_aabb_cache:
-            return self._part_world_aabb_cache[cache_key]
-
-        prefer = use_key == "collision"
-        if prefer and self._compiled_collision_model is not None:
-            part_obj = self._collision_parts_by_name().get(part_name)
-        else:
-            if prefer and self._compiled_collision_error is not None:
-                raise ValidationError(str(self._compiled_collision_error))
-            part_obj = self._part_by_name(part_name)
+        part_obj = self._part_by_name(part_name)
         if part_obj is None:
             return None
 
@@ -624,34 +530,23 @@ class TestContext:
             part_obj,
             tf,  # type: ignore[arg-type]
             asset_root=self._asset_root(),
-            prefer_collisions=prefer,
+            prefer_collisions=False,
             _obj_cache=self._mesh_aabb_cache,
         )
-        self._part_world_aabb_cache[cache_key] = world_aabb
+        self._part_world_aabb_cache[part_name] = world_aabb
         return world_aabb
 
-    def link_world_aabb(
-        self,
-        link: object,
-        *,
-        use: Optional[str] = None,
-    ) -> Optional[AABB]:
-        return self.part_world_aabb(link, use=use)
+    def link_world_aabb(self, link: object) -> Optional[AABB]:
+        return self.part_world_aabb(link)
 
     def part_element_world_aabb(
         self,
         part: object,
         *,
-        use: Optional[str] = None,
         elem: object,
     ) -> Optional[AABB]:
         part_name = _named_ref(part, kind="part")
         elem_name = _named_ref(elem, kind="elem")
-        use_key = (
-            self.geometry_source
-            if use is None
-            else _normalize_geometry_source(use, field_name="use")
-        )
 
         tf = self._world_tfs().get(part_name)
         if tf is None:
@@ -663,7 +558,6 @@ class TestContext:
             local_aabb,
         ) in self._part_geometry_items_with_local_aabbs(
             part_name,
-            use=use_key,
         ):
             if candidate_name == elem_name:
                 return _transform_aabb(local_aabb, tf)
@@ -687,19 +581,9 @@ class TestContext:
             return self._record(
                 "check_mesh_files_exist", False, "model.parts missing or not a list"
             )
-        if self._compiled_collision_error is not None:
-            return self._record(
-                "check_mesh_files_exist",
-                False,
-                f"{type(self._compiled_collision_error).__name__}: {self._compiled_collision_error}",
-            )
         root = self._asset_root()
         missing: List[str] = []
-        collision_parts = (
-            self._collision_parts_by_name() if self._compiled_collision_model is not None else {}
-        )
         for link in links:
-            compiled_link = collision_parts.get(getattr(link, "name", None))
             for field_name in ("visuals",):
                 elems = getattr(link, field_name, None)
                 if not isinstance(elems, list):
@@ -717,19 +601,6 @@ class TestContext:
                         p = (root / p).resolve()
                     if not p.exists():
                         missing.append(str(p))
-            if compiled_link is not None:
-                elems = getattr(compiled_link, "collisions", None)
-                if isinstance(elems, list):
-                    for elem in elems:
-                        geom = getattr(elem, "geometry", None)
-                        filename = getattr(geom, "filename", None)
-                        if filename is None:
-                            continue
-                        p = Path(str(filename))
-                        if not p.is_absolute():
-                            p = (root / p).resolve()
-                        if not p.exists():
-                            missing.append(str(p))
         if missing:
             preview = "\n".join(missing[:12])
             more = "" if len(missing) <= 12 else f"\n... ({len(missing) - 12} more)"
@@ -764,10 +635,7 @@ class TestContext:
             link_name = getattr(link, "name", None)
             if not isinstance(link_name, str):
                 continue
-            aabbs = self._part_local_aabbs(
-                link,
-                prefer_collisions=self.geometry_source == "collision",
-            )
+            aabbs = self._part_local_aabbs(link)
             if aabbs:
                 link_to_local[link_name] = list(aabbs)
 
@@ -884,97 +752,13 @@ class TestContext:
             warn_only=True,
         )
 
-    def check_visual_collision_alignment(
-        self,
-        *,
-        max_center_dist: float = 0.03,
-        max_size_rel_err: float = 0.35,
-        name: Optional[str] = None,
-    ) -> bool:
-        links = getattr(self.model, "parts", None)
-        if not isinstance(links, list):
-            return self._record(
-                name or "check_visual_collision_alignment",
-                False,
-                "model.parts missing or not a list",
-            )
-
-        failures: List[str] = []
-        for part in links:
-            part_name = getattr(part, "name", None)
-            if not isinstance(part_name, str) or not getattr(part, "visuals", None):
-                continue
-
-            visual_aabbs = self._part_local_aabbs(
-                part,
-                prefer_collisions=False,
-            )
-            collision_aabbs = self._part_local_aabbs(
-                part,
-                prefer_collisions=True,
-            )
-            if not visual_aabbs or not collision_aabbs:
-                continue
-
-            visual_union = _aabb_union(visual_aabbs)
-            collision_union = _aabb_union(collision_aabbs)
-            if visual_union is None or collision_union is None:
-                continue
-
-            visual_center = _aabb_center(visual_union)
-            collision_center = _aabb_center(collision_union)
-            center_dist = (
-                (visual_center[0] - collision_center[0]) ** 2
-                + (visual_center[1] - collision_center[1]) ** 2
-                + (visual_center[2] - collision_center[2]) ** 2
-            ) ** 0.5
-
-            visual_size = (
-                visual_union[1][0] - visual_union[0][0],
-                visual_union[1][1] - visual_union[0][1],
-                visual_union[1][2] - visual_union[0][2],
-            )
-            collision_size = (
-                collision_union[1][0] - collision_union[0][0],
-                collision_union[1][1] - collision_union[0][1],
-                collision_union[1][2] - collision_union[0][2],
-            )
-            denom = max(1e-9, max(collision_size))
-            size_rel_err = (
-                (
-                    (visual_size[0] - collision_size[0]) ** 2
-                    + (visual_size[1] - collision_size[1]) ** 2
-                    + (visual_size[2] - collision_size[2]) ** 2
-                )
-                ** 0.5
-            ) / denom
-
-            if center_dist > float(max_center_dist) or size_rel_err > float(max_size_rel_err):
-                failures.append(
-                    f"part={part_name!r} center_dist={center_dist:.4g} "
-                    f"size_visual={tuple(round(v, 4) for v in visual_size)} "
-                    f"size_collision={tuple(round(v, 4) for v in collision_size)}"
-                )
-
-        if failures:
-            preview = "\n".join(failures[:10])
-            more = "" if len(failures) <= 10 else f"\n... ({len(failures) - 10} more)"
-            return self._record(
-                name or "check_visual_collision_alignment",
-                False,
-                f"Visual/collision drift detected:\n{preview}{more}",
-            )
-        return self._record(name or "check_visual_collision_alignment", True)
-
     def check_part_geometry_connected(
         self,
         *,
-        use: str = "visual",
         tol: float = 0.005,
         name: Optional[str] = None,
     ) -> bool:
         return self._check_part_geometry_connected_impl(
-            use=use,
             tol=tol,
             check_name=name,
             warn_only=False,
@@ -983,12 +767,10 @@ class TestContext:
     def warn_if_part_geometry_connected(
         self,
         *,
-        use: str = "visual",
         tol: float = 0.005,
         name: Optional[str] = None,
     ) -> bool:
         return self._check_part_geometry_connected_impl(
-            use=use,
             tol=tol,
             check_name=name,
             warn_only=True,
@@ -998,12 +780,10 @@ class TestContext:
     def warn_if_part_geometry_disconnected(
         self,
         *,
-        use: str = "visual",
         tol: float = 0.005,
         name: Optional[str] = None,
     ) -> bool:
         return self._check_part_geometry_connected_impl(
-            use=use,
             tol=tol,
             check_name=name,
             warn_only=True,
@@ -1013,18 +793,16 @@ class TestContext:
     def _check_part_geometry_connected_impl(
         self,
         *,
-        use: str,
         tol: float,
         check_name: Optional[str],
         warn_only: bool,
         warn_prefix: str = "warn_if_part_geometry_connected",
     ) -> bool:
         record = self._record_warning_check if warn_only else self._record
-        use_key = _normalize_geometry_source(use, field_name="use")
         if float(tol) < 0.0:
             prefix = warn_prefix if warn_only else "check_part_geometry_connected"
             return record(
-                check_name or f"{prefix}(use={use_key},tol={float(tol):.4g})",
+                check_name or f"{prefix}(tol={float(tol):.4g})",
                 False,
                 "tol must be non-negative",
             )
@@ -1033,7 +811,7 @@ class TestContext:
         if not isinstance(links, list):
             prefix = warn_prefix if warn_only else "check_part_geometry_connected"
             return record(
-                check_name or f"{prefix}(use={use_key},tol={float(tol):.4g})",
+                check_name or f"{prefix}(tol={float(tol):.4g})",
                 False,
                 "model.parts missing or not a list",
             )
@@ -1045,7 +823,6 @@ class TestContext:
                 continue
             aabbs = self._part_local_aabbs(
                 part,
-                prefer_collisions=use_key == "collision",
             )
             if len(aabbs) <= 1:
                 continue
@@ -1061,12 +838,10 @@ class TestContext:
                         visited.add(idx)
                         queue.append(idx)
             if len(visited) != len(aabbs):
-                failures.append(
-                    f"part={part_name!r} connected={len(visited)}/{len(aabbs)} use={use_key}"
-                )
+                failures.append(f"part={part_name!r} connected={len(visited)}/{len(aabbs)}")
 
         prefix = warn_prefix if warn_only else "check_part_geometry_connected"
-        resolved_name = check_name or f"{prefix}(use={use_key},tol={float(tol):.4g})"
+        resolved_name = check_name or f"{prefix}(tol={float(tol):.4g})"
         if failures:
             preview = "\n".join(failures[:10])
             more = "" if len(failures) <= 10 else f"\n... ({len(failures) - 10} more)"
@@ -1237,7 +1012,6 @@ class TestContext:
         overlaps = find_geometry_overlaps(
             self.model,
             asset_root=self._asset_root(),
-            geometry_source=self.geometry_source,
             max_pose_samples=int(max_pose_samples),
             overlap_tol=resolved_overlap_tol,
             overlap_volume_tol=resolved_overlap_volume_tol,
@@ -1288,8 +1062,7 @@ class TestContext:
                 resolved_name,
                 False,
                 "Overlaps detected "
-                f"(geometry_source={self.geometry_source}, "
-                f"overlap_tol={resolved_overlap_tol:.4g}, "
+                f"(overlap_tol={resolved_overlap_tol:.4g}, "
                 f"overlap_volume_tol={resolved_overlap_volume_tol:.4g}):\n"
                 f"{preview}{more}",
             )
@@ -1304,7 +1077,6 @@ class TestContext:
         self,
         *,
         max_pose_samples: int = 32,
-        use: str = "visual",
         plane_tol: float = 0.001,
         min_overlap: float = 0.02,
         min_overlap_ratio: float = 0.35,
@@ -1312,11 +1084,9 @@ class TestContext:
         ignore_fixed: bool = True,
         name: Optional[str] = None,
     ) -> bool:
-        use_key = _normalize_geometry_source(use, field_name="use")
         resolved_name = name or (
             f"warn_if_coplanar_surfaces("
             f"samples={int(max_pose_samples)},"
-            f"use={use_key},"
             f"plane_tol={float(plane_tol):.4g},"
             f"min_overlap={float(min_overlap):.4g},"
             f"min_overlap_ratio={float(min_overlap_ratio):.4g},"
@@ -1430,7 +1200,7 @@ class TestContext:
                 world_tf = world_tfs.get(link_name)
                 if world_tf is None:
                     continue
-                elem_bounds = self._part_geometry_items_with_local_aabbs(link_name, use=use_key)
+                elem_bounds = self._part_geometry_items_with_local_aabbs(link_name)
                 if not elem_bounds:
                     continue
                 part_elem_bounds[link_name] = [
@@ -1690,8 +1460,6 @@ class TestContext:
         *,
         axes: Union[str, Sequence[str]] = "xy",
         margin: float = 0.0,
-        inner_use: str = "collision",
-        outer_use: str = "collision",
         name: Optional[str] = None,
     ) -> bool:
         inner_name = _named_ref(inner_link, kind="inner_link")
@@ -1704,8 +1472,8 @@ class TestContext:
         if axes_err is not None:
             return self._record(check_name, False, axes_err)
 
-        inner = self.link_world_aabb(inner_link, use=inner_use)
-        outer = self.link_world_aabb(outer_link, use=outer_use)
+        inner = self.link_world_aabb(inner_link)
+        outer = self.link_world_aabb(outer_link)
         if inner is None or outer is None:
             return self._record(check_name, False, "missing link AABB(s)")
 
@@ -1741,8 +1509,6 @@ class TestContext:
         min_gap: Optional[float] = None,
         max_gap: Optional[float] = None,
         max_penetration: Optional[float] = None,
-        positive_use: str = "collision",
-        negative_use: str = "collision",
         positive_elem: Optional[object] = None,
         negative_elem: Optional[object] = None,
         name: Optional[str] = None,
@@ -1768,8 +1534,6 @@ class TestContext:
           - max_gap: upper bound on the signed gap
           - max_penetration: convenience way to express the allowed overlap depth;
             this becomes a lower bound of `-max_penetration`
-          - positive_use / negative_use: choose whether each side uses `visual`
-            or `collision` geometry when computing its AABB
           - positive_elem / negative_elem: optional named geometry items within
             each link; when provided, the check uses those element AABBs instead
             of the whole-link union AABBs
@@ -1792,20 +1556,18 @@ class TestContext:
         )
 
         positive_aabb = (
-            self.link_world_aabb(positive_link, use=positive_use)
+            self.link_world_aabb(positive_link)
             if positive_elem_name is None
             else self.part_element_world_aabb(
                 positive_link,
-                use=positive_use,
                 elem=positive_elem_name,
             )
         )
         negative_aabb = (
-            self.link_world_aabb(negative_link, use=negative_use)
+            self.link_world_aabb(negative_link)
             if negative_elem_name is None
             else self.part_element_world_aabb(
                 negative_link,
-                use=negative_use,
                 elem=negative_elem_name,
             )
         )
@@ -1867,8 +1629,6 @@ class TestContext:
         *,
         axes: Union[str, Sequence[str]] = "xy",
         min_overlap: float = 0.0,
-        use_a: str = "collision",
-        use_b: str = "collision",
         name: Optional[str] = None,
     ) -> bool:
         link_a_name = _named_ref(link_a, kind="link_a")
@@ -1881,8 +1641,8 @@ class TestContext:
         if axes_err is not None:
             return self._record(check_name, False, axes_err)
 
-        aabb_a = self.link_world_aabb(link_a, use=use_a)
-        aabb_b = self.link_world_aabb(link_b, use=use_b)
+        aabb_a = self.link_world_aabb(link_a)
+        aabb_b = self.link_world_aabb(link_b)
         if aabb_a is None or aabb_b is None:
             return self._record(check_name, False, "missing link AABB(s)")
 
@@ -1908,8 +1668,6 @@ class TestContext:
         *,
         axes: Union[str, Sequence[str]] = "xyz",
         contact_tol: float = 0.0,
-        use_a: str = "collision",
-        use_b: str = "collision",
         name: Optional[str] = None,
     ) -> bool:
         link_a_name = _named_ref(link_a, kind="link_a")
@@ -1926,8 +1684,8 @@ class TestContext:
         if contact_tol_f < 0.0:
             return self._record(check_name, False, "contact_tol must be >= 0")
 
-        aabb_a = self.link_world_aabb(link_a, use=use_a)
-        aabb_b = self.link_world_aabb(link_b, use=use_b)
+        aabb_a = self.link_world_aabb(link_a)
+        aabb_b = self.link_world_aabb(link_b)
         if aabb_a is None or aabb_b is None:
             return self._record(check_name, False, "missing link AABB(s)")
 
@@ -1955,7 +1713,6 @@ class TestContext:
         min_delta: float = 0.0,
         q0: Optional[float] = None,
         q1: Optional[float] = None,
-        use: str = "collision",
         name: Optional[str] = None,
     ) -> bool:
         """
@@ -2055,13 +1812,11 @@ class TestContext:
         pose1[j_name] = q1_f
 
         with self.pose(pose0):
-            aabb0 = self.link_world_aabb(l_name, use=use)
+            aabb0 = self.link_world_aabb(l_name)
         with self.pose(pose1):
-            aabb1 = self.link_world_aabb(l_name, use=use)
+            aabb1 = self.link_world_aabb(l_name)
         if aabb0 is None or aabb1 is None:
-            return self._record(
-                check_name, False, f"missing AABB for link {l_name!r} using {use!r} geometry"
-            )
+            return self._record(check_name, False, f"missing AABB for link {l_name!r}")
 
         c0 = _aabb_center(aabb0)
         c1 = _aabb_center(aabb1)

@@ -18,7 +18,6 @@ dependencies = [
     "manifold3d>=3.3.2",
     "trimesh>=4.11.3",
     "python-fcl>=0.7.0.8",
-    "coacd>=1.0.7",
     "websockets>=15.0.1",
     "networkx>=3.6.1",
     "rtree>=1.4.1",

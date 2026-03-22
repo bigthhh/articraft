@@ -73,14 +73,14 @@ def build_object_model() -> ArticulatedObject:
 
 
 def run_tests() -> TestReport:
-    ctx = TestContext(object_model, asset_root=ASSETS.asset_root, geometry_source="collision")
+    ctx = TestContext(object_model, asset_root=ASSETS.asset_root)
     ctx.check_model_valid()
     ctx.check_mesh_files_exist()
 
     # Default broad sensor; do not remove. Tune params only if warranted.
     ctx.warn_if_articulation_origin_near_geometry(tol=0.015)
     # Default broad sensor; do not remove. Tune params only if warranted.
-    ctx.warn_if_part_geometry_disconnected(use="visual")
+    ctx.warn_if_part_geometry_disconnected()
     # Default articulated-joint clearance gate; adapt only if the model is not articulated.
     ctx.check_articulation_overlaps(max_pose_samples=128)
     # Default broad sensor; do not remove. Tune params only if warranted.
@@ -111,14 +111,14 @@ def build_object_model() -> ArticulatedObject:
 
 
 def run_tests() -> TestReport:
-    ctx = TestContext(object_model, asset_root=ASSETS.asset_root, geometry_source="collision")
+    ctx = TestContext(object_model, asset_root=ASSETS.asset_root)
     ctx.check_model_valid()
     ctx.check_mesh_files_exist()
 
     # Default broad sensor; do not remove. Tune params only if warranted.
     ctx.warn_if_articulation_origin_near_geometry(tol=0.015)
     # Default broad sensor; do not remove. Tune params only if warranted.
-    ctx.warn_if_part_geometry_disconnected(use="visual")
+    ctx.warn_if_part_geometry_disconnected()
     # Default articulated-joint clearance gate; adapt only if the model is not articulated.
     ctx.check_articulation_overlaps(max_pose_samples=128)
     # Default broad sensor; do not remove. Tune params only if warranted.

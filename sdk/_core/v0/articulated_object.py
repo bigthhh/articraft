@@ -8,7 +8,6 @@ from typing import Dict, Iterable, List, Optional, Sequence, Union
 from .assets import AssetContext, coerce_asset_context, resolve_asset_root
 from .errors import ValidationError
 from .geometry_qc import (
-    _prefer_collisions_from_source,
     default_overlap_tol_from_env,
     default_overlap_volume_tol_from_env,
     validate_no_geometry_overlaps,
@@ -30,6 +29,8 @@ from .types import (
     Vec3,
     Visual,
 )
+
+_ALLOW_EXPLICIT_COLLISIONS_ATTR = "_sdk_allow_explicit_collisions"
 
 
 def _part_name_ref(value: Union[str, Part], *, field_name: str) -> str:
@@ -407,6 +408,13 @@ class ArticulatedObject:
                     f"part {part.name} visual",
                     strict_mesh_paths=strict_mesh_paths,
                 )
+            if part.collisions and not bool(getattr(self, _ALLOW_EXPLICIT_COLLISIONS_ATTR, False)):
+                raise ValidationError(
+                    f"Part {part.name!r} defines explicit collisions. "
+                    "Source models must express geometry only through visuals and "
+                    "primitive provenance instead of "
+                    "authoring Part.collisions directly."
+                )
             for collision in part.collisions:
                 _validate_geometry(
                     collision.geometry,
@@ -420,7 +428,6 @@ class ArticulatedObject:
         self,
         *,
         asset_root: Optional[Union[str, Path]] = None,
-        geometry_source: str = "collision",
         max_pose_samples: int = 256,
         overlap_tol: Optional[float] = None,
         overlap_volume_tol: Optional[float] = None,
@@ -434,7 +441,6 @@ class ArticulatedObject:
         self.validate(strict=True)
 
         root_path = resolve_asset_root(asset_root, self)
-        prefer_collisions = _prefer_collisions_from_source(geometry_source)
         tol = default_overlap_tol_from_env() if overlap_tol is None else float(overlap_tol)
         vol_tol = (
             default_overlap_volume_tol_from_env()
@@ -462,7 +468,6 @@ class ArticulatedObject:
         validate_no_geometry_overlaps(
             self,
             asset_root=root_path,
-            geometry_source="collision" if prefer_collisions else "visual",
             max_pose_samples=max_pose_samples,
             overlap_tol=tol,
             overlap_volume_tol=vol_tol,

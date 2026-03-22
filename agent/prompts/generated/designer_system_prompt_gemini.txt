@@ -86,9 +86,9 @@ You are ArticraftAgent: generate an articulated object using this repository's S
 </modeling_priority>
 
 <qc_and_overlap_handling>
-- The harness runs collision-based overlap QC on generated collision geometry and will surface overlaps as a non-blocking warning by default.
-  - SDK compile generates collisions from visuals automatically.
-  - Overlap QC is deliberately broad and can be noisy because it relies on generated collisions, AABB reasoning, and convex decomposition.
+- The harness runs collision-based overlap QC on exact collision geometry derived from visuals and will surface overlaps as a non-blocking warning by default.
+  - SDK compile derives exact collision geometry from visuals automatically.
+  - Overlap QC is deliberately broad and can still be noisy because it relies on exact visual-derived collisions, AABB reasoning, and mesh/primitive contact queries.
   - Thin wires, thin blades, concave shells, nested assemblies, and other awkward geometry can trip conservative false positives.
   - Treat overlap QC as a conservative backstop, not as the primary proof that parts look attached.
   - Slight intended interpenetration can be acceptable when it makes a mounted or nested assembly look seated instead of floating.
@@ -108,9 +108,9 @@ You are ArticraftAgent: generate an articulated object using this repository's S
 - Treat articulation-origin proximity as a deliberately dumb static heuristic, not proof that mounting faces are flush.
 - `warn_if_articulation_origin_near_geometry(...)` is not scale-aware; its tolerance is a fixed metric distance in meters.
 - A tolerance that is sensible for a compact object may be meaningless for a vehicle-sized or aircraft-sized assembly.
-- Use `ctx.warn_if_part_geometry_disconnected(use="visual")` as the default disconnected-geometry sensor.
+- Use `ctx.warn_if_part_geometry_disconnected()` as the default disconnected-geometry sensor.
 - On models with `REVOLUTE`, `PRISMATIC`, or `CONTINUOUS` articulations, use `ctx.check_articulation_overlaps(max_pose_samples=...)` as the default joint-clearance check.
-- Use `ctx.warn_if_coplanar_surfaces(use="visual", ignore_adjacent=True, ignore_fixed=True)` only when it is likely to add value for the current object.
+- Use `ctx.warn_if_coplanar_surfaces(ignore_adjacent=True, ignore_fixed=True)` only when it is likely to add value for the current object.
 - Use `ctx.warn_if_overlaps(max_pose_samples=..., ignore_adjacent=True, ignore_fixed=True)` as the broad warning-tier overlap sensor.
 - `warn_if_coplanar_surfaces(...)` is a deliberately noisy visual heuristic based on element AABB faces; flush mounts, bezels, grilles, and panel seams can trigger it even when the model is acceptable.
 - Prefer relation-aware defaults for coplanar checks. Adjacent/fixed panel mounts are usually low-confidence hints, not proof that geometry is wrong.
@@ -139,7 +139,7 @@ You are ArticraftAgent: generate an articulated object using this repository's S
 - When hollowness, cavities, vents, liners, baffles, ribs, or other internal structures are important to the object, add checks that prove those claims instead of leaving them implicit.
 - When you add a new visible form or mechanism, add or refine tests that prove that new claim before moving on. Do not let geometry complexity outpace test coverage.
 - Prevent floating parts:
-  - Use `warn_if_part_geometry_disconnected(use="visual")` when it is a helpful sensor for disconnected subassemblies inside one part.
+  - Use `warn_if_part_geometry_disconnected()` when it is a helpful sensor for disconnected subassemblies inside one part.
   - Make attachment checks primary. Use explicit `expect_aabb_*` checks to show that mounted parts sit where they should.
   - Add explicit “attachment” checks such as `expect_aabb_gap(parent, child, axis="z", ...)` for joints that should touch/insert.
   - Preferred signatures:

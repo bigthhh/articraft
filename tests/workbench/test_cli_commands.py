@@ -335,7 +335,7 @@ def test_workbench_init_record_command(
     assert "def build_object_model() -> ArticulatedObject:" in model_text
     assert "def run_tests() -> TestReport:" in model_text
     assert "ctx.warn_if_articulation_origin_near_geometry(tol=0.015)" in model_text
-    assert 'ctx.warn_if_part_geometry_disconnected(use="visual")' in model_text
+    assert "ctx.warn_if_part_geometry_disconnected()" in model_text
     assert "ctx.check_articulation_overlaps(max_pose_samples=128)" in model_text
     assert (
         "ctx.warn_if_overlaps(max_pose_samples=128, ignore_adjacent=True, ignore_fixed=True)"

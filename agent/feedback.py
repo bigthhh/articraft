@@ -108,16 +108,6 @@ COMPILER_WARNING_RULES: tuple[CompilerWarningRule, ...] = (
         summary="Visual connectivity check failed.",
     ),
     CompilerWarningRule(
-        needle="visual/collision geometry appear misaligned",
-        spec=SignalSpec(
-            severity="warning",
-            kind="visual_collision_misalignment",
-            code="WARN_VISUAL_COLLISION_MISALIGNMENT",
-            group="design",
-        ),
-        summary="Visual and collision geometry appear misaligned on some links.",
-    ),
-    CompilerWarningRule(
         needle="geometry overlap check reported overlaps",
         spec=SignalSpec(
             severity="warning",

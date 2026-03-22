@@ -127,7 +127,6 @@ dependencies = [
     { name = "aiofiles" },
     { name = "bm25s" },
     { name = "cadquery" },
-    { name = "coacd" },
     { name = "fastapi" },
     { name = "google-genai" },
     { name = "manifold3d" },
@@ -157,7 +156,6 @@ requires-dist = [
     { name = "aiofiles", specifier = ">=24.1.0" },
     { name = "bm25s", specifier = ">=0.3.2.post1" },
     { name = "cadquery", specifier = ">=2.5" },
-    { name = "coacd", specifier = ">=1.0.7" },
     { name = "fastapi", specifier = ">=0.111.0" },
     { name = "google-genai" },
     { name = "manifold3d", specifier = ">=3.3.2" },
@@ -372,21 +370,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/3d/fa/656b739db8587d7b5dfa22e22ed02566950fbfbcdc20311993483657a5c0/click-8.3.1.tar.gz", hash = "sha256:12ff4785d337a1bb490bb7e9c2b1ee5da3112e94a8622f26a6c77f5d2fc6842a", size = 295065, upload-time = "2025-11-15T20:45:42.706Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/98/78/01c019cdb5d6498122777c1a43056ebb3ebfeef2076d9d026bfe15583b2b/click-8.3.1-py3-none-any.whl", hash = "sha256:981153a64e25f12d547d3426c367a4857371575ee7ad18df2a6183ab0545b2a6", size = 108274, upload-time = "2025-11-15T20:45:41.139Z" },
-]
-
-[[package]]
-name = "coacd"
-version = "1.0.7"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "numpy" },
-]
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/96/33/ee65aeed8d99ee8b3d52fa4f6ad165e3d84b95663da3e6fed390b56fb6d3/coacd-1.0.7-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:67a6badf5903e0f64d689156b4f3a1c67a60e5c4402b0fbc085280844252a125", size = 3508165, upload-time = "2025-05-02T17:52:34.875Z" },
-    { url = "https://files.pythonhosted.org/packages/1c/85/52517f5a18007950cd1a4d766df5cc80f8f78d2744d21659d2aa73d1300b/coacd-1.0.7-cp39-abi3-macosx_11_0_x86_64.whl", hash = "sha256:dd823f968ade4ead1f8ea579d6317c39eaa12e0f14031b3bcb6ea43a9d92c3b6", size = 3503447, upload-time = "2025-05-02T17:52:37.047Z" },
-    { url = "https://files.pythonhosted.org/packages/ef/60/abb74859e0c11ea302ef9e5ba7a4d4538c932f55cc6fd14b879eca854617/coacd-1.0.7-cp39-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:99fda62b598cea3bfd6233eab1bf9693668763694f8062dd4349409bc6591798", size = 2572570, upload-time = "2025-05-02T17:52:38.481Z" },
-    { url = "https://files.pythonhosted.org/packages/f8/52/92b11b909686bef993819720c518cb38318a16acae038b70f64a3c35582a/coacd-1.0.7-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:d1d330c03cdd3f5a571677d5cbb991a51d96bd0e157a34b0fb3623d7ed3b1886", size = 2638545, upload-time = "2025-05-02T17:52:40.126Z" },
-    { url = "https://files.pythonhosted.org/packages/45/7b/286fc9520088889aaddc40aed6ffe2737fe79931ecba01002f4e7c632dd2/coacd-1.0.7-cp39-abi3-win_amd64.whl", hash = "sha256:8bfeb23aecc0265baea2d5c446ceaa1c117ba4fd112843944fb78f5bb9626a7b", size = 1460297, upload-time = "2025-05-02T17:52:41.924Z" },
 ]
 
 [[package]]

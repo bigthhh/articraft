@@ -14,12 +14,11 @@ from sdk import TestContext, TestFailure, TestReport
 ctx = TestContext(
     object_model,
     asset_root=HERE,
-    geometry_source="collision",
     seed=0,
 )
 ```
 
-`geometry_source="collision"` is the physical QC path. In `sdk`, collision geometry is generated from visuals during compile/test setup.
+`TestContext` reasons about the authored visual geometry. During compile/test setup, the SDK mirrors those visuals into internal collision entries for URDF export and contact queries.
 
 If the model was constructed with `ArticulatedObject(..., assets=AssetContext.from_script(__file__))`, `TestContext(object_model, ...)` can infer the mesh root automatically. If not, pass `asset_root=HERE` explicitly whenever the model uses mesh files.
 
@@ -31,16 +30,16 @@ The scaffolded `run_tests()` starts from these broad sensors and backstops:
 ctx.check_model_valid()
 ctx.check_mesh_files_exist()
 ctx.warn_if_articulation_origin_near_geometry(tol=0.015)
-ctx.warn_if_part_geometry_disconnected(use="visual")
+ctx.warn_if_part_geometry_disconnected()
 ctx.check_articulation_overlaps(max_pose_samples=128)
-ctx.warn_if_coplanar_surfaces(use="visual", ignore_adjacent=True, ignore_fixed=True)
+ctx.warn_if_coplanar_surfaces(ignore_adjacent=True, ignore_fixed=True)
 ctx.warn_if_overlaps(max_pose_samples=128, ignore_adjacent=True, ignore_fixed=True)
 ```
 
 Mesh-backed models:
 
 - If any part uses `Mesh(filename="assets/meshes/...")` or `mesh_from_geometry(...)`, keep either model assets or `asset_root=...` wired into `TestContext`.
-- Without that, mesh-aware checks can fail because the SDK cannot resolve relative mesh paths or write generated collision hulls.
+- Without that, mesh-aware checks can fail because the SDK cannot resolve relative mesh paths for compile/test/export.
 
 What they catch:
 
@@ -48,7 +47,7 @@ What they catch:
 - `warn_if_part_geometry_disconnected`: a deliberately dumb static heuristic that checks whether a single part appears to contain disconnected visual geometry islands.
 - `warn_if_coplanar_surfaces`: a deliberately noisy visual heuristic that looks for nearly coplanar element AABB faces with strong in-plane overlap. Flush mounts, bezels, grilles, and panel seams can trigger it even when the model is acceptable.
 - `check_articulation_overlaps`: a failure-tier overlap gate for non-fixed articulation-linked parent/child pairs. It is the recommended way to prove that `REVOLUTE`, `PRISMATIC`, and `CONTINUOUS` joints do not interpenetrate.
-- `warn_if_overlaps`: a deliberately broad overlap sensor over generated collision geometry. It relies on generated collisions, AABB reasoning, and convex decomposition, so it can be noisy for thin wires, thin blades, concave shells, and other awkward geometry.
+- `warn_if_overlaps`: a deliberately broad overlap sensor over mirrored visual geometry. It relies on AABB reasoning and mesh/primitive contact queries, so it can still be noisy for thin wires, thin blades, concave shells, and other awkward geometry.
 
 These broad checks are warning-tier sensors, not semantic proof. The agent still needs to reason about the object and add prompt-specific `expect_*` assertions as actual regression tests for silhouette, structure, proportions, and mechanism behavior.
 
@@ -68,9 +67,8 @@ Important:
 The harness also runs automatic isolated-part checks at compile time:
 
 - it checks multi-part objects for parts that are not contacting any other part in the checked pose
-- `visual` isolated-part findings are warnings because they use broad visible-envelope contact
-- `collision` isolated-part findings are blocking by default because even the conservative generated collision envelopes still do not touch
-- a collision isolated-part failure should usually be treated as a real floating-geometry or bad-mount bug
+- isolated-part findings are blocking by default because the part still does not touch anything
+- an isolated-part failure should usually be treated as a real floating-geometry or bad-mount bug
 
 ## Overlap allowances
 
@@ -95,7 +93,6 @@ Use this as the failure-tier QC gate for non-fixed articulation-linked pairs.
 
 - It checks only parent/child pairs connected by `REVOLUTE`, `PRISMATIC`, or `CONTINUOUS` articulations.
 - It does not check `FIXED` or `FLOATING` pairs in v1.
-- It uses the `TestContext` geometry source, so `geometry_source="collision"` is the recommended mode.
 - It respects `ctx.allow_overlap(...)`, which is the intended escape hatch for legitimate nested mechanisms.
 - It complements rather than replaces broad `warn_if_overlaps(...)` sensing.
 
@@ -103,7 +100,7 @@ Use this as the failure-tier QC gate for non-fixed articulation-linked pairs.
 
 ```python
 ctx.part_world_position("lid")
-ctx.part_world_aabb("lid", use="collision")
+ctx.part_world_aabb("lid")
 ```
 
 Use temporary mechanism poses with the context manager:
@@ -144,7 +141,8 @@ ctx.expect_aabb_gap("upper", "lower", axis="z", max_gap=0.001, max_penetration=0
 ctx.expect_aabb_contact("bracket", "frame")
 ctx.expect_joint_motion_axis("hinge", "lid", world_axis="z", direction="positive", min_delta=0.01)
 ```
-`expect_aabb_gap(...)` is directional: it measures the signed gap from the positive-side link's minimum face to the negative-side link's maximum face along the chosen axis. When whole-link AABBs are too coarse, you can scope the check to named geometry on each side. The element names come from the geometry source you select with `positive_use` and `negative_use`:
+
+`expect_aabb_gap(...)` is directional: it measures the signed gap from the positive-side link's minimum face to the negative-side link's maximum face along the chosen axis. When whole-link AABBs are too coarse, you can scope the check to named geometry on each side. The element names come directly from `part.visual(..., name=...)`:
 
 ```python
 ctx.expect_aabb_gap(
@@ -153,8 +151,6 @@ ctx.expect_aabb_gap(
     axis="z",
     max_gap=0.001,
     max_penetration=0.0,
-    positive_use="visual",
-    negative_use="visual",
     positive_elem="hub",
     negative_elem="mount_block",
 )
@@ -167,16 +163,13 @@ Argument guide:
 - `min_gap`: lower bound on the signed gap; use this when you want to allow or require a specific amount of separation
 - `max_gap`: upper bound on the signed gap; use this for "must stay visually seated" style checks
 - `max_penetration`: shorthand for how much overlap is allowed when `min_gap` is omitted
-- `positive_use`, `negative_use`: choose `visual` or `collision` per side
 - `positive_elem`, `negative_elem`: optional named local features to test instead of the whole-link envelope
 - `name`: override the recorded check name when the default is too generic
 
 Practical defaults:
 
 - use `max_gap=0.001, max_penetration=0.0` for "should look seated" checks
-- use `positive_use="visual", negative_use="visual"` when the issue is visible mounting quality rather than physical collision clearance
 - add `positive_elem` / `negative_elem` when the whole-link AABB is too broad and some unrelated geometry would otherwise let the check pass
-
 
 For mounted or nested assemblies:
 
@@ -204,9 +197,9 @@ For pairs that truly must not intersect across motion, add selective separation 
 ctx.check_model_valid()
 ctx.check_mesh_files_exist()
 ctx.warn_if_articulation_origin_near_geometry(tol=0.015)
-ctx.warn_if_part_geometry_disconnected(use="visual")
+ctx.warn_if_part_geometry_disconnected()
 ctx.check_articulation_overlaps(max_pose_samples=128)
-ctx.warn_if_coplanar_surfaces(use="visual", ignore_adjacent=True, ignore_fixed=True)
+ctx.warn_if_coplanar_surfaces(ignore_adjacent=True, ignore_fixed=True)
 ctx.warn_if_overlaps(max_pose_samples=128, ignore_adjacent=True, ignore_fixed=True)
 ctx.expect_aabb_overlap("lid", "base", axes="xy", min_overlap=0.05)
 ctx.expect_origin_distance("lid", "base", axes="xy", max_dist=0.02)
@@ -217,8 +210,6 @@ ctx.expect_aabb_gap(
     axis="z",
     max_gap=0.001,
     max_penetration=0.0,
-    positive_use="visual",
-    negative_use="visual",
     positive_elem="hinge_leaf",
     negative_elem="frame_leaf",
 )

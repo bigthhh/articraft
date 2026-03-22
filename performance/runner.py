@@ -22,7 +22,7 @@ from agent.compiler import compile_urdf_report, compile_urdf_report_maybe_timeou
 from performance.corpus import DEFAULT_CASE_IDS, BenchmarkCase, get_cases
 
 DEFAULT_RESULTS_DIR = Path("performance/results")
-DEPENDENCY_NAMES = ("numpy", "trimesh", "coacd", "python-fcl", "cadquery", "rich")
+DEPENDENCY_NAMES = ("numpy", "trimesh", "python-fcl", "cadquery", "rich")
 
 
 @dataclass(frozen=True, slots=True)

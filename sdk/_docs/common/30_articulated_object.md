@@ -110,7 +110,6 @@ This checks:
 ```python
 model.validate_geometry(
     asset_root=HERE,
-    geometry_source="collision",   # or "visual"
     max_pose_samples=256,
     overlap_tol=None,
     overlap_volume_tol=None,
@@ -121,4 +120,4 @@ model.validate_geometry(
 )
 ```
 
-Use `geometry_source="collision"` for physical QC. In `sdk`, collision geometry is generated automatically from visuals during compile/test setup.
+`validate_geometry(...)` runs physical QC on exact geometry derived automatically from visuals and provenance during compile/test setup.

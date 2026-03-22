@@ -164,8 +164,6 @@ def test_compile_urdf_report_full_validation_runs_only_run_tests(
 
     monkeypatch.setattr("agent.compiler._warn_cwd_relative_asset_paths", fail_if_called)
     monkeypatch.setattr("agent.compiler._warn_geometry_scale_anomalies", fail_if_called)
-    monkeypatch.setattr("agent.compiler._validate_geometry_overlaps", fail_if_called)
-    monkeypatch.setattr("agent.compiler._validate_unsupported_parts", fail_if_called)
 
     report = compile_urdf_report(script_path, run_checks=True, target="full")
 

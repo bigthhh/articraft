@@ -10,7 +10,6 @@ def test_sdk_hybrid_exports() -> None:
     assert hasattr(sdk_hybrid, "SurfaceWrapMapping")
     assert hasattr(sdk_hybrid, "ValidationError")
     assert hasattr(sdk_hybrid, "TestContext")
-    assert hasattr(sdk_hybrid, "UnsupportedPartFinding")
     assert hasattr(sdk_hybrid, "surface_frame")
     assert hasattr(sdk_hybrid, "place_on_surface")
     assert hasattr(sdk_hybrid, "wrap_profile_onto_surface")

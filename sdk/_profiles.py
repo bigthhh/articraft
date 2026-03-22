@@ -42,7 +42,6 @@ _COMMON_DOCS = (
     Path("sdk/_docs/common/20_core_types.md"),
     Path("sdk/_docs/common/30_articulated_object.md"),
     Path("sdk/_docs/common/50_placement.md"),
-    Path("sdk/_docs/common/70_geometry_qc.md"),
     Path("sdk/_docs/common/80_testing.md"),
 )
 

@@ -105,19 +105,10 @@ This checks:
 - `continuous` articulations include `effort` and `velocity`, but no `lower` or `upper`
 - the articulation graph is connected from at least one root part
 
-## Overlap validation
+## Geometry validation
 
-```python
-model.validate_geometry(
-    asset_root=HERE,
-    max_pose_samples=256,
-    overlap_tol=None,
-    overlap_volume_tol=None,
-    ignore_adjacent=True,
-    ignore_fixed=True,
-    allowed_pairs=None,
-    seed=0,
-)
-```
+Use `TestContext` inside `run_tests()` for geometry and articulation QC.
 
-`validate_geometry(...)` runs physical QC on exact geometry derived automatically from visuals and provenance during compile/test setup.
+- Use `ctx.check_articulation_overlaps(...)` for failure-tier articulated clearance checks.
+- Use `ctx.warn_if_overlaps(...)` as the broad warning-tier backstop.
+- Use prompt-specific `expect_*` assertions as the primary proof that parts are attached and the mechanism behaves correctly.

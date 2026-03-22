@@ -5,13 +5,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Union
 
-from .assets import AssetContext, coerce_asset_context, resolve_asset_root
+from .assets import AssetContext, coerce_asset_context
 from .errors import ValidationError
-from .geometry_qc import (
-    default_overlap_tol_from_env,
-    default_overlap_volume_tol_from_env,
-    validate_no_geometry_overlaps,
-)
 from .types import (
     Articulation,
     ArticulationType,
@@ -423,57 +418,6 @@ class ArticulatedObject:
                 )
         if strict:
             self._validate_connectivity(part_name_set)
-
-    def validate_geometry(
-        self,
-        *,
-        asset_root: Optional[Union[str, Path]] = None,
-        max_pose_samples: int = 256,
-        overlap_tol: Optional[float] = None,
-        overlap_volume_tol: Optional[float] = None,
-        ignore_adjacent: bool = True,
-        ignore_fixed: bool = True,
-        allowed_pairs: Optional[Iterable[tuple[str, str]]] = None,
-        seed: int = 0,
-    ) -> None:
-        """Validate that part geometry does not self-intersect across sampled articulation poses."""
-
-        self.validate(strict=True)
-
-        root_path = resolve_asset_root(asset_root, self)
-        tol = default_overlap_tol_from_env() if overlap_tol is None else float(overlap_tol)
-        vol_tol = (
-            default_overlap_volume_tol_from_env()
-            if overlap_volume_tol is None
-            else float(overlap_volume_tol)
-        )
-        resolved_allowed_pairs: Optional[List[tuple[str, str]]] = None
-        if allowed_pairs is not None:
-            resolved_allowed_pairs = [
-                (
-                    _part_name_ref(pair[0], field_name="allowed_pairs parent"),
-                    _part_name_ref(pair[1], field_name="allowed_pairs child"),
-                )
-                for pair in allowed_pairs
-            ]
-        elif ignore_adjacent or ignore_fixed:
-            pairs: list[tuple[str, str]] = []
-            for articulation in self.articulations:
-                if ignore_adjacent or (
-                    ignore_fixed and articulation.articulation_type == ArticulationType.FIXED
-                ):
-                    pairs.append((articulation.parent, articulation.child))
-            resolved_allowed_pairs = pairs or None
-
-        validate_no_geometry_overlaps(
-            self,
-            asset_root=root_path,
-            max_pose_samples=max_pose_samples,
-            overlap_tol=tol,
-            overlap_volume_tol=vol_tol,
-            allowed_pairs=resolved_allowed_pairs,
-            seed=int(seed),
-        )
 
     def to_urdf(
         self,

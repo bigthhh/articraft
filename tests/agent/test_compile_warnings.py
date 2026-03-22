@@ -3,9 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-
-from agent.compiler import _validate_unsupported_parts, _warn_geometry_scale_anomalies
+from agent.compiler import _warn_geometry_scale_anomalies
 from agent.feedback import build_compile_signal_bundle
 from agent.harness import ArticraftAgent
 from agent.models import CompileReport
@@ -311,28 +309,3 @@ def test_harness_does_not_inject_only_low_risk_coplanar_notes() -> None:
 
     assert injected is False
     assert conversation == []
-
-
-def test_validate_unsupported_parts_promotes_findings_to_failure(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fake_sdk = SimpleNamespace(
-        default_contact_tol_from_env=lambda: 1e-6,
-        find_unsupported_parts=lambda _model, **_kwargs: [
-            SimpleNamespace(
-                part="fan",
-                nearest_part="nacelle",
-                min_distance=0.021,
-                pose_index=0,
-                pose={},
-                backend="fcl",
-            )
-        ],
-    )
-    monkeypatch.setattr("agent.compiler._import_sdk_module", lambda _sdk_package: fake_sdk)
-
-    with pytest.raises(
-        RuntimeError,
-        match="URDF compile failure \\(geometry, blocking\\): isolated parts detected",
-    ):
-        _validate_unsupported_parts({"object_model": object()}, script_dir=Path.cwd())

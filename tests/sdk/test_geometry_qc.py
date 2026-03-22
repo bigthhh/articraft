@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from sdk import ArticulatedObject, Box, Mesh, Origin, find_geometry_overlaps
+from sdk import ArticulatedObject, Box, Mesh, Origin
 from sdk._core.v0 import geometry_qc
 
 
@@ -58,7 +58,7 @@ def test_collision_overlap_qc_prunes_disjoint_aabbs_before_fcl(
         lambda geometry, **kwargs: object(),
     )
 
-    overlaps = find_geometry_overlaps(
+    overlaps = geometry_qc.find_geometry_overlaps(
         _build_disjoint_collision_model(),
         max_pose_samples=1,
         overlap_tol=1e-3,

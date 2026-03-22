@@ -4,16 +4,6 @@
 from .articulated_object import ArticulatedObject
 from .assets import AssetContext
 from .errors import SDKError, ValidationError
-from .geometry_qc import (
-    GeometryOverlap,
-    UnsupportedPartFinding,
-    default_contact_tol_from_env,
-    default_overlap_tol_from_env,
-    default_overlap_volume_tol_from_env,
-    find_geometry_overlaps,
-    find_unsupported_parts,
-    validate_no_geometry_overlaps,
-)
 from .placement import (
     SurfaceFrame,
     SurfaceWrapMapping,

@@ -397,8 +397,11 @@ def test_workbench_init_record_command(
         "ctx.warn_if_overlaps(max_pose_samples=128, ignore_adjacent=True, ignore_fixed=True)"
         in model_text
     )
-    assert "Default broad sensor; do not remove. Tune params only if warranted." in model_text
+    assert "Default exact visual sensor for joint mounting" in model_text
     assert 'hinge_leaf = lid.get_visual("hinge_leaf")' in model_text
+    assert 'ctx.expect_gap(lid, body, axis="z", max_gap=0.001, max_penetration=0.0)' in model_text
+    assert "ctx.expect_contact(lid, body, elem_a=hinge_leaf, elem_b=body_leaf)" in model_text
+    assert "expect_aabb_" not in model_text
 
     materialization_dir = repo_root / "data" / "cache" / "record_materialization" / record_dir.name
     assert not (materialization_dir / "compile_report.json").exists()

@@ -18,7 +18,7 @@ ctx = TestContext(
 )
 ```
 
-`TestContext` reasons about the authored visual geometry. During compile/test setup, the SDK mirrors those visuals into internal collision entries for URDF export and contact queries.
+`TestContext` reasons about authored visual geometry. During compile/test setup, the SDK mirrors those visuals into internal collision entries for URDF export and exact geometry queries.
 
 If the model was constructed with `ArticulatedObject(..., assets=AssetContext.from_script(__file__))`, `TestContext(object_model, ...)` can infer the mesh root automatically. If not, pass `asset_root=HERE` explicitly whenever the model uses mesh files.
 
@@ -28,13 +28,13 @@ Prefer object-first tests:
 
 - At the top of `run_tests()`, resolve each needed `Part` with `object_model.get_part(...)`.
 - Resolve each needed `Articulation` with `object_model.get_articulation(...)`.
-- Resolve named local features from those parts with `part.get_visual(...)`, then pass the resulting `Visual` objects into `positive_elem=` / `negative_elem=`.
+- Resolve named local features from those parts with `part.get_visual(...)`, then pass the resulting `Visual` objects into `elem_a=`, `elem_b=`, `positive_elem=`, `negative_elem=`, `inner_elem=`, or `outer_elem=`.
 - After that, pass only objects into `ctx.expect_*`, `ctx.allow_*`, and `ctx.pose({joint: value})`.
 - Use string names only at the lookup boundary. Avoid global `REFS` bags or string-driven test calls as the main pattern.
 
-## Default broad sensors and backstops
+## Default sensors and backstops
 
-The scaffolded `run_tests()` starts from these broad sensors and backstops:
+The scaffolded `run_tests()` starts from these default checks:
 
 ```python
 ctx.check_model_valid()
@@ -53,13 +53,13 @@ Mesh-backed models:
 
 What they catch:
 
-- `warn_if_articulation_origin_near_geometry`: a deliberately dumb static heuristic that checks whether the articulation origin is near real geometry in both parent and child frames; default `tol=0.015`. The harness truncates this tolerance to 3 decimals and caps it at `0.15`.
-- `warn_if_part_geometry_disconnected`: a deliberately dumb static heuristic that checks whether a single part appears to contain disconnected visual geometry islands.
-- `warn_if_coplanar_surfaces`: a deliberately noisy visual heuristic that looks for nearly coplanar element AABB faces with strong in-plane overlap. Flush mounts, bezels, grilles, and panel seams can trigger it even when the model is acceptable.
+- `warn_if_articulation_origin_near_geometry`: an exact point-to-geometry distance warning for joint placement in parent and child frames; default `tol=0.015`. The harness truncates this tolerance to 3 decimals and caps it at `0.15`.
+- `warn_if_part_geometry_disconnected`: an exact within-part connectivity warning that checks whether authored visuals form disconnected geometry islands.
+- `warn_if_coplanar_surfaces`: a deliberately noisy visual heuristic for nearly coplanar flush surfaces. Flush mounts, bezels, grilles, and panel seams can trigger it even when the model is acceptable.
 - `check_articulation_overlaps`: a failure-tier overlap gate for non-fixed articulation-linked parent/child pairs. It is the recommended way to prove that `REVOLUTE`, `PRISMATIC`, and `CONTINUOUS` joints do not interpenetrate.
-- `warn_if_overlaps`: a deliberately broad overlap sensor over mirrored visual geometry. It relies on AABB reasoning and mesh/primitive contact queries, so it can still be noisy for thin wires, thin blades, concave shells, and other awkward geometry.
+- `warn_if_overlaps`: a deliberately broad exact-geometry overlap sensor over mirrored visual geometry. It can still be noisy for thin wires, thin blades, concave shells, and other awkward geometry.
 
-These broad checks are warning-tier sensors, not semantic proof. The agent still needs to reason about the object and add prompt-specific `expect_*` assertions as actual regression tests for silhouette, structure, proportions, and mechanism behavior.
+These broad checks are warning-tier sensors, not semantic proof. Add prompt-specific `expect_*` assertions as the actual regression tests for silhouette, structure, proportions, attachment, and mechanism behavior.
 
 Recommended default:
 
@@ -114,21 +114,21 @@ Use this as the failure-tier QC gate for non-fixed articulation-linked pairs.
 ```python
 lid = object_model.get_part("lid")
 lid_hinge = object_model.get_articulation("lid_hinge")
-
-ctx.part_world_position(lid)
-ctx.part_world_aabb(lid)
 ```
 
 Use temporary mechanism poses with the context manager:
 
 ```python
 base = object_model.get_part("base")
+frame = object_model.get_part("frame")
+hinge_leaf = lid.get_visual("hinge_leaf")
+frame_leaf = frame.get_visual("frame_leaf")
 
 with ctx.pose({lid_hinge: 0.5}):
-    ctx.expect_aabb_overlap(lid, base, axes="xy", min_overlap=0.05)
+    ctx.expect_overlap(lid, base, axes="xy", min_overlap=0.05)
 
 with ctx.pose(lid_hinge=1.0):
-    ctx.expect_origin_distance(lid, base, axes="xy", max_dist=0.02)
+    ctx.expect_contact(lid, base, elem_a=hinge_leaf, elem_b=frame_leaf)
 ```
 
 `ctx.pose(...)` takes either:
@@ -144,11 +144,10 @@ Use these to encode the intended layout and motion:
 
 - `ctx.expect_origin_distance(...)`
 - `ctx.expect_origin_gap(...)`
-- `ctx.expect_aabb_within(...)`
-- `ctx.expect_aabb_gap(...)`
-- `ctx.expect_aabb_overlap(...)`
-- `ctx.expect_aabb_contact(...)`
-- `ctx.expect_joint_motion_axis(...)`
+- `ctx.expect_within(...)`
+- `ctx.expect_gap(...)`
+- `ctx.expect_overlap(...)`
+- `ctx.expect_contact(...)`
 
 Treat these intent checks as primary. They should carry the burden of proving that mounted parts look attached and that moving parts stay believable across key poses, while `check_articulation_overlaps(...)` enforces non-fixed joint clearance and `warn_if_overlaps(...)` remains the global backstop.
 
@@ -157,23 +156,23 @@ Preferred signatures:
 ```python
 upper = object_model.get_part("upper")
 lower = object_model.get_part("lower")
-hinge = object_model.get_articulation("hinge")
 lid = object_model.get_part("lid")
 bracket = object_model.get_part("bracket")
 frame = object_model.get_part("frame")
 
-ctx.expect_aabb_gap(upper, lower, axis="z", max_gap=0.001, max_penetration=0.0)
-ctx.expect_aabb_contact(bracket, frame)
-ctx.expect_joint_motion_axis(hinge, lid, world_axis="z", direction="positive", min_delta=0.01)
+ctx.expect_gap(upper, lower, axis="z", max_gap=0.001, max_penetration=0.0)
+ctx.expect_contact(bracket, frame)
+ctx.expect_overlap(lid, frame, axes="xy", min_overlap=0.05)
+ctx.expect_within(bracket, frame, axes="xy")
 ```
 
-`expect_aabb_gap(...)` is directional: it measures the signed gap from the positive-side link's minimum face to the negative-side link's maximum face along the chosen axis. When whole-link AABBs are too coarse, resolve the named `Visual` objects from the part with `part.get_visual(...)` and pass those objects directly:
+`expect_gap(...)` is directional: it measures the signed gap from the positive-side geometry minimum to the negative-side geometry maximum along the chosen axis. When whole-link geometry is too broad, resolve the named `Visual` objects from the part with `part.get_visual(...)` and pass those objects directly:
 
 ```python
 mount_block = base.get_visual("mount_block")
 hub = arm.get_visual("hub")
 
-ctx.expect_aabb_gap(
+ctx.expect_gap(
     arm,
     base,
     axis="z",
@@ -191,31 +190,21 @@ Argument guide:
 - `min_gap`: lower bound on the signed gap; use this when you want to allow or require a specific amount of separation
 - `max_gap`: upper bound on the signed gap; use this for "must stay visually seated" style checks
 - `max_penetration`: shorthand for how much overlap is allowed when `min_gap` is omitted
-- `positive_elem`, `negative_elem`: optional named local features to test instead of the whole-link envelope; prefer passing the exact `Visual` objects
+- `positive_elem`, `negative_elem`: optional named local features to test instead of the whole part; prefer passing the exact `Visual` objects
 - `name`: override the recorded check name when the default is too generic
 
 Practical defaults:
 
 - use `max_gap=0.001, max_penetration=0.0` for "should look seated" checks
-- add `positive_elem` / `negative_elem` when the whole-link AABB is too broad and some unrelated geometry would otherwise let the check pass
+- add `positive_elem` / `negative_elem` when some unrelated geometry would otherwise let the check pass
 
 For mounted or nested assemblies:
 
-- default to near-zero `expect_aabb_gap(...)` checks unless the real object visibly has more clearance
-- pair gap checks with footprint/overlap checks such as `expect_aabb_overlap(..., axes="xy", ...)` or `expect_aabb_within(..., axes="xy", ...)`
-- use `expect_aabb_contact(...)` when the core invariant is direct touch/overlap rather than a bounded directional gap
-- use `positive_elem` / `negative_elem` when the real invariant is a local mating feature such as a hinge hub, bracket cheek, collar, or seat rather than the whole-link envelope
+- default to near-zero `expect_gap(...)` checks unless the real object visibly has more clearance
+- pair gap checks with footprint/overlap checks such as `expect_overlap(..., axes="xy", ...)` or containment checks such as `expect_within(..., axes="xy", ...)`
+- use `expect_contact(...)` when the core invariant is direct touch rather than a bounded directional gap
+- use `positive_elem` / `negative_elem` when the real invariant is a local mating feature such as a hinge hub, bracket cheek, collar, or seat rather than the whole part
 - add pose-specific checks at important limits so the assembly still looks attached when articulated
-
-Use `expect_joint_motion_axis(...)` only when changing the joint should move the link's AABB center along the tested world axis.
-
-Good fits:
-
-- hinged lids and doors that swing upward/downward
-- drawers and sliders translating along one axis
-- levers whose visible mass clearly shifts in the tested direction
-
-Do not use it for centered continuous rotors, wheels, knobs, propellers, or fans spinning in place around their own centerline. For those, use `with ctx.pose(...):` plus pose-specific containment, overlap, or clearance checks at multiple angles instead.
 
 For pairs that truly must not intersect across motion, add selective separation checks in the relevant poses rather than relying only on global overlap QC.
 
@@ -236,10 +225,10 @@ ctx.warn_if_part_geometry_disconnected()
 ctx.check_articulation_overlaps(max_pose_samples=128)
 ctx.warn_if_coplanar_surfaces(ignore_adjacent=True, ignore_fixed=True)
 ctx.warn_if_overlaps(max_pose_samples=128, ignore_adjacent=True, ignore_fixed=True)
-ctx.expect_aabb_overlap(lid, base, axes="xy", min_overlap=0.05)
+ctx.expect_overlap(lid, base, axes="xy", min_overlap=0.05)
 ctx.expect_origin_distance(lid, base, axes="xy", max_dist=0.02)
-ctx.expect_aabb_gap(lid, base, axis="z", max_gap=0.001, max_penetration=0.0)
-ctx.expect_aabb_gap(
+ctx.expect_gap(lid, base, axis="z", max_gap=0.001, max_penetration=0.0)
+ctx.expect_gap(
     lid,
     base,
     axis="z",
@@ -248,8 +237,7 @@ ctx.expect_aabb_gap(
     positive_elem=hinge_leaf,
     negative_elem=frame_leaf,
 )
-ctx.expect_aabb_contact(lid, frame)
-ctx.expect_joint_motion_axis(lid_hinge, lid, world_axis="z", direction="positive", min_delta=0.01)
+ctx.expect_contact(lid, frame, elem_a=hinge_leaf, elem_b=frame_leaf)
 with ctx.pose({lid_hinge: 1.0}):
-    ctx.expect_aabb_overlap(lid, base, axes="xy", min_overlap=0.02)
+    ctx.expect_overlap(lid, base, axes="xy", min_overlap=0.02)
 ```

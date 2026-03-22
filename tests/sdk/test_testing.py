@@ -6,6 +6,7 @@ from sdk import (
     Box,
     MotionLimits,
     Origin,
+    Sphere,
 )
 from sdk import (
     TestContext as SDKTestContext,
@@ -39,6 +40,16 @@ def _build_disconnected_part_model() -> ArticulatedObject:
     base = model.part("base")
     base.visual(Box((0.1, 0.1, 0.1)), origin=Origin(xyz=(0.0, 0.0, 0.05)))
     base.visual(Box((0.1, 0.1, 0.1)), origin=Origin(xyz=(0.4, 0.0, 0.05)))
+
+    return model
+
+
+def _build_diagonally_floating_spheres_model() -> ArticulatedObject:
+    model = ArticulatedObject(name="diagonally_floating_spheres")
+
+    base = model.part("base")
+    base.visual(Sphere(0.05), origin=Origin(xyz=(0.0, 0.0, 0.05)), name="sphere_a")
+    base.visual(Sphere(0.05), origin=Origin(xyz=(0.08, 0.08, 0.05)), name="sphere_b")
 
     return model
 
@@ -169,6 +180,18 @@ def _build_element_gap_model() -> ArticulatedObject:
     return model
 
 
+def _build_nested_parts_model() -> ArticulatedObject:
+    model = ArticulatedObject(name="nested_parts")
+
+    outer = model.part("outer")
+    outer.visual(Box((0.3, 0.3, 0.3)), origin=Origin(xyz=(0.0, 0.0, 0.15)), name="shell")
+
+    inner = model.part("inner")
+    inner.visual(Box((0.1, 0.1, 0.1)), origin=Origin(xyz=(0.0, 0.0, 0.15)), name="insert")
+
+    return model
+
+
 def test_articulation_origin_tolerance_is_truncated_to_three_decimals() -> None:
     ctx = SDKTestContext(_build_joint_origin_model(joint_z=0.115))
 
@@ -211,9 +234,9 @@ def test_warn_if_part_geometry_disconnected_records_warning_only() -> None:
     report = ctx.report()
     assert report.passed
     assert report.failures == ()
-    assert report.checks == ("warn_if_part_geometry_disconnected(tol=0.005)",)
+    assert report.checks == ("warn_if_part_geometry_disconnected(tol=1e-06)",)
     assert len(report.warnings) == 1
-    assert "warn_if_part_geometry_disconnected(tol=0.005)" in report.warnings[0]
+    assert "warn_if_part_geometry_disconnected(tol=1e-06)" in report.warnings[0]
     assert "Disconnected geometry islands detected" in report.warnings[0]
 
 
@@ -225,10 +248,23 @@ def test_warn_if_part_geometry_connected_keeps_legacy_alias() -> None:
     report = ctx.report()
     assert report.passed
     assert report.failures == ()
-    assert report.checks == ("warn_if_part_geometry_connected(tol=0.005)",)
+    assert report.checks == ("warn_if_part_geometry_connected(tol=1e-06)",)
     assert len(report.warnings) == 1
-    assert "warn_if_part_geometry_connected(tol=0.005)" in report.warnings[0]
+    assert "warn_if_part_geometry_connected(tol=1e-06)" in report.warnings[0]
     assert "Disconnected geometry islands detected" in report.warnings[0]
+
+
+def test_warn_if_part_geometry_disconnected_uses_exact_geometry_not_aabb_overlap() -> None:
+    ctx = SDKTestContext(_build_diagonally_floating_spheres_model())
+
+    assert not ctx.warn_if_part_geometry_disconnected()
+
+    report = ctx.report()
+    assert report.passed
+    assert report.failures == ()
+    assert report.checks == ("warn_if_part_geometry_disconnected(tol=1e-06)",)
+    assert len(report.warnings) == 1
+    assert "connected=1/2" in report.warnings[0]
 
 
 def test_warn_if_overlaps_records_warning_only() -> None:
@@ -490,6 +526,8 @@ def test_expect_aabb_gap_keeps_whole_link_behavior_by_default() -> None:
     assert report.passed
     assert report.failures == ()
     assert report.checks == ("expect_aabb_gap(arm,base,axis=z)",)
+    assert len(report.warnings) == 1
+    assert "DEPRECATED: expect_aabb_gap(...)" in report.warnings[0]
 
 
 def test_expect_aabb_gap_can_target_named_elements() -> None:
@@ -512,6 +550,7 @@ def test_expect_aabb_gap_can_target_named_elements() -> None:
     assert "gap_z=0.001" in report.failures[0].details
     assert "positive_elem='hub'" in report.failures[0].details
     assert "negative_elem='body'" in report.failures[0].details
+    assert any("DEPRECATED: expect_aabb_gap(...)" in warning for warning in report.warnings)
 
 
 def test_expect_aabb_gap_accepts_part_and_visual_objects() -> None:
@@ -540,6 +579,7 @@ def test_expect_aabb_gap_accepts_part_and_visual_objects() -> None:
     assert "gap_z=0.001" in report.failures[0].details
     assert "positive_elem='hub'" in report.failures[0].details
     assert "negative_elem='body'" in report.failures[0].details
+    assert any("DEPRECATED: expect_aabb_gap(...)" in warning for warning in report.warnings)
 
 
 def test_pose_accepts_articulation_objects() -> None:
@@ -576,3 +616,84 @@ def test_expect_aabb_gap_reports_missing_named_element() -> None:
         "missing element AABB for positive_elem='missing_hub' on 'arm'"
         in report.failures[0].details
     )
+    assert any("DEPRECATED: expect_aabb_gap(...)" in warning for warning in report.warnings)
+
+
+def test_expect_contact_uses_exact_visual_geometry() -> None:
+    ctx = SDKTestContext(_build_element_gap_model())
+
+    assert ctx.expect_contact("arm", "base")
+
+    report = ctx.report()
+    assert report.passed
+    assert report.failures == ()
+    assert report.checks == ("expect_contact(arm,base)",)
+
+
+def test_expect_contact_can_target_exact_named_elements() -> None:
+    ctx = SDKTestContext(_build_element_gap_model())
+
+    assert not ctx.expect_contact("arm", "base", elem_a="hub", elem_b="body", contact_tol=1e-6)
+
+    report = ctx.report()
+    assert not report.passed
+    assert len(report.failures) == 1
+    assert report.failures[0].name == "expect_contact(arm,base)"
+    assert "min_distance=0.001" in report.failures[0].details
+    assert "elem_a='hub'" in report.failures[0].details
+    assert "elem_b='body'" in report.failures[0].details
+
+
+def test_expect_gap_uses_exact_visual_projection() -> None:
+    ctx = SDKTestContext(_build_element_gap_model())
+
+    assert ctx.expect_gap("arm", "base", axis="z", max_gap=0.0, max_penetration=0.0)
+
+    report = ctx.report()
+    assert report.passed
+    assert report.failures == ()
+    assert report.checks == ("expect_gap(arm,base,axis=z)",)
+
+
+def test_expect_gap_can_target_named_elements() -> None:
+    ctx = SDKTestContext(_build_element_gap_model())
+
+    assert not ctx.expect_gap(
+        "arm",
+        "base",
+        axis="z",
+        max_gap=0.0,
+        max_penetration=0.0,
+        positive_elem="hub",
+        negative_elem="body",
+    )
+
+    report = ctx.report()
+    assert not report.passed
+    assert len(report.failures) == 1
+    assert report.failures[0].name == "expect_gap(arm,base,axis=z)"
+    assert "gap_z=0.001" in report.failures[0].details
+    assert "positive_elem='hub'" in report.failures[0].details
+    assert "negative_elem='body'" in report.failures[0].details
+
+
+def test_expect_overlap_uses_exact_visual_geometry() -> None:
+    ctx = SDKTestContext(_build_overlapping_parts_model())
+
+    assert ctx.expect_overlap("base", "child", axes="xy", min_overlap=0.19)
+
+    report = ctx.report()
+    assert report.passed
+    assert report.failures == ()
+    assert report.checks == ("expect_overlap(base,child,axes=xy)",)
+
+
+def test_expect_within_uses_exact_visual_geometry() -> None:
+    ctx = SDKTestContext(_build_nested_parts_model())
+
+    assert ctx.expect_within("inner", "outer", axes="xyz")
+
+    report = ctx.report()
+    assert report.passed
+    assert report.failures == ()
+    assert report.checks == ("expect_within(inner,outer,axes=xyz)",)

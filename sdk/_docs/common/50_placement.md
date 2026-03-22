@@ -4,13 +4,10 @@ Import:
 
 ```python
 from sdk import (
-    align_centers_xy,
-    part_local_aabb,
+    align_centers,
     place_on_surface,
-    place_in_front_of,
     place_on_face,
     place_on_face_uv,
-    place_on_top,
     proud_for_flush_mount,
     surface_frame,
     wrap_mesh_onto_surface,
@@ -22,7 +19,8 @@ Use these helpers when you need to position one thing relative to another.
 
 The most important split is:
 
-- Use `place_on_surface(...)` when the child stays rigid and only needs one tangent-frame mount.
+- Use `place_on_surface(...)` by default when one thing needs to mount onto another.
+- Use `place_on_face(...)` only when the parent is truly box-like and the face itself is the semantic reference.
 - Use `wrap_profile_onto_surface(...)` when a thin authored shape must hug a curved surface.
 - Use `wrap_mesh_onto_surface(...)` when you already have mesh geometry that must conform.
 
@@ -30,25 +28,28 @@ Quick chooser:
 
 | Intent | Helper |
 | --- | --- |
-| Put one part on top of or in front of another using AABB logic | `place_on_top(...)`, `place_in_front_of(...)`, `align_centers_xy(...)` |
-| Mount a part on a box-like face | `place_on_face(...)`, `place_on_face_uv(...)`, `proud_for_flush_mount(...)` |
+| Align centers along selected axes | `align_centers(...)` |
+| Mount a rigid child onto another surface | `place_on_surface(...)` |
+| Mount a part on a truly box-like face | `place_on_face(...)`, `place_on_face_uv(...)`, `proud_for_flush_mount(...)` |
 | Query a local frame on a surface | `surface_frame(...)` |
-| Rigidly mount a child on a curved target | `place_on_surface(...)` |
 | Wrap a thin profile onto a surface | `wrap_profile_onto_surface(...)` |
 | Wrap an existing mesh onto a surface | `wrap_mesh_onto_surface(...)` |
 
-## AABB helpers
+## Center alignment
 
-These are still the default tools for simple cabinet-like or stacked placement.
+Use `align_centers(...)` when you want center-to-center alignment along explicit axes and do not want to hand-compute translations.
 
-- `align_centers_xy(child_aabb, parent_aabb) -> Origin`
-- `part_local_aabb(part, asset_root=...) -> AABB | None`
-- `place_on_top(child_aabb, parent_aabb, clearance=0.0, align_xy=True) -> Origin`
-- `place_in_front_of(child_aabb, parent_aabb, gap=0.0, align_yz=True) -> Origin`
+```python
+origin = align_centers(
+    child_aabb,
+    parent_aabb,
+    axes=("x", "y"),
+)
+```
 
 ## Face mounting
 
-Use these when the parent is naturally box-like and you want a clean semantic face reference.
+Use these only when the parent is naturally box-like and you want a clean semantic face reference.
 
 ```python
 origin = place_on_face(
@@ -105,7 +106,7 @@ Most code should not build transforms from `SurfaceFrame` manually. Prefer the h
 
 ## Rigid surface mounting
 
-Use `place_on_surface(...)` when the child remains rigid and only needs one tangent-frame mount.
+Use `place_on_surface(...)` as the default rigid mounting helper when the target surface itself is the source of truth.
 
 ```python
 origin = place_on_surface(

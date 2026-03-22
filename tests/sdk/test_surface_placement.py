@@ -18,6 +18,7 @@ from sdk import (
     SurfaceFrame,
     ValidationError,
     Visual,
+    align_centers,
     mesh_from_geometry,
     part_local_aabb,
     place_on_surface,
@@ -134,6 +135,36 @@ def test_place_on_surface_mounts_centered_child_flush_to_sphere() -> None:
     _assert_vec_close(origin.xyz, (1.002, 0.0, 0.0))
     rotated = _rotate(_rpy_matrix(origin), (0.0, 0.0, 1.0))
     _assert_vec_close(rotated, (1.0, 0.0, 0.0))
+
+
+def test_align_centers_respects_selected_axes() -> None:
+    origin = align_centers(
+        ((1.0, 2.0, 3.0), (5.0, 8.0, 9.0)),
+        ((10.0, 20.0, 30.0), (16.0, 28.0, 40.0)),
+        axes=("x", "z"),
+    )
+
+    assert origin.xyz == (10.0, 0.0, 29.0)
+
+
+def test_legacy_aabb_placement_helpers_warn() -> None:
+    with pytest.deprecated_call():
+        placement_module.align_centers_xy(
+            ((0.0, 0.0, 0.0), (2.0, 4.0, 6.0)),
+            ((10.0, 20.0, 30.0), (14.0, 28.0, 42.0)),
+        )
+
+    with pytest.deprecated_call():
+        placement_module.place_on_top(
+            ((0.0, 0.0, 0.0), (2.0, 4.0, 6.0)),
+            ((10.0, 20.0, 30.0), (14.0, 28.0, 42.0)),
+        )
+
+    with pytest.deprecated_call():
+        placement_module.place_in_front_of(
+            ((0.0, 0.0, 0.0), (2.0, 4.0, 6.0)),
+            ((10.0, 20.0, 30.0), (14.0, 28.0, 42.0)),
+        )
 
 
 def test_surface_frame_respects_visual_origin_offset() -> None:

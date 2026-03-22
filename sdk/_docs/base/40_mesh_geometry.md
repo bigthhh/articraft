@@ -335,7 +335,7 @@ cut_opening_on_face(
 ) -> MeshGeometry
 ```
 
-Adds an “opening throat” by lofting side walls inward from an AABB face.
+Adds an “opening throat” by lofting side walls inward from the selected outer face.
 
 - This does **not** boolean-subtract material.
 - It merges the new wall geometry into `shell_geometry`.

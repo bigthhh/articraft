@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import math
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Literal, Optional, Tuple, Union
@@ -105,6 +106,28 @@ def _aabb_center(aabb: AABB) -> Vec3:
 def _aabb_size(aabb: AABB) -> Vec3:
     (mn, mx) = aabb
     return (mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2])
+
+
+def _normalize_axes_spec(
+    axes: Union[str, Iterable[str]],
+    *,
+    name: str,
+) -> tuple[int, ...]:
+    if isinstance(axes, str):
+        tokens = [char.lower() for char in axes if not char.isspace()]
+    else:
+        tokens = [str(axis).strip().lower() for axis in axes]
+    if not tokens:
+        raise ValidationError(f"{name} must specify at least one axis")
+    axis_map = {"x": 0, "y": 1, "z": 2}
+    normalized: list[int] = []
+    for token in tokens:
+        if token not in axis_map:
+            raise ValidationError(f"{name} must use only axes x, y, z")
+        idx = axis_map[token]
+        if idx not in normalized:
+            normalized.append(idx)
+    return tuple(normalized)
 
 
 def _dot(a: Vec3, b: Vec3) -> float:
@@ -304,10 +327,28 @@ def part_local_aabb(
     )
 
 
+def align_centers(
+    child_aabb: AABB,
+    parent_aabb: AABB,
+    *,
+    axes: Union[str, Iterable[str]] = ("x", "y", "z"),
+) -> Origin:
+    axis_indices = _normalize_axes_spec(axes, name="axes")
+    child_center = _aabb_center(child_aabb)
+    parent_center = _aabb_center(parent_aabb)
+    xyz = [0.0, 0.0, 0.0]
+    for axis_idx in axis_indices:
+        xyz[axis_idx] = float(parent_center[axis_idx]) - float(child_center[axis_idx])
+    return Origin(xyz=(xyz[0], xyz[1], xyz[2]))
+
+
 def align_centers_xy(child_aabb: AABB, parent_aabb: AABB) -> Origin:
-    cx, cy, _ = _aabb_center(child_aabb)
-    px, py, _ = _aabb_center(parent_aabb)
-    return Origin(xyz=(px - cx, py - cy, 0.0))
+    warnings.warn(
+        "align_centers_xy(...) is deprecated; use align_centers(..., axes=('x', 'y')) instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return align_centers(child_aabb, parent_aabb, axes=("x", "y"))
 
 
 def place_on_top(
@@ -317,6 +358,12 @@ def place_on_top(
     clearance: float = 0.0,
     align_xy: bool = True,
 ) -> Origin:
+    warnings.warn(
+        "place_on_top(...) is deprecated; prefer place_on_surface(...) or place_on_face(...) "
+        "for new models.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     (cmin, _cmax) = child_aabb
     (_pmin, pmax) = parent_aabb
     dz = float(pmax[2]) + float(clearance) - float(cmin[2])
@@ -337,6 +384,12 @@ def place_in_front_of(
     gap: float = 0.0,
     align_yz: bool = True,
 ) -> Origin:
+    warnings.warn(
+        "place_in_front_of(...) is deprecated; prefer place_on_surface(...) or place_on_face(...) "
+        "for new models.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     (cmin, _cmax) = child_aabb
     (_pmin, pmax) = parent_aabb
     dx = float(pmax[0]) + float(gap) - float(cmin[0])
@@ -710,6 +763,10 @@ def _query_mesh_surface_local(
         if exc.name == "rtree":
             raise RuntimeError(
                 "Mesh surface placement requires the optional 'rtree' dependency"
+            ) from exc
+        if exc.name == "scipy":
+            raise RuntimeError(
+                "Mesh surface placement requires the optional 'scipy' dependency"
             ) from exc
         raise
     closest = query[0][0]

@@ -112,13 +112,13 @@ def run_tests() -> TestReport:
     ctx.check_model_valid()
     ctx.check_mesh_files_exist()
 
-    # Default broad sensor; do not remove. Tune params only if warranted.
+    # Default exact visual sensor for joint mounting; keep unless scale makes it irrelevant.
     ctx.warn_if_articulation_origin_near_geometry(tol=0.015)
-    # Default broad sensor; do not remove. Tune params only if warranted.
+    # Default exact visual sensor for floating/disconnected subassemblies inside one part.
     ctx.warn_if_part_geometry_disconnected()
     # Default articulated-joint clearance gate; adapt only if the model is not articulated.
     ctx.check_articulation_overlaps(max_pose_samples=128)
-    # Default broad sensor; do not remove. Tune params only if warranted.
+    # Default broad overlap warning backstop; conservative and non-blocking by default.
     ctx.warn_if_overlaps(max_pose_samples=128, ignore_adjacent=True, ignore_fixed=True)
 
     # Add narrow allowances here when conservative QC reports acceptable cases.
@@ -127,9 +127,14 @@ def run_tests() -> TestReport:
     # Prefer this object-first pattern over global REFS bags or raw string test calls.
     # Example:
     # lid = object_model.get_part("lid")
+    # body = object_model.get_part("body")
     # lid_hinge = object_model.get_articulation("lid_hinge")
     # hinge_leaf = lid.get_visual("hinge_leaf")
-    # Add prompt-specific expect_* semantic checks below; they are the main regressions.
+    # body_leaf = body.get_visual("body_leaf")
+    # ctx.expect_overlap(lid, body, axes="xy", min_overlap=0.05)
+    # ctx.expect_gap(lid, body, axis="z", max_gap=0.001, max_penetration=0.0)
+    # ctx.expect_contact(lid, body, elem_a=hinge_leaf, elem_b=body_leaf)
+    # Add prompt-specific exact visual checks below; they are the main regressions.
     return ctx.report()
 
 

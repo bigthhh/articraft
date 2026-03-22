@@ -6,17 +6,24 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Sequence, Set, Tuple, Union
 
-from .assets import resolve_asset_root
+from .assets import resolve_asset_root, resolve_mesh_path
 from .errors import ValidationError
+from .exact_collisions import compile_object_model_with_exact_collisions
 from .geometry_qc import (
+    _collision_object_from_geometry,
+    _identity4,
+    _mat4_mul,
+    _origin_to_mat4,
     compute_part_world_transforms,
     default_overlap_tol_from_env,
     default_overlap_volume_tol_from_env,
     find_geometry_overlaps,
+    find_joint_origin_distance_findings,
+    find_part_geometry_connectivity_findings,
     generate_pose_samples,
     part_world_aabb,
 )
-from .types import ArticulationType, Origin
+from .types import ArticulationType, Box, Cylinder, Mesh, Origin, Sphere
 
 Vec3 = Tuple[float, float, float]
 AABB = Tuple[Vec3, Vec3]
@@ -66,6 +73,18 @@ class _CoplanarFinding:
     elem_a_geometry: Optional[str]
     elem_b_name: Optional[str]
     elem_b_geometry: Optional[str]
+
+
+@dataclass(frozen=True)
+class _ExactElement:
+    part_name: str
+    index: int
+    elem_name: Optional[str]
+    geometry_name: str
+    geometry: object
+    origin: Origin
+    tf: object
+    collision_obj: object
 
 
 def _parse_xyz(xyz: str) -> Optional[Vec3]:
@@ -238,6 +257,14 @@ def _aabb_axis_separation(aabb_a: AABB, aabb_b: AABB, *, axis: str) -> float:
     return max(0.0, lower_gap, upper_gap)
 
 
+def _dot_vec3(a: Vec3, b: Vec3) -> float:
+    return float(a[0]) * float(b[0]) + float(a[1]) * float(b[1]) + float(a[2]) * float(b[2])
+
+
+def _axis_unit(axis: str) -> Vec3:
+    return {"x": (1.0, 0.0, 0.0), "y": (0.0, 1.0, 0.0), "z": (0.0, 0.0, 1.0)}[axis]
+
+
 def _transform_aabb(aabb: AABB, tf: object) -> AABB:
     (min_x, min_y, min_z), (max_x, max_y, max_z) = aabb
     corners = [(x, y, z) for x in (min_x, max_x) for y in (min_y, max_y) for z in (min_z, max_z)]
@@ -296,6 +323,18 @@ class TestContext:
     _mesh_aabb_cache: Dict[Path, AABB] = field(default_factory=dict, repr=False)
     _part_local_aabbs_cache: Dict[str, Tuple[AABB, ...]] = field(default_factory=dict, repr=False)
     _part_world_aabb_cache: Dict[str, Optional[AABB]] = field(default_factory=dict, repr=False)
+    _exact_compiled_model_cache: Optional[object] = field(default=None, repr=False)
+    _exact_local_elements_cache: Dict[str, Tuple[_ExactElement, ...]] = field(
+        default_factory=dict, repr=False
+    )
+    _exact_world_elements_cache: Optional[Dict[str, Tuple[_ExactElement, ...]]] = field(
+        default=None, repr=False
+    )
+    _exact_mesh_cache: Dict[tuple[Path, Optional[Vec3]], object] = field(
+        default_factory=dict, repr=False
+    )
+    _mesh_vertex_cache: Dict[Path, Tuple[Vec3, ...]] = field(default_factory=dict, repr=False)
+    _warned_deprecations: Set[str] = field(default_factory=set, repr=False)
 
     def report(self) -> TestReport:
         failures = tuple(self._failures)
@@ -412,6 +451,281 @@ class TestContext:
             )
         return out
 
+    def _compiled_exact_model(self) -> object:
+        if self._exact_compiled_model_cache is None:
+            self._exact_compiled_model_cache = compile_object_model_with_exact_collisions(
+                self.model,
+                asset_root=self._asset_root(),
+            )
+        return self._exact_compiled_model_cache
+
+    def _compiled_exact_part(self, part_name: str) -> Optional[object]:
+        compiled_model = self._compiled_exact_model()
+        get_part = getattr(compiled_model, "get_part", None)
+        if callable(get_part):
+            try:
+                return get_part(part_name)
+            except Exception:
+                return None
+        parts = getattr(compiled_model, "parts", None)
+        if not isinstance(parts, list):
+            return None
+        for part in parts:
+            if getattr(part, "name", None) == part_name:
+                return part
+        return None
+
+    def _build_exact_elements_for_part(
+        self,
+        part_name: str,
+        *,
+        world: bool,
+        world_tfs: Optional[Dict[str, object]] = None,
+    ) -> Tuple[_ExactElement, ...]:
+        compiled_part = self._compiled_exact_part(part_name)
+        if compiled_part is None:
+            return ()
+        asset_root = self._asset_root()
+        part_tf = _identity4()
+        if world:
+            if world_tfs is None:
+                world_tfs = compute_part_world_transforms(
+                    self._compiled_exact_model(),
+                    dict(self._pose),
+                )
+            candidate_tf = world_tfs.get(part_name)
+            if candidate_tf is not None:
+                part_tf = candidate_tf  # type: ignore[assignment]
+        elements: list[_ExactElement] = []
+        for index, item in enumerate(list(getattr(compiled_part, "collisions", []) or [])):
+            geometry = getattr(item, "geometry", None)
+            if geometry is None:
+                continue
+            local_tf = _origin_to_mat4(getattr(item, "origin", Origin()))
+            elem_tf = _mat4_mul(part_tf, local_tf)
+            collision_obj = _collision_object_from_geometry(
+                geometry,
+                elem_tf=elem_tf,
+                asset_root=asset_root,
+                mesh_cache=self._exact_mesh_cache,
+            )
+            elements.append(
+                _ExactElement(
+                    part_name=part_name,
+                    index=index,
+                    elem_name=getattr(item, "name", None),
+                    geometry_name=type(geometry).__name__,
+                    geometry=geometry,
+                    origin=getattr(item, "origin", Origin()),
+                    tf=elem_tf,
+                    collision_obj=collision_obj,
+                )
+            )
+        return tuple(elements)
+
+    def _exact_local_elements(self, part: object) -> Tuple[_ExactElement, ...]:
+        part_name = _named_ref(part, kind="part")
+        cached = self._exact_local_elements_cache.get(part_name)
+        if cached is not None:
+            return cached
+        cached = self._build_exact_elements_for_part(part_name, world=False)
+        self._exact_local_elements_cache[part_name] = cached
+        return cached
+
+    def _exact_world_elements(self) -> Dict[str, Tuple[_ExactElement, ...]]:
+        if self._exact_world_elements_cache is None:
+            world_tfs = compute_part_world_transforms(
+                self._compiled_exact_model(), dict(self._pose)
+            )
+            compiled_model = self._compiled_exact_model()
+            parts = getattr(compiled_model, "parts", None)
+            built: Dict[str, Tuple[_ExactElement, ...]] = {}
+            if isinstance(parts, list):
+                for part in parts:
+                    part_name = getattr(part, "name", None)
+                    if not isinstance(part_name, str):
+                        continue
+                    built[part_name] = self._build_exact_elements_for_part(
+                        part_name,
+                        world=True,
+                        world_tfs=world_tfs,
+                    )
+            self._exact_world_elements_cache = built
+        return self._exact_world_elements_cache
+
+    def _resolve_exact_elements(
+        self,
+        part: object,
+        *,
+        elem: Optional[object] = None,
+        kind_prefix: str,
+    ) -> Tuple[Optional[Tuple[_ExactElement, ...]], Optional[str], Optional[str], Optional[str]]:
+        part_name = _named_ref(part, kind=f"{kind_prefix}_link")
+        elements = self._exact_world_elements().get(part_name, ())
+        if not elements:
+            return None, part_name, None, f"missing exact geometry for {part_name!r}"
+        if elem is None:
+            return elements, part_name, None, None
+        elem_label = kind_prefix if kind_prefix.startswith("elem_") else f"{kind_prefix}_elem"
+        elem_name = _named_ref(elem, kind=elem_label)
+        matched = tuple(item for item in elements if item.elem_name == elem_name)
+        if not matched:
+            return (
+                None,
+                part_name,
+                elem_name,
+                f"missing exact geometry for {elem_label}={elem_name!r} on {part_name!r}",
+            )
+        return matched, part_name, elem_name, None
+
+    def _warn_deprecated_helper(self, helper_name: str, replacement: str) -> None:
+        if helper_name in self._warned_deprecations:
+            return
+        self._warned_deprecations.add(helper_name)
+        self.warn(
+            f"DEPRECATED: {helper_name} uses legacy AABB-envelope semantics. "
+            f"Use {replacement} for exact visual-geometry checks."
+        )
+
+    def _mesh_vertices(self, geometry: Mesh) -> Tuple[Vec3, ...]:
+        mesh_path = resolve_mesh_path(geometry.filename, assets=self._asset_root())
+        cached = self._mesh_vertex_cache.get(mesh_path)
+        if cached is not None:
+            return cached
+        vertices: list[Vec3] = []
+        for line in mesh_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            if not line.startswith("v "):
+                continue
+            parts = line.split()
+            if len(parts) < 4:
+                continue
+            try:
+                vertices.append((float(parts[1]), float(parts[2]), float(parts[3])))
+            except ValueError:
+                continue
+        if not vertices:
+            raise ValidationError(f"OBJ contains no vertices: {mesh_path}")
+        cached = tuple(vertices)
+        self._mesh_vertex_cache[mesh_path] = cached
+        return cached
+
+    def _element_projection_interval(
+        self, element: _ExactElement, *, axis: str
+    ) -> Tuple[float, float]:
+        axis_vec = _axis_unit(axis)
+        tf = element.tf
+        center = (float(tf[0][3]), float(tf[1][3]), float(tf[2][3]))  # type: ignore[index]
+        center_proj = _dot_vec3(center, axis_vec)
+        basis_x = (float(tf[0][0]), float(tf[1][0]), float(tf[2][0]))  # type: ignore[index]
+        basis_y = (float(tf[0][1]), float(tf[1][1]), float(tf[2][1]))  # type: ignore[index]
+        basis_z = (float(tf[0][2]), float(tf[1][2]), float(tf[2][2]))  # type: ignore[index]
+        geometry = element.geometry
+
+        if isinstance(geometry, Box):
+            hx = float(geometry.size[0]) * 0.5
+            hy = float(geometry.size[1]) * 0.5
+            hz = float(geometry.size[2]) * 0.5
+            extent = (
+                hx * abs(_dot_vec3(axis_vec, basis_x))
+                + hy * abs(_dot_vec3(axis_vec, basis_y))
+                + hz * abs(_dot_vec3(axis_vec, basis_z))
+            )
+            return center_proj - extent, center_proj + extent
+
+        if isinstance(geometry, Sphere):
+            radius = float(geometry.radius)
+            return center_proj - radius, center_proj + radius
+
+        if isinstance(geometry, Cylinder):
+            axis_dot = max(-1.0, min(1.0, _dot_vec3(axis_vec, basis_z)))
+            half_length = 0.5 * float(geometry.length) * abs(axis_dot)
+            radial = float(geometry.radius) * math.sqrt(max(0.0, 1.0 - axis_dot * axis_dot))
+            extent = half_length + radial
+            return center_proj - extent, center_proj + extent
+
+        if isinstance(geometry, Mesh):
+            local_axis = (
+                float(tf[0][0]) * axis_vec[0]
+                + float(tf[1][0]) * axis_vec[1]
+                + float(tf[2][0]) * axis_vec[2],
+                float(tf[0][1]) * axis_vec[0]
+                + float(tf[1][1]) * axis_vec[1]
+                + float(tf[2][1]) * axis_vec[2],
+                float(tf[0][2]) * axis_vec[0]
+                + float(tf[1][2]) * axis_vec[1]
+                + float(tf[2][2]) * axis_vec[2],
+            )
+            min_proj = float("inf")
+            max_proj = float("-inf")
+            sx, sy, sz = geometry.scale if geometry.scale is not None else (1.0, 1.0, 1.0)
+            for vx, vy, vz in self._mesh_vertices(geometry):
+                px = float(vx) * float(sx)
+                py = float(vy) * float(sy)
+                pz = float(vz) * float(sz)
+                proj = center_proj + px * local_axis[0] + py * local_axis[1] + pz * local_axis[2]
+                min_proj = min(min_proj, proj)
+                max_proj = max(max_proj, proj)
+            return min_proj, max_proj
+
+        raise ValidationError(f"Unsupported geometry type: {type(geometry).__name__}")
+
+    def _elements_projection_interval(
+        self,
+        elements: Sequence[_ExactElement],
+        *,
+        axis: str,
+    ) -> Tuple[float, float]:
+        if not elements:
+            raise ValidationError("exact-geometry target has no elements")
+        mins: list[float] = []
+        maxs: list[float] = []
+        for element in elements:
+            elem_min, elem_max = self._element_projection_interval(element, axis=axis)
+            mins.append(elem_min)
+            maxs.append(elem_max)
+        return min(mins), max(maxs)
+
+    def _exact_pair_distance(
+        self,
+        elements_a: Sequence[_ExactElement],
+        elements_b: Sequence[_ExactElement],
+    ) -> Tuple[float, bool]:
+        import fcl
+
+        min_distance = float("inf")
+        collision_request = fcl.CollisionRequest()
+        distance_request = fcl.DistanceRequest()
+        for elem_a in elements_a:
+            for elem_b in elements_b:
+                if elem_a.part_name == elem_b.part_name and elem_a.index == elem_b.index:
+                    continue
+                collision_result = fcl.CollisionResult()
+                if (
+                    int(
+                        fcl.collide(
+                            elem_a.collision_obj,
+                            elem_b.collision_obj,
+                            collision_request,
+                            collision_result,
+                        )
+                    )
+                    > 0
+                ):
+                    return 0.0, True
+                distance_result = fcl.DistanceResult()
+                distance = float(
+                    fcl.distance(
+                        elem_a.collision_obj,
+                        elem_b.collision_obj,
+                        distance_request,
+                        distance_result,
+                    )
+                )
+                min_distance = min(min_distance, distance)
+        if min_distance == float("inf"):
+            return 0.0, True
+        return min_distance, False
+
     def allow_overlap(
         self,
         link_a: object,
@@ -507,12 +821,14 @@ class TestContext:
         self._pose = merged
         self._world_tfs_cache = None
         self._part_world_aabb_cache.clear()
+        self._exact_world_elements_cache = None
         try:
             yield
         finally:
             self._pose = prev
             self._world_tfs_cache = None
             self._part_world_aabb_cache.clear()
+            self._exact_world_elements_cache = None
 
     def _world_tfs(self) -> Dict[str, object]:
         if self._world_tfs_cache is None:
@@ -643,64 +959,19 @@ class TestContext:
         if tol_f > _JOINT_ORIGIN_TOL_DEFAULT and r:
             self.warn(f"Relaxed joint-origin tolerance in use: tol={tol_f:.4g}. Reason: {r}")
 
-        links = getattr(self.model, "parts", None)
-        joints = getattr(self.model, "articulations", None)
-        if not isinstance(links, list) or not isinstance(joints, list):
-            return record(check_name, False, "model.parts/articulations missing")
-
-        link_to_local: Dict[str, List[AABB]] = {}
-        for link in links:
-            link_name = getattr(link, "name", None)
-            if not isinstance(link_name, str):
-                continue
-            aabbs = self._part_local_aabbs(link)
-            if aabbs:
-                link_to_local[link_name] = list(aabbs)
-
-        def point_aabb_distance(point: Vec3, aabb: AABB) -> float:
-            (mn, mx) = aabb
-            px, py, pz = point
-            dx = 0.0
-            if px < mn[0]:
-                dx = mn[0] - px
-            elif px > mx[0]:
-                dx = px - mx[0]
-            dy = 0.0
-            if py < mn[1]:
-                dy = mn[1] - py
-            elif py > mx[1]:
-                dy = py - mx[1]
-            dz = 0.0
-            if pz < mn[2]:
-                dz = mn[2] - pz
-            elif pz > mx[2]:
-                dz = pz - mx[2]
-            return (dx * dx + dy * dy + dz * dz) ** 0.5
+        findings = find_joint_origin_distance_findings(
+            self.model,
+            asset_root=self._asset_root(),
+            tol=tol_f,
+        )
 
         failures: List[str] = []
-        for joint in joints:
-            parent = getattr(joint, "parent", None)
-            child = getattr(joint, "child", None)
-            if not isinstance(parent, str) or not isinstance(child, str):
-                continue
-            parent_aabbs = link_to_local.get(parent)
-            child_aabbs = link_to_local.get(child)
-            if not parent_aabbs or not child_aabbs:
-                continue
-
-            org = getattr(joint, "origin", Origin())
-            parent_point = getattr(org, "xyz", (0.0, 0.0, 0.0))
-            if not (isinstance(parent_point, tuple) and len(parent_point) == 3):
-                parent_point = (0.0, 0.0, 0.0)
-            parent_point = (float(parent_point[0]), float(parent_point[1]), float(parent_point[2]))
-
-            parent_dist = min(point_aabb_distance(parent_point, aabb) for aabb in parent_aabbs)
-            child_dist = min(point_aabb_distance((0.0, 0.0, 0.0), aabb) for aabb in child_aabbs)
-            if parent_dist > tol_f or child_dist > tol_f:
-                failures.append(
-                    f"joint={getattr(joint, 'name', None)!r} parent={parent!r} child={child!r} "
-                    f"dist_parent={parent_dist:.4g} dist_child={child_dist:.4g} tol={tol_f:.4g}"
-                )
+        for finding in findings:
+            failures.append(
+                f"joint={finding.joint!r} parent={finding.parent!r} child={finding.child!r} "
+                f"dist_parent={finding.parent_distance:.4g} "
+                f"dist_child={finding.child_distance:.4g} tol={finding.tol:.4g}"
+            )
 
         if failures:
             preview = "\n".join(failures[:10])
@@ -773,7 +1044,7 @@ class TestContext:
     def check_part_geometry_connected(
         self,
         *,
-        tol: float = 0.005,
+        tol: float = 1e-6,
         name: Optional[str] = None,
     ) -> bool:
         return self._check_part_geometry_connected_impl(
@@ -785,7 +1056,7 @@ class TestContext:
     def warn_if_part_geometry_connected(
         self,
         *,
-        tol: float = 0.005,
+        tol: float = 1e-6,
         name: Optional[str] = None,
     ) -> bool:
         return self._check_part_geometry_connected_impl(
@@ -798,7 +1069,7 @@ class TestContext:
     def warn_if_part_geometry_disconnected(
         self,
         *,
-        tol: float = 0.005,
+        tol: float = 1e-6,
         name: Optional[str] = None,
     ) -> bool:
         return self._check_part_geometry_connected_impl(
@@ -825,38 +1096,19 @@ class TestContext:
                 "tol must be non-negative",
             )
 
-        links = getattr(self.model, "parts", None)
-        if not isinstance(links, list):
-            prefix = warn_prefix if warn_only else "check_part_geometry_connected"
-            return record(
-                check_name or f"{prefix}(tol={float(tol):.4g})",
-                False,
-                "model.parts missing or not a list",
-            )
+        findings = find_part_geometry_connectivity_findings(
+            self.model,
+            asset_root=self._asset_root(),
+            contact_tol=float(tol),
+        )
 
         failures: List[str] = []
-        for part in links:
-            part_name = getattr(part, "name", None)
-            if not isinstance(part_name, str):
-                continue
-            aabbs = self._part_local_aabbs(
-                part,
+        for finding in findings:
+            disconnected = ", ".join(finding.disconnected)
+            failures.append(
+                f"part={finding.part!r} connected={finding.connected}/{finding.total} "
+                f"disconnected=[{disconnected}]"
             )
-            if len(aabbs) <= 1:
-                continue
-
-            visited = set([0])
-            queue = [0]
-            while queue:
-                current = queue.pop()
-                for idx in range(len(aabbs)):
-                    if idx in visited:
-                        continue
-                    if _aabbs_touch_or_overlap(aabbs[current], aabbs[idx], tol=float(tol)):
-                        visited.add(idx)
-                        queue.append(idx)
-            if len(visited) != len(aabbs):
-                failures.append(f"part={part_name!r} connected={len(visited)}/{len(aabbs)}")
 
         prefix = warn_prefix if warn_only else "check_part_geometry_connected"
         resolved_name = check_name or f"{prefix}(tol={float(tol):.4g})"
@@ -1471,6 +1723,247 @@ class TestContext:
             f"origin_gap_{axis_key}={gap:.4g} min_gap={min_gap_f:.4g} max_gap={upper_txt} pose={self._pose}",
         )
 
+    def expect_contact(
+        self,
+        link_a: object,
+        link_b: object,
+        *,
+        contact_tol: float = 1e-6,
+        elem_a: Optional[object] = None,
+        elem_b: Optional[object] = None,
+        name: Optional[str] = None,
+    ) -> bool:
+        link_a_name = _named_ref(link_a, kind="link_a")
+        link_b_name = _named_ref(link_b, kind="link_b")
+        check_name = name or f"expect_contact({link_a_name},{link_b_name})"
+        contact_tol_f = float(contact_tol)
+        if contact_tol_f < 0.0:
+            return self._record(check_name, False, "contact_tol must be >= 0")
+
+        elements_a, _resolved_a, elem_a_name, error_a = self._resolve_exact_elements(
+            link_a,
+            elem=elem_a,
+            kind_prefix="elem_a",
+        )
+        elements_b, _resolved_b, elem_b_name, error_b = self._resolve_exact_elements(
+            link_b,
+            elem=elem_b,
+            kind_prefix="elem_b",
+        )
+        if error_a or error_b or elements_a is None or elements_b is None:
+            errors = [item for item in (error_a, error_b) if item]
+            return self._record(check_name, False, "; ".join(errors))
+
+        min_distance, collided = self._exact_pair_distance(elements_a, elements_b)
+        ok = collided or min_distance <= contact_tol_f
+        return self._record(
+            check_name,
+            ok,
+            f"min_distance={min_distance:.4g} contact_tol={contact_tol_f:.4g} "
+            f"elem_a={elem_a_name!r} elem_b={elem_b_name!r} pose={self._pose}",
+        )
+
+    def expect_gap(
+        self,
+        positive_link: object,
+        negative_link: object,
+        *,
+        axis: str,
+        min_gap: Optional[float] = None,
+        max_gap: Optional[float] = None,
+        max_penetration: Optional[float] = None,
+        positive_elem: Optional[object] = None,
+        negative_elem: Optional[object] = None,
+        name: Optional[str] = None,
+    ) -> bool:
+        positive_name = _named_ref(positive_link, kind="positive_link")
+        negative_name = _named_ref(negative_link, kind="negative_link")
+        axis_key, axis_sign, axis_err = _normalize_axis_name(axis)
+        check_name = name or f"expect_gap({positive_name},{negative_name},axis={axis_key or axis})"
+        if axis_err is not None or axis_key is None or axis_sign < 0.0:
+            return self._record(check_name, False, axis_err or "axis must be one of: x, y, z")
+
+        positive_elements, _resolved_positive, positive_elem_name, positive_error = (
+            self._resolve_exact_elements(
+                positive_link,
+                elem=positive_elem,
+                kind_prefix="positive",
+            )
+        )
+        negative_elements, _resolved_negative, negative_elem_name, negative_error = (
+            self._resolve_exact_elements(
+                negative_link,
+                elem=negative_elem,
+                kind_prefix="negative",
+            )
+        )
+        if (
+            positive_error
+            or negative_error
+            or positive_elements is None
+            or negative_elements is None
+        ):
+            errors = [item for item in (positive_error, negative_error) if item]
+            return self._record(check_name, False, "; ".join(errors))
+
+        positive_min, _positive_max = self._elements_projection_interval(
+            positive_elements,
+            axis=axis_key,
+        )
+        _negative_min, negative_max = self._elements_projection_interval(
+            negative_elements,
+            axis=axis_key,
+        )
+
+        if min_gap is None:
+            max_penetration_f = 0.0 if max_penetration is None else float(max_penetration)
+            min_gap_f = -max_penetration_f
+        else:
+            min_gap_f = float(min_gap)
+            if max_penetration is not None:
+                max_penetration_f = float(max_penetration)
+                expected_min_gap = -max_penetration_f
+                if abs(expected_min_gap - min_gap_f) > 1e-9:
+                    self.warn(
+                        "expect_gap received both min_gap and max_penetration with different bounds; "
+                        "using min_gap as the lower bound."
+                    )
+            else:
+                max_penetration_f = max(0.0, -min_gap_f)
+        max_gap_f = None if max_gap is None else float(max_gap)
+        if max_gap_f is not None and max_gap_f < min_gap_f:
+            return self._record(check_name, False, "max_gap must be >= min_gap")
+
+        gap = positive_min - negative_max
+        ok = gap >= min_gap_f
+        if max_gap_f is not None:
+            ok = ok and gap <= max_gap_f
+        upper_txt = "inf" if max_gap_f is None else f"{max_gap_f:.4g}"
+        return self._record(
+            check_name,
+            ok,
+            f"gap_{axis_key}={gap:.4g} min_gap={min_gap_f:.4g} max_gap={upper_txt} "
+            f"max_penetration={max_penetration_f:.4g} "
+            f"positive_elem={positive_elem_name!r} negative_elem={negative_elem_name!r} "
+            f"pose={self._pose}",
+        )
+
+    def expect_overlap(
+        self,
+        link_a: object,
+        link_b: object,
+        *,
+        axes: Union[str, Sequence[str]] = "xy",
+        min_overlap: float = 0.0,
+        elem_a: Optional[object] = None,
+        elem_b: Optional[object] = None,
+        name: Optional[str] = None,
+    ) -> bool:
+        link_a_name = _named_ref(link_a, kind="link_a")
+        link_b_name = _named_ref(link_b, kind="link_b")
+        axes_key, axes_err = _normalize_axes_spec(axes, field_name="axes")
+        check_name = (
+            name
+            or f"expect_overlap({link_a_name},{link_b_name},axes={_axes_label(axes_key) or axes})"
+        )
+        if axes_err is not None:
+            return self._record(check_name, False, axes_err)
+
+        elements_a, _resolved_a, elem_a_name, error_a = self._resolve_exact_elements(
+            link_a,
+            elem=elem_a,
+            kind_prefix="elem_a",
+        )
+        elements_b, _resolved_b, elem_b_name, error_b = self._resolve_exact_elements(
+            link_b,
+            elem=elem_b,
+            kind_prefix="elem_b",
+        )
+        if error_a or error_b or elements_a is None or elements_b is None:
+            errors = [item for item in (error_a, error_b) if item]
+            return self._record(check_name, False, "; ".join(errors))
+
+        min_overlap_f = float(min_overlap)
+        ok = True
+        axis_details: list[str] = []
+        for axis_name in axes_key:
+            min_a, max_a = self._elements_projection_interval(elements_a, axis=axis_name)
+            min_b, max_b = self._elements_projection_interval(elements_b, axis=axis_name)
+            overlap = min(max_a, max_b) - max(min_a, min_b)
+            axis_ok = overlap >= min_overlap_f
+            ok = ok and axis_ok
+            axis_details.append(f"overlap_{axis_name}={overlap:.4g}")
+
+        return self._record(
+            check_name,
+            ok,
+            " ".join(axis_details)
+            + f" min_overlap={min_overlap_f:.4g} elem_a={elem_a_name!r} elem_b={elem_b_name!r} pose={self._pose}",
+        )
+
+    def expect_within(
+        self,
+        inner_link: object,
+        outer_link: object,
+        *,
+        axes: Union[str, Sequence[str]] = "xy",
+        margin: float = 0.0,
+        inner_elem: Optional[object] = None,
+        outer_elem: Optional[object] = None,
+        name: Optional[str] = None,
+    ) -> bool:
+        inner_name = _named_ref(inner_link, kind="inner_link")
+        outer_name = _named_ref(outer_link, kind="outer_link")
+        axes_key, axes_err = _normalize_axes_spec(axes, field_name="axes")
+        check_name = (
+            name or f"expect_within({inner_name},{outer_name},axes={_axes_label(axes_key) or axes})"
+        )
+        if axes_err is not None:
+            return self._record(check_name, False, axes_err)
+
+        inner_elements, _resolved_inner, inner_elem_name, inner_error = (
+            self._resolve_exact_elements(
+                inner_link,
+                elem=inner_elem,
+                kind_prefix="inner",
+            )
+        )
+        outer_elements, _resolved_outer, outer_elem_name, outer_error = (
+            self._resolve_exact_elements(
+                outer_link,
+                elem=outer_elem,
+                kind_prefix="outer",
+            )
+        )
+        if inner_error or outer_error or inner_elements is None or outer_elements is None:
+            errors = [item for item in (inner_error, outer_error) if item]
+            return self._record(check_name, False, "; ".join(errors))
+
+        margin_f = float(margin)
+        ok = True
+        axis_details: list[str] = []
+        for axis_name in axes_key:
+            inner_min, inner_max = self._elements_projection_interval(
+                inner_elements, axis=axis_name
+            )
+            outer_min, outer_max = self._elements_projection_interval(
+                outer_elements, axis=axis_name
+            )
+            axis_ok = inner_min >= outer_min - margin_f and inner_max <= outer_max + margin_f
+            ok = ok and axis_ok
+            axis_details.append(
+                f"{axis_name}=({inner_min:.4g},{inner_max:.4g}) in ({outer_min:.4g},{outer_max:.4g})"
+            )
+
+        return self._record(
+            check_name,
+            ok,
+            f"inner={inner_name!r} outer={outer_name!r} axes={_axes_label(axes_key)} "
+            f"margin={margin_f:.4g} inner_elem={inner_elem_name!r} outer_elem={outer_elem_name!r} "
+            + " ".join(axis_details)
+            + f" pose={self._pose}",
+        )
+
     def expect_aabb_within(
         self,
         inner_link: object,
@@ -1480,6 +1973,7 @@ class TestContext:
         margin: float = 0.0,
         name: Optional[str] = None,
     ) -> bool:
+        self._warn_deprecated_helper("expect_aabb_within(...)", "expect_within(...)")
         inner_name = _named_ref(inner_link, kind="inner_link")
         outer_name = _named_ref(outer_link, kind="outer_link")
         axes_key, axes_err = _normalize_axes_spec(axes, field_name="axes")
@@ -1531,6 +2025,7 @@ class TestContext:
         negative_elem: Optional[object] = None,
         name: Optional[str] = None,
     ) -> bool:
+        self._warn_deprecated_helper("expect_aabb_gap(...)", "expect_gap(...)")
         """
         Check the signed directional gap between two links or two named elements.
 
@@ -1649,6 +2144,7 @@ class TestContext:
         min_overlap: float = 0.0,
         name: Optional[str] = None,
     ) -> bool:
+        self._warn_deprecated_helper("expect_aabb_overlap(...)", "expect_overlap(...)")
         link_a_name = _named_ref(link_a, kind="link_a")
         link_b_name = _named_ref(link_b, kind="link_b")
         axes_key, axes_err = _normalize_axes_spec(axes, field_name="axes")
@@ -1688,6 +2184,7 @@ class TestContext:
         contact_tol: float = 0.0,
         name: Optional[str] = None,
     ) -> bool:
+        self._warn_deprecated_helper("expect_aabb_contact(...)", "expect_contact(...)")
         link_a_name = _named_ref(link_a, kind="link_a")
         link_b_name = _named_ref(link_b, kind="link_b")
         axes_key, axes_err = _normalize_axes_spec(axes, field_name="axes")
@@ -1733,6 +2230,10 @@ class TestContext:
         q1: Optional[float] = None,
         name: Optional[str] = None,
     ) -> bool:
+        self._warn_deprecated_helper(
+            "expect_joint_motion_axis(...)",
+            "pose-specific exact contact/gap/overlap checks",
+        )
         """
         Check that moving one joint from q0 -> q1 moves a link center along a world axis
         in the expected sign direction.

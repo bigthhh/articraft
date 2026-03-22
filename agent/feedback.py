@@ -202,6 +202,13 @@ TEST_WARNING_FALLBACK_SPEC = SignalSpec(
     source="tests",
     group="qc",
 )
+DEPRECATED_TEST_API_SPEC = SignalSpec(
+    severity="warning",
+    kind="deprecated_test_api",
+    code="WARN_DEPRECATED_TEST_API",
+    source="tests",
+    group="hygiene",
+)
 ALLOWANCE_SPEC = SignalSpec(
     severity="note",
     kind="allowance",
@@ -492,12 +499,12 @@ def _disconnected_geometry_signal(parsed: ParsedTestWarning) -> CompileSignal | 
         )
     ):
         return None
-    summary = "Disconnected geometry islands detected within a part."
+    summary = "Exact visual connectivity check found disconnected geometry within a part."
     if (
         parsed.detail_text
         and "disconnected geometry islands detected" not in parsed.detail_text.lower()
     ):
-        summary = "Part-geometry connectivity sensor reported a warning."
+        summary = "Part-geometry connectivity check reported a warning."
     return _signal_from_spec(
         DISCONNECTED_GEOMETRY_SPEC,
         summary=summary,
@@ -514,12 +521,25 @@ def _articulation_origin_signal(parsed: ParsedTestWarning) -> CompileSignal | No
         )
     ):
         return None
-    summary = "Articulation-origin heuristic reported distant joint origins."
+    summary = "Exact articulation-origin distance check reported distant joint origins."
     if parsed.detail_text and "far from geometry" not in parsed.detail_text.lower():
-        summary = "Articulation-origin heuristic reported a warning."
+        summary = "Articulation-origin distance check reported a warning."
     return _signal_from_spec(
         ARTICULATION_ORIGIN_SPEC,
         summary=summary,
+        details=parsed.text,
+        check_name=parsed.check_name,
+    )
+
+
+def _deprecated_test_api_signal(parsed: ParsedTestWarning) -> CompileSignal | None:
+    if not parsed.lower.startswith("deprecated:"):
+        return None
+    if "aabb-envelope semantics" not in parsed.lower and "legacy aabb" not in parsed.lower:
+        return None
+    return _signal_from_spec(
+        DEPRECATED_TEST_API_SPEC,
+        summary="Deprecated AABB-based test helper used; switch to exact visual checks.",
         details=parsed.text,
         check_name=parsed.check_name,
     )
@@ -541,6 +561,7 @@ def _warning_signal_from_test_text(text: str) -> CompileSignal:
         _overlap_warning_signal,
         _disconnected_geometry_signal,
         _articulation_origin_signal,
+        _deprecated_test_api_signal,
     ):
         signal = classifier(parsed)
         if signal is not None:

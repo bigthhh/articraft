@@ -78,11 +78,15 @@ def build_object_model() -> ArticulatedObject:
 
 def run_tests() -> TestReport:
     ctx = TestContext(object_model)
+    body = object_model.get_part("body")
+    door = object_model.get_part("door")
     ctx.check_model_valid()
     ctx.check_mesh_files_exist()
     ctx.warn_if_articulation_origin_near_geometry(tol=0.015)
     ctx.warn_if_part_geometry_disconnected()
+    ctx.check_articulation_overlaps(max_pose_samples=64)
     ctx.warn_if_overlaps(max_pose_samples=64)
+    ctx.expect_gap(door, body, axis="y", max_gap=0.001, max_penetration=0.0)
     return ctx.report()
 ```
 
@@ -115,7 +119,6 @@ If you intentionally model in millimeters inside CadQuery, pass `unit_scale=0.00
 ## Available helpers
 
 - `AssetContext.from_script(__file__)`
-- `cadquery_local_aabb(model, *, tolerance=0.001, angular_tolerance=0.1, unit_scale=1.0)`
 - `tessellate_cadquery(model, *, tolerance=0.001, angular_tolerance=0.1, unit_scale=1.0)`
 - `save_cadquery_obj(model, filename, *, assets=None, tolerance=0.001, angular_tolerance=0.1, unit_scale=1.0)`
 - `mesh_from_cadquery(model, filename, *, assets=None, tolerance=0.001, angular_tolerance=0.1, unit_scale=1.0) -> Mesh`

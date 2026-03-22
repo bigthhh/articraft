@@ -93,7 +93,7 @@ def test_compile_signal_bundle_parses_common_broad_qc_warning_families() -> None
                 "Overlaps detected (overlap_tol=0.001, overlap_volume_tol=0):\n"
                 "relation=adjacent-revolute pair=('body','door') pose_index=0 depth=(0.01,0.02,0.03) "
                 "min_depth=0.01 vol=6e-06 elem_a=#0 'hinge_leaf':Box elem_b=#1 'door_shell':Box pose={}",
-                "warn_if_part_geometry_disconnected(tol=0.005): "
+                "warn_if_part_geometry_disconnected(tol=1e-06): "
                 "Disconnected geometry islands detected:\n"
                 "part='frame' connected=2/3",
                 "warn_if_articulation_origin_near_geometry(tol=0.015): "
@@ -117,14 +117,17 @@ def test_compile_signal_bundle_parses_common_broad_qc_warning_families() -> None
     disconnected_signal = next(
         signal for signal in bundle.signals if signal.kind == "disconnected_geometry"
     )
-    assert disconnected_signal.summary == "Disconnected geometry islands detected within a part."
+    assert (
+        disconnected_signal.summary
+        == "Exact visual connectivity check found disconnected geometry within a part."
+    )
 
     articulation_signal = next(
         signal for signal in bundle.signals if signal.kind == "articulation_origin"
     )
     assert (
         articulation_signal.summary
-        == "Articulation-origin heuristic reported distant joint origins."
+        == "Exact articulation-origin distance check reported distant joint origins."
     )
 
     allowed_signal = next(signal for signal in bundle.signals if signal.kind == "allowed_overlap")
@@ -142,7 +145,7 @@ def test_compile_signal_bundle_accepts_legacy_part_geometry_warning_name() -> No
             checks=("warn_if_part_geometry_connected",),
             failures=(),
             warnings=(
-                "warn_if_part_geometry_connected(tol=0.005): "
+                "warn_if_part_geometry_connected(tol=1e-06): "
                 "Disconnected geometry islands detected:\n"
                 "part='frame' connected=2/3",
             ),
@@ -153,7 +156,31 @@ def test_compile_signal_bundle_accepts_legacy_part_geometry_warning_name() -> No
     disconnected_signal = next(
         signal for signal in bundle.signals if signal.kind == "disconnected_geometry"
     )
-    assert disconnected_signal.summary == "Disconnected geometry islands detected within a part."
+    assert (
+        disconnected_signal.summary
+        == "Exact visual connectivity check found disconnected geometry within a part."
+    )
+
+
+def test_compile_signal_bundle_surfaces_deprecated_aabb_test_helpers() -> None:
+    bundle = build_compile_signal_bundle(
+        status="success",
+        test_report=SDKTestReport(
+            passed=True,
+            checks_run=1,
+            checks=("expect_aabb_gap(base,door,axis=z)",),
+            failures=(),
+            warnings=(
+                "DEPRECATED: expect_aabb_gap(...) uses legacy AABB-envelope semantics. "
+                "Use expect_gap(...) for exact visual-geometry checks.",
+            ),
+            allowances=(),
+        ),
+    )
+
+    signal = next(signal for signal in bundle.signals if signal.kind == "deprecated_test_api")
+    assert signal.code == "WARN_DEPRECATED_TEST_API"
+    assert "Deprecated AABB-based test helper used" in signal.summary
 
 
 def test_compile_signal_bundle_downgrades_low_risk_coplanar_warning_to_note() -> None:

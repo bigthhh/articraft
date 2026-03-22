@@ -319,7 +319,7 @@ def test_compile_urdf_report_promotes_floating_geometry_warnings_to_failures(
                 "        checks=('warn_if_part_geometry_disconnected',),",
                 "        failures=(),",
                 "        warnings=(",
-                '            "warn_if_part_geometry_disconnected(tol=0.005): "',
+                '            "warn_if_part_geometry_disconnected(tol=1e-06): "',
                 "            \"Disconnected geometry islands detected:\\npart='controls' connected=1/19\",",
                 "        ),",
                 "    )",

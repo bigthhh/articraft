@@ -11,7 +11,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 from .assets import resolve_asset_root, resolve_mesh_path
 from .errors import ValidationError
 from .exact_collisions import compile_object_model_with_exact_collisions
-from .types import ArticulationType, Mesh, Origin, Part
+from .types import ArticulationType, Box, Cylinder, Mesh, Origin, Part, Sphere
 
 Vec3 = Tuple[float, float, float]
 AABB = Tuple[Vec3, Vec3]
@@ -306,6 +306,25 @@ class UnsupportedPartFinding:
     backend: str
 
 
+@dataclass(frozen=True)
+class JointOriginDistanceFinding:
+    joint: str
+    parent: str
+    child: str
+    parent_distance: float
+    child_distance: float
+    tol: float
+
+
+@dataclass(frozen=True)
+class PartGeometryConnectivityFinding:
+    part: str
+    connected: int
+    total: int
+    disconnected: Tuple[str, ...]
+    contact_tol: float
+
+
 def _transform_aabb(aabb: AABB, tf: Mat4) -> AABB:
     (min_x, min_y, min_z), (max_x, max_y, max_z) = aabb
     corners = [(x, y, z) for x in (min_x, max_x) for y in (min_y, max_y) for z in (min_z, max_z)]
@@ -328,7 +347,6 @@ def _geometry_local_aabb(
     asset_root: Optional[Path],
     _obj_cache: Dict[Path, AABB],
 ) -> AABB:
-    from .types import Box, Cylinder, Sphere  # local import to avoid cycles
 
     if isinstance(geometry, Box):
         sx, sy, sz = geometry.size
@@ -510,8 +528,6 @@ def _collision_object_from_geometry(
 ) -> object:
     import fcl
 
-    from .types import Box, Cylinder, Sphere
-
     if isinstance(geometry, Box):
         shape = fcl.Box(*[float(v) for v in geometry.size])
     elif isinstance(geometry, Cylinder):
@@ -534,6 +550,53 @@ def _collision_object_from_geometry(
 
     rot, trans = _mat4_rotation_translation(elem_tf)
     return fcl.CollisionObject(shape, fcl.Transform(rot, trans))
+
+
+def _point_collision_object(point: Vec3, *, radius: float = 1e-9) -> object:
+    import fcl
+
+    rot = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+    return fcl.CollisionObject(
+        fcl.Sphere(float(radius)),
+        fcl.Transform(rot, (float(point[0]), float(point[1]), float(point[2]))),
+    )
+
+
+def _collision_pair_metrics(obj_a: object, obj_b: object) -> tuple[bool, float]:
+    import fcl
+
+    collision_request = fcl.CollisionRequest()
+    collision_result = fcl.CollisionResult()
+    if int(fcl.collide(obj_a, obj_b, collision_request, collision_result)) > 0:
+        return True, 0.0
+
+    distance_request = fcl.DistanceRequest()
+    distance_result = fcl.DistanceResult()
+    return False, float(fcl.distance(obj_a, obj_b, distance_request, distance_result))
+
+
+def _compiled_part_collision_entries(
+    part: Part,
+    *,
+    asset_root: Optional[Path],
+    mesh_cache: Dict[tuple[Path, Optional[Vec3]], object],
+    part_tf: Optional[Mat4] = None,
+) -> list[tuple[object, object]]:
+    resolved_part_tf = _identity4() if part_tf is None else part_tf
+    entries: list[tuple[object, object]] = []
+    for item in list(getattr(part, "collisions", []) or []):
+        geometry = getattr(item, "geometry", None)
+        if geometry is None:
+            continue
+        elem_tf = _mat4_mul(resolved_part_tf, _origin_to_mat4(getattr(item, "origin", Origin())))
+        collision_obj = _collision_object_from_geometry(
+            geometry,
+            elem_tf=elem_tf,
+            asset_root=asset_root,
+            mesh_cache=mesh_cache,
+        )
+        entries.append((item, collision_obj))
+    return entries
 
 
 def compute_part_world_transforms(
@@ -1061,6 +1124,156 @@ def _find_unsupported_parts_physical(
                 )
             )
 
+    return findings
+
+
+def find_joint_origin_distance_findings(
+    model: object,
+    *,
+    asset_root: Optional[Path] = None,
+    tol: float = 0.015,
+) -> List[JointOriginDistanceFinding]:
+    compiled_model = compile_object_model_with_exact_collisions(
+        model,  # type: ignore[arg-type]
+        asset_root=asset_root,
+    )
+    resolved_asset_root = resolve_asset_root(asset_root, compiled_model, model)
+    links, joints = _resolve_model_links_and_joints(compiled_model)
+    if not links or not joints:
+        return []
+
+    links_by_name = {
+        name: link for link in links if isinstance((name := getattr(link, "name", None)), str)
+    }
+    mesh_cache: Dict[tuple[Path, Optional[Vec3]], object] = {}
+    findings: list[JointOriginDistanceFinding] = []
+    point_radius = 1e-9
+
+    for joint in joints:
+        joint_name = getattr(joint, "name", None)
+        parent_name = getattr(joint, "parent", None)
+        child_name = getattr(joint, "child", None)
+        if (
+            not isinstance(joint_name, str)
+            or not isinstance(parent_name, str)
+            or not isinstance(child_name, str)
+        ):
+            continue
+        parent_part = links_by_name.get(parent_name)
+        child_part = links_by_name.get(child_name)
+        if parent_part is None or child_part is None:
+            continue
+
+        origin = getattr(joint, "origin", Origin())
+        parent_point = (
+            float(origin.xyz[0]),
+            float(origin.xyz[1]),
+            float(origin.xyz[2]),
+        )
+        child_point = (0.0, 0.0, 0.0)
+        parent_probe = _point_collision_object(parent_point, radius=point_radius)
+        child_probe = _point_collision_object(child_point, radius=point_radius)
+
+        parent_entries = _compiled_part_collision_entries(
+            parent_part,
+            asset_root=resolved_asset_root,
+            mesh_cache=mesh_cache,
+        )
+        child_entries = _compiled_part_collision_entries(
+            child_part,
+            asset_root=resolved_asset_root,
+            mesh_cache=mesh_cache,
+        )
+        if not parent_entries or not child_entries:
+            continue
+
+        parent_distance = min(
+            _collision_pair_metrics(parent_probe, collision_obj)[1]
+            for _item, collision_obj in parent_entries
+        )
+        child_distance = min(
+            _collision_pair_metrics(child_probe, collision_obj)[1]
+            for _item, collision_obj in child_entries
+        )
+        if parent_distance > float(tol) or child_distance > float(tol):
+            findings.append(
+                JointOriginDistanceFinding(
+                    joint=joint_name,
+                    parent=parent_name,
+                    child=child_name,
+                    parent_distance=float(parent_distance),
+                    child_distance=float(child_distance),
+                    tol=float(tol),
+                )
+            )
+    return findings
+
+
+def find_part_geometry_connectivity_findings(
+    model: object,
+    *,
+    asset_root: Optional[Path] = None,
+    contact_tol: float = 1e-6,
+) -> List[PartGeometryConnectivityFinding]:
+    compiled_model = compile_object_model_with_exact_collisions(
+        model,  # type: ignore[arg-type]
+        asset_root=asset_root,
+    )
+    resolved_asset_root = resolve_asset_root(asset_root, compiled_model, model)
+    links, _joints = _resolve_model_links_and_joints(compiled_model)
+    if not links:
+        return []
+
+    mesh_cache: Dict[tuple[Path, Optional[Vec3]], object] = {}
+    findings: list[PartGeometryConnectivityFinding] = []
+
+    for link in links:
+        part_name = getattr(link, "name", None)
+        if not isinstance(part_name, str):
+            continue
+        entries = _compiled_part_collision_entries(
+            link,
+            asset_root=resolved_asset_root,
+            mesh_cache=mesh_cache,
+        )
+        if len(entries) <= 1:
+            continue
+
+        visited = {0}
+        queue = [0]
+        while queue:
+            current = queue.pop()
+            for idx, (_item, candidate_obj) in enumerate(entries):
+                if idx in visited:
+                    continue
+                _candidate_item, current_obj = entries[current]
+                collided, distance = _collision_pair_metrics(current_obj, candidate_obj)
+                if collided or distance <= float(contact_tol):
+                    visited.add(idx)
+                    queue.append(idx)
+
+        if len(visited) == len(entries):
+            continue
+
+        disconnected: list[str] = []
+        for idx, (item, _obj) in enumerate(entries):
+            if idx in visited:
+                continue
+            item_name = getattr(item, "name", None)
+            geometry_name = type(getattr(item, "geometry", None)).__name__
+            if isinstance(item_name, str) and item_name:
+                disconnected.append(f"{item_name}:{geometry_name}")
+            else:
+                disconnected.append(f"#{idx}:{geometry_name}")
+        findings.append(
+            PartGeometryConnectivityFinding(
+                part=part_name,
+                connected=len(visited),
+                total=len(entries),
+                disconnected=tuple(disconnected),
+                contact_tol=float(contact_tol),
+            )
+        )
     return findings
 
 

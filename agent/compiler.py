@@ -32,6 +32,10 @@ _GEOMETRY_QC_MARKERS = (
     "mesh connectivity check failed",
     "visual connectivity check failed",
     "check_no_overlaps(",
+    "expect_contact(",
+    "expect_gap(",
+    "expect_overlap(",
+    "expect_within(",
     "expect_aabb_",
     "expect_xy_distance",
     "expect_above",
@@ -209,25 +213,11 @@ def compile_urdf_report(
     target: str = "full",
 ) -> CompileReport:
     """Execute a generated script and return export XML plus non-blocking warnings."""
-    target_key = _normalize_compile_target(target)
-    normalized_sdk_package = normalize_sdk_package(sdk_package)
-    if normalized_sdk_package == "sdk_hybrid":
-        ensure_sdk_hybrid_dependencies()
-        _validate_hybrid_script_imports(script_path.resolve())
-    repo_root = Path(__file__).resolve().parents[1]
-    script_path = script_path.resolve()
-    prev_cwd = Path.cwd()
-    os.chdir(script_path.parent)
-    sys.path.insert(0, str(repo_root))
-    try:
-        globals_dict = runpy.run_path(script_path.name)
-    finally:
-        os.chdir(prev_cwd)
-        if sys.path and sys.path[0] == str(repo_root):
-            sys.path.pop(0)
-
+    globals_dict = load_model_globals(script_path, sdk_package=sdk_package)
     warnings: list[str] = []
     test_report = None
+    target_key = _normalize_compile_target(target)
+    script_path = script_path.resolve()
     if run_checks:
         try:
             if target_key == "full":
@@ -300,6 +290,30 @@ def compile_urdf_report(
         warnings=warnings,
         signal_bundle=signal_bundle,
     )
+
+
+def load_model_globals(
+    script_path: Path,
+    *,
+    sdk_package: str = "sdk",
+) -> dict[str, Any]:
+    """Execute a model script and return its globals."""
+    normalized_sdk_package = normalize_sdk_package(sdk_package)
+    if normalized_sdk_package == "sdk_hybrid":
+        ensure_sdk_hybrid_dependencies()
+        _validate_hybrid_script_imports(script_path.resolve())
+    repo_root = Path(__file__).resolve().parents[1]
+    script_path = script_path.resolve()
+    prev_cwd = Path.cwd()
+    os.chdir(script_path.parent)
+    sys.path.insert(0, str(repo_root))
+    try:
+        globals_dict = runpy.run_path(script_path.name)
+    finally:
+        os.chdir(prev_cwd)
+        if sys.path and sys.path[0] == str(repo_root):
+            sys.path.pop(0)
+    return globals_dict
 
 
 def _warn_cwd_relative_asset_paths(*, script_path: Path, warnings: list[str]) -> None:
@@ -644,89 +658,30 @@ def _validate_mesh_connectivity(
         return
 
     tol = float(os.environ.get("URDF_MESH_CONNECTIVITY_TOL", "0.02"))
-    include_qc = os.environ.get("URDF_MESH_CONNECTIVITY_INCLUDE_QC", "1") in {"1", "true", "TRUE"}
-
     object_model = globals_dict.get("object_model")
     if object_model is None:
         return
 
-    links = getattr(object_model, "links", None)
-    joints = getattr(object_model, "joints", None)
-    if not isinstance(links, list) or not isinstance(joints, list):
+    find_joint_origin_distance_findings = getattr(
+        _import_sdk_module("sdk", "._core.v0.geometry_qc"),
+        "find_joint_origin_distance_findings",
+    )
+    findings = find_joint_origin_distance_findings(
+        object_model,
+        asset_root=script_dir,
+        tol=tol,
+    )
+    if not findings:
         return
 
-    link_to_aabbs: dict[
-        str, list[tuple[tuple[float, float, float], tuple[float, float, float]]]
-    ] = {}
-    for link in links:
-        name = getattr(link, "name", None)
-        if not isinstance(name, str):
-            continue
-
-        collisions = getattr(link, "collisions", None)
-        visuals = getattr(link, "visuals", None)
-        geoms = collisions if isinstance(collisions, list) and collisions else visuals
-        qc_collisions = getattr(link, "qc_collisions", None)
-        if include_qc and isinstance(qc_collisions, list) and qc_collisions:
-            geoms = list(geoms) if isinstance(geoms, list) else []
-            geoms.extend(qc_collisions)
-        if not isinstance(geoms, list) or not geoms:
-            continue
-
-        aabbs: list[tuple[tuple[float, float, float], tuple[float, float, float]]] = []
-        for item in geoms:
-            origin = getattr(item, "origin", None)
-            geometry = getattr(item, "geometry", None)
-            if geometry is None:
-                continue
-
-            local_min, local_max = _geometry_local_aabb(
-                geometry,
-                script_dir=script_dir,
-                sdk_package=sdk_package,
-            )
-            world_min, world_max = _transform_aabb(
-                local_min,
-                local_max,
-                origin=origin,
-            )
-            aabbs.append((world_min, world_max))
-
-        if aabbs:
-            link_to_aabbs[name] = aabbs
-
-    for joint in joints:
-        parent = getattr(joint, "parent", None)
-        child = getattr(joint, "child", None)
-        if not isinstance(parent, str) or not isinstance(child, str):
-            continue
-
-        parent_aabbs = link_to_aabbs.get(parent)
-        child_aabbs = link_to_aabbs.get(child)
-        if not parent_aabbs or not child_aabbs:
-            continue
-
-        origin = getattr(joint, "origin", None)
-        parent_point = getattr(origin, "xyz", (0.0, 0.0, 0.0))
-        if not (
-            isinstance(parent_point, tuple)
-            and len(parent_point) == 3
-            and all(isinstance(v, (int, float)) for v in parent_point)
-        ):
-            parent_point = (0.0, 0.0, 0.0)
-
-        parent_dist = min(_point_aabb_distance(parent_point, aabb) for aabb in parent_aabbs)
-        child_dist = min(_point_aabb_distance((0.0, 0.0, 0.0), aabb) for aabb in child_aabbs)
-
-        if parent_dist > tol or child_dist > tol:
-            joint_name = getattr(joint, "name", "<unnamed>")
-            raise ValueError(
-                "Mesh connectivity check failed: joint connection point is not near geometry. "
-                f"joint={joint_name!r} parent={parent!r} child={child!r} "
-                f"dist_parent={parent_dist:.4g} dist_child={child_dist:.4g} tol={tol:.4g}. "
-                "Fix by moving the joint origin and/or adjusting link visual origins "
-                "so the parts touch at the joint."
-            )
+    first = findings[0]
+    raise ValueError(
+        "Visual connectivity check failed: articulation origin is far from exact visual geometry. "
+        f"joint={first.joint!r} parent={first.parent!r} child={first.child!r} "
+        f"dist_parent={first.parent_distance:.4g} dist_child={first.child_distance:.4g} "
+        f"tol={first.tol:.4g}. "
+        "Fix by moving the joint origin and/or adjusting authored visuals so the parts touch where the joint is mounted."
+    )
 
 
 def _geometry_local_aabb(

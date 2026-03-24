@@ -62,7 +62,6 @@ ctx.check_mesh_files_exist()
 ctx.warn_if_articulation_origin_near_geometry(tol=0.015)
 ctx.warn_if_part_geometry_disconnected()
 ctx.check_articulation_overlaps(max_pose_samples=128)
-ctx.warn_if_coplanar_surfaces(ignore_adjacent=True, ignore_fixed=True)
 ctx.warn_if_overlaps(max_pose_samples=128, ignore_adjacent=True, ignore_fixed=True)
 ```
 
@@ -75,7 +74,6 @@ What they catch:
 
 - `warn_if_articulation_origin_near_geometry`: an exact point-to-geometry distance warning for joint placement in parent and child frames; default `tol=0.015`. The harness truncates this tolerance to 3 decimals and caps it at `0.15`.
 - `warn_if_part_geometry_disconnected`: an exact within-part connectivity warning that checks whether authored visuals form disconnected geometry islands.
-- `warn_if_coplanar_surfaces`: a deliberately noisy visual heuristic for nearly coplanar flush surfaces. Flush mounts, bezels, grilles, and panel seams can trigger it even when the model is acceptable.
 - `check_articulation_overlaps`: a failure-tier overlap gate for non-fixed articulation-linked parent/child pairs. It is the recommended way to prove that `REVOLUTE`, `PRISMATIC`, and `CONTINUOUS` joints do not interpenetrate.
 - `warn_if_overlaps`: a deliberately broad exact-geometry overlap sensor over mirrored visual geometry. It can still be noisy for thin wires, thin blades, concave shells, and other awkward geometry.
 
@@ -86,7 +84,6 @@ Recommended default:
 - Keep the scaffolded broad-check block unless parameter tuning is justified.
 - Include `warn_if_overlaps(...)` on every generated model as a broad warning-tier sensor, even when you do not want overlap findings to fail the run.
 - Include `check_articulation_overlaps(...)` on articulated models with non-fixed joints when joint clearance is a real requirement.
-- Use `warn_if_coplanar_surfaces(...)` when flush-surface duplication is genuinely a useful sensor for the object, and prefer `ignore_adjacent=True, ignore_fixed=True` unless you have a specific reason not to.
 
 Important:
 
@@ -116,7 +113,6 @@ door = object_model.get_part("door")
 body = object_model.get_part("body")
 
 ctx.allow_overlap(door, body, reason="hinge barrel nests around the pin")
-ctx.allow_coplanar_surfaces(door, body, reason="flush mounted panel")
 ```
 
 Use allowances narrowly. Slight intended interpenetration can be acceptable when it makes a mounted or nested assembly look attached instead of floating. For articulated mechanisms, use `ctx.allow_overlap(...)` only for specific justified cases such as bearing sleeves, hinge barrels, or enclosed hubs. Still call `ctx.warn_if_overlaps(...)` so the allowance is tracked.
@@ -124,7 +120,6 @@ Use allowances narrowly. Slight intended interpenetration can be acceptable when
 Prefer these allowance entry points in new code:
 
 - `ctx.allow_overlap(...)` for legitimate nested or sleeve-like overlap
-- `ctx.allow_coplanar_surfaces(...)` for intentional flush mounts or panel seams
 - `ctx.allow_isolated_part(...)` for intentionally freestanding parts in the checked pose
 
 ## Canonical helper names
@@ -275,7 +270,6 @@ ctx.check_mesh_files_exist()
 ctx.warn_if_articulation_origin_near_geometry(tol=0.015)
 ctx.warn_if_part_geometry_disconnected()
 ctx.check_articulation_overlaps(max_pose_samples=128)
-ctx.warn_if_coplanar_surfaces(ignore_adjacent=True, ignore_fixed=True)
 ctx.warn_if_overlaps(max_pose_samples=128, ignore_adjacent=True, ignore_fixed=True)
 ctx.expect_overlap(lid, base, axes="xy", min_overlap=0.05)
 ctx.expect_origin_distance(lid, base, axes="xy", max_dist=0.02)

@@ -26,7 +26,7 @@ Do not emit URDF XML yourself. The harness compiles `object_model`, derives exac
    - `ctx.warn_if_part_geometry_disconnected()`
    - `ctx.check_articulation_overlaps(...)` when the model has non-fixed articulations
    - `ctx.warn_if_overlaps(..., ignore_adjacent=True, ignore_fixed=True)` as a broad warning-tier backstop
-   Keep that block unless parameter tuning is justified, add `warn_if_coplanar_surfaces(...)` only when it is useful, and extend `run_tests()` with prompt-specific exact `expect_*` checks.
+   Keep that block unless parameter tuning is justified, and extend `run_tests()` with prompt-specific exact `expect_*` checks.
 6. In `run_tests()`, resolve the exact `Part`, `Articulation`, and named `Visual` objects you need from `object_model` once at the top, then pass those objects into `ctx.*`. Use names only at the lookup boundary, not as the main test-call style. For named visual features, prefer `part.get_visual("feature_name")`.
 
 Joint authoring rules:
@@ -130,7 +130,6 @@ def run_tests() -> TestReport:
         overlap_tol=0.005,
         overlap_volume_tol=0.0,
     )
-    ctx.warn_if_coplanar_surfaces(ignore_adjacent=True, ignore_fixed=True)
     ctx.warn_if_overlaps(
         max_pose_samples=128,
         overlap_tol=0.005,
@@ -194,12 +193,10 @@ Important:
 
 - Author the visible shape you actually want to see.
 - Do not hand-author collisions in `sdk`; compile-time exact-collision derivation owns that now.
-- Treat `warn_if_articulation_origin_near_geometry(tol=0.015)`, `warn_if_part_geometry_disconnected()`, and `warn_if_coplanar_surfaces()` as conservative warning-tier sensors.
+- Treat `warn_if_articulation_origin_near_geometry(tol=0.015)` and `warn_if_part_geometry_disconnected()` as conservative warning-tier sensors.
 - These broad checks can surface suspicious composition, but they do not prove realism, attachment quality, or correct motion.
 - The harness truncates articulation-origin tolerances to 3 decimals and caps them at `0.15`.
 - `warn_if_articulation_origin_near_geometry(...)` is not scale-aware; its tolerance is a fixed metric distance in meters.
-- `warn_if_coplanar_surfaces(...)` is intentionally noisy: it can fire on perfectly acceptable flush seams or mounted panels.
-- Prefer relation-aware defaults such as `ignore_adjacent=True` and `ignore_fixed=True`, and use `allow_coplanar_surfaces(...)` narrowly for intentional flush mounts that still get reported.
 - A tolerance that is sensible for a compact hinge may be meaningless for a vehicle-sized or aircraft-sized assembly.
 - Only relax articulation-origin tolerance when the geometry genuinely needs it, and keep it tight.
 - Use `ctx.check_articulation_overlaps(...)` as the failure-tier QC gate for `REVOLUTE`, `PRISMATIC`, and `CONTINUOUS` parent/child pairs when you need to prove non-fixed joint clearance.

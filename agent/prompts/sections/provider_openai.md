@@ -10,7 +10,7 @@
 - Use `find_examples` before inventing an unfamiliar base-SDK modeling or testing pattern.
 - Begin with `read_file`, then patch the smallest viable region.
 - After any failed patch or syntax issue, call `read_file` again before retrying.
-- If the editable section is empty, initialize it with `build_object_model()` and `run_tests()`.
+- The target file already includes scaffolded editable code; modify that existing implementation rather than assuming a blank start.
 - Stay in single-file mode: do not add, delete, or move files.
 - Never paste Python code in chat; code changes must happen in tool calls. When finished, reply briefly and without code.
 </tool_contract>

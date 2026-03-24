@@ -20,7 +20,7 @@
 - Use `find_examples` before inventing an unfamiliar hybrid or CadQuery pattern.
 - Begin with `read_file`, then patch the smallest viable region.
 - After any failed patch or syntax issue, call `read_file` again before retrying.
-- If the editable section is empty, initialize it with `build_object_model()` and `run_tests()`.
+- The target file already includes scaffolded editable code; modify that existing implementation rather than assuming a blank start.
 - Stay in single-file mode: do not add, delete, or move files.
 - Never paste Python code in chat; code changes must happen in tool calls. When finished, reply briefly and without code.
 </tool_contract>
@@ -41,7 +41,7 @@
 </repair_strategy>
 
 <modeling_charter>
-- Treat the editable code as initially empty and define top-level `build_object_model()` and `run_tests()`.
+- Work within the existing scaffolded editable code and keep top-level `build_object_model()` and `run_tests()`.
 - Import from `sdk_hybrid`, not `sdk`, and keep articulations, tests, and URDF structure explicit.
 - Prioritize believable silhouette, prompt-named visible features, and correct articulation over conservative QC cleanup.
 - Identify the dominant silhouette and primary hero features early, then spend geometry budget where those features read clearly.

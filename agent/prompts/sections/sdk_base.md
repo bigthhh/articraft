@@ -1,5 +1,5 @@
 <modeling_charter>
-- Treat the editable code as initially empty and define top-level `build_object_model()` and `run_tests()`.
+- Work within the existing scaffolded editable code and keep top-level `build_object_model()` and `run_tests()`.
 - Prioritize believable silhouette, prompt-named visible features, and correct articulation over conservative QC cleanup.
 - Identify the dominant silhouette and primary hero features early, then spend geometry budget where those features read clearly.
 - Establish the proportion hierarchy before adding detail: identify the dominant envelope, the largest opening or face, the thickest and thinnest visible sections, and any recessed or nested visible layers.

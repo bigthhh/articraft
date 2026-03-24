@@ -660,9 +660,17 @@ def build_compile_signal_bundle(
 ) -> CompileSignalBundle:
     deduped: dict[str, CompileSignal] = {}
     normalized_test_report = _as_test_report(test_report)
+    test_warning_texts: set[str] = set()
+    if normalized_test_report is not None:
+        test_warning_texts = {
+            text for warning in normalized_test_report.warnings if (text := str(warning).strip())
+        }
 
     for warning in warnings:
-        signal = _warning_signal_from_text(str(warning))
+        warning_text = str(warning).strip()
+        if not warning_text or warning_text in test_warning_texts:
+            continue
+        signal = _warning_signal_from_text(warning_text)
         deduped[_signal_key(signal)] = signal
 
     for signal in _iter_test_warnings(normalized_test_report):

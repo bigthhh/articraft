@@ -239,6 +239,34 @@ def test_compile_signal_bundle_unknown_test_warning_uses_fallback() -> None:
     assert signal.details == "extra context"
 
 
+def test_compile_signal_bundle_skips_duplicate_raw_test_warnings() -> None:
+    overlap_warning = (
+        "warn_if_overlaps(samples=8,ignore_adjacent=True,ignore_fixed=True): "
+        "Overlaps detected (overlap_tol=0.001, overlap_volume_tol=0):\n"
+        "relation=unrelated pair=('fan_assembly','nacelle') pose_index=0 depth=(0.08,0.08,0.09) "
+        "min_depth=0.08 vol=0.000576 elem_a=#2 'fan_shaft':Cylinder "
+        "elem_b=#2 'support_hub':Cylinder pose={'nacelle_to_turbine': 0.0, 'turbine_to_fan': 0.0}"
+    )
+    bundle = build_compile_signal_bundle(
+        status="success",
+        warnings=[overlap_warning],
+        test_report=SDKTestReport(
+            passed=True,
+            checks_run=1,
+            checks=("warn_if_overlaps(samples=8,ignore_adjacent=True,ignore_fixed=True)",),
+            failures=(),
+            warnings=(overlap_warning,),
+            allowances=(),
+        ),
+    )
+
+    overlap_signals = [signal for signal in bundle.signals if signal.kind == "overlap_warning"]
+    compiler_signals = [signal for signal in bundle.signals if signal.kind == "compiler_warning"]
+
+    assert len(overlap_signals) == 1
+    assert compiler_signals == []
+
+
 def test_runtime_error_failure_omits_location_lines() -> None:
     bundle = build_compile_signal_bundle(
         status="failure",

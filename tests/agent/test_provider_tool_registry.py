@@ -12,21 +12,25 @@ def test_provider_tool_registry_schemas() -> None:
     assert set(openai_registry.get_all_tool_names()) == {
         "read_file",
         "apply_patch",
+        "probe_model",
         "find_examples",
     }
     assert set(gemini_registry.get_all_tool_names()) == {
         "read_code",
         "edit_code",
+        "probe_model",
         "find_examples",
     }
     assert set(hybrid_openai_registry.get_all_tool_names()) == {
         "read_file",
         "apply_patch",
+        "probe_model",
         "find_examples",
     }
     assert set(hybrid_gemini_registry.get_all_tool_names()) == {
         "read_code",
         "edit_code",
+        "probe_model",
         "find_examples",
     }
 
@@ -35,12 +39,27 @@ def test_provider_tool_registry_schemas() -> None:
     read_file_schema = next(
         s for s in openai_schemas if s.get("function", {}).get("name") == "read_file"
     )
+    probe_model_schema = next(
+        s for s in openai_schemas if s.get("function", {}).get("name") == "probe_model"
+    )
     find_examples_schema = next(
         s for s in openai_schemas if s.get("function", {}).get("name") == "find_examples"
     )
     assert apply_patch_schema.get("type") == "custom"
     read_file_props = read_file_schema["function"]["parameters"]["properties"]
     assert set(read_file_props.keys()) == {"offset", "limit"}
+    assert set(probe_model_schema["function"]["parameters"]["properties"].keys()) == {
+        "code",
+        "timeout_ms",
+        "include_stdout",
+    }
+    probe_description = probe_model_schema["function"]["description"]
+    assert "`emit(value)`" in probe_description
+    assert "exactly once" in probe_description
+    assert "inspection-only" in probe_description
+    assert "non-mutating inspection" in probe_description
+    assert "pair_report" in probe_description
+    assert "current bound `model.py`" in probe_description.lower()
     assert set(find_examples_schema["function"]["parameters"]["properties"].keys()) == {
         "query",
         "limit",

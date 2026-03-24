@@ -20,7 +20,11 @@ def test_compiled_openai_prompt_keeps_compact_contract_and_visual_test_gate() ->
         assert "<verification_contract>" in text
         assert "<repair_strategy>" in text
         assert "Use ONLY `read_file`, `apply_patch`, `probe_model`, and `find_examples`" in text
-        assert "probe_model` runs short Python snippets against the current bound model" in text
+        assert (
+            "probe_model` runs short Python snippets against the current bound model for "
+            "inspection-only geometry diagnosis" in text
+        )
+        assert "Use `probe_model` only for non-mutating inspection." in text
         assert "lexical search over curated base SDK examples" in text
         assert "Use the injected SDK docs for exact helper signatures" in text
         assert (

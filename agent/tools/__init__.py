@@ -15,6 +15,7 @@ from agent.tools.base import (
 )
 from agent.tools.edit_code import EditCodeTool
 from agent.tools.find_examples import FindExamplesTool
+from agent.tools.probe_model import ProbeModelTool
 from agent.tools.read_code import ReadCodeTool
 from agent.tools.read_file import ReadFileTool
 from agent.tools.registry import ToolRegistry
@@ -41,9 +42,13 @@ def build_tool_registry(provider: str, *, sdk_package: str = "sdk") -> ToolRegis
     provider_norm = (provider or "openai").strip().lower()
     package = normalize_sdk_package(sdk_package)
     if provider_norm == "openai":
-        tools: list[BaseDeclarativeTool] = [ReadFileTool(), ApplyPatchFreeformTool()]
+        tools: list[BaseDeclarativeTool] = [
+            ReadFileTool(),
+            ApplyPatchFreeformTool(),
+            ProbeModelTool(sdk_package=package),
+        ]
     else:
-        tools = [ReadCodeTool(), EditCodeTool()]
+        tools = [ReadCodeTool(), EditCodeTool(), ProbeModelTool(sdk_package=package)]
     tools.append(FindExamplesTool(sdk_package=package))
     return ToolRegistry(tools)
 
@@ -131,6 +136,7 @@ __all__ = [
     "ApplyPatchTool",
     "EditCodeTool",
     "FindExamplesTool",
+    "ProbeModelTool",
     "ReadCodeTool",
     "ReadFileTool",
     "WriteCodeTool",

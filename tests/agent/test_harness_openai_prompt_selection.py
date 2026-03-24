@@ -80,7 +80,11 @@ def test_openai_prompt_resolution_and_payload_preview() -> None:
     assert "FREEFORM tool" in instructions
     assert "write_code" not in instructions
     assert "Do NOT provide `file_path`" in instructions
-    assert "probe_model` runs short Python snippets against the current bound model" in instructions
+    assert (
+        "probe_model` runs short Python snippets against the current bound model for "
+        "inspection-only geometry diagnosis" in instructions
+    )
+    assert "Use `probe_model` only for non-mutating inspection." in instructions
     assert "lexical search over curated base SDK examples" in instructions
     assert "<compile_signals>" in instructions
     assert "Use the injected SDK docs for exact helper signatures" in instructions
@@ -258,9 +262,10 @@ def test_gemini_prompt_resolution_and_payload_preview() -> None:
     assert 'old_string=""' in gemini_instructions
     assert "write_code" not in gemini_instructions
     assert (
-        "probe_model` runs short Python snippets against the current bound model"
-        in gemini_instructions
+        "probe_model` runs short Python snippets against the current bound model for "
+        "inspection-only geometry diagnosis" in gemini_instructions
     )
+    assert "Use `probe_model` only for non-mutating inspection." in gemini_instructions
     assert "lexical search over curated base SDK examples" in gemini_instructions
     assert "Use the injected SDK docs for exact helper signatures" in gemini_instructions
     assert (

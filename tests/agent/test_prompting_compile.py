@@ -55,7 +55,11 @@ def test_prompt_outputs_are_current() -> None:
     _assert_shared_contract(openai_text, budget=132)
     assert "Use ONLY `read_file`, `apply_patch`, `probe_model`, and `find_examples`" in openai_text
     assert "write_code" not in openai_text
-    assert "probe_model` runs short Python snippets against the current bound model" in openai_text
+    assert (
+        "probe_model` runs short Python snippets against the current bound model for "
+        "inspection-only geometry diagnosis" in openai_text
+    )
+    assert "Use `probe_model` only for non-mutating inspection." in openai_text
     assert "find_examples` is lexical search over curated base SDK examples" in openai_text
     assert "stale or deprecated SDK code" in openai_text
     assert "inspiration/reference only" in openai_text
@@ -69,9 +73,10 @@ def test_prompt_outputs_are_current() -> None:
         in openai_hybrid_text
     )
     assert (
-        "probe_model` runs short Python snippets against the current bound model"
-        in openai_hybrid_text
+        "probe_model` runs short Python snippets against the current bound model for "
+        "inspection-only geometry diagnosis" in openai_hybrid_text
     )
+    assert "Use `probe_model` only for non-mutating inspection." in openai_hybrid_text
     assert (
         "find_examples` is lexical search over curated hybrid/CadQuery examples"
         in openai_hybrid_text
@@ -90,7 +95,11 @@ def test_prompt_outputs_are_current() -> None:
     assert "Use ONLY `read_code`, `edit_code`, `probe_model`, and `find_examples`" in gemini_text
     assert 'old_string=""' in gemini_text
     assert "write_code" not in gemini_text
-    assert "probe_model` runs short Python snippets against the current bound model" in gemini_text
+    assert (
+        "probe_model` runs short Python snippets against the current bound model for "
+        "inspection-only geometry diagnosis" in gemini_text
+    )
+    assert "Use `probe_model` only for non-mutating inspection." in gemini_text
     assert "find_examples` is lexical search over curated base SDK examples" in gemini_text
     assert "stale or deprecated SDK code" in gemini_text
     assert "inspiration/reference only" in gemini_text
@@ -103,9 +112,10 @@ def test_prompt_outputs_are_current() -> None:
         in gemini_hybrid_text
     )
     assert (
-        "probe_model` runs short Python snippets against the current bound model"
-        in gemini_hybrid_text
+        "probe_model` runs short Python snippets against the current bound model for "
+        "inspection-only geometry diagnosis" in gemini_hybrid_text
     )
+    assert "Use `probe_model` only for non-mutating inspection." in gemini_hybrid_text
     assert (
         "find_examples` is lexical search over curated hybrid/CadQuery examples"
         in gemini_hybrid_text

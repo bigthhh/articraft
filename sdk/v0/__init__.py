@@ -1,6 +1,7 @@
 from .articulated_object import ArticulatedObject
 from .assets import AssetContext
 from .errors import SDKError, ValidationError
+from .geometry_scale import scale_geometry_to_size
 from .mesh import (
     ArcPipeGeometry,
     BoxGeometry,
@@ -87,6 +88,7 @@ __all__ = [
     "SDKError",
     "ValidationError",
     "AssetContext",
+    "scale_geometry_to_size",
     "MeshGeometry",
     "WirePath",
     "BufferGeometry",

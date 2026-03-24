@@ -23,6 +23,7 @@ def test_sdk_exports() -> None:
     assert hasattr(sdk, "place_on_face")
     assert hasattr(sdk, "wrap_profile_onto_surface")
     assert hasattr(sdk, "wrap_mesh_onto_surface")
+    assert hasattr(sdk, "scale_geometry_to_size")
     assert not hasattr(sdk, "place_on_top")
     assert not hasattr(sdk, "place_in_front_of")
     assert not hasattr(sdk, "align_centers_xy")

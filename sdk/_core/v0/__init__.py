@@ -4,6 +4,7 @@
 from .articulated_object import ArticulatedObject
 from .assets import AssetContext
 from .errors import SDKError, ValidationError
+from .geometry_scale import scale_geometry_to_size
 from .placement import (
     SurfaceFrame,
     SurfaceWrapMapping,

@@ -36,6 +36,53 @@ from sdk import (
 
 Primitive geometry constructors describe shape only. Put transforms on the containing element.
 
+### `scale_geometry_to_size(...)`
+
+Use `scale_geometry_to_size(...)` when you know the final local extents you want
+and do not want to manually derive scale factors.
+
+```python
+from sdk import AssetContext, Box, Mesh, scale_geometry_to_size
+
+ASSETS = AssetContext.from_script(__file__)
+
+shell = scale_geometry_to_size(
+    Mesh(filename="assets/meshes/shell.obj"),
+    (0.12, 0.08, 0.04),
+    asset_root=ASSETS.asset_root,
+)
+
+panel = scale_geometry_to_size(
+    Box((0.05, 0.10, 0.002)),
+    (0.08, None, None),
+)
+```
+
+Notes:
+
+- `target_size` is `(x, y, z)` in meters, and each axis can be a positive
+  float or `None`.
+- `mode="stretch"` is the default. Use `mode="uniform"` to apply one shared
+  scale factor instead.
+- Resizing is anchored at the local origin. The helper does not add any origin
+  compensation or recentering.
+- If a `Cylinder` or `Sphere` resize would stop being representable as that
+  primitive, pass `filename=...` so the helper can emit an OBJ-backed `Mesh`.
+
+Primitive-to-mesh conversion example:
+
+```python
+from sdk import AssetContext, Sphere, scale_geometry_to_size
+
+ASSETS = AssetContext.from_script(__file__)
+
+badge = scale_geometry_to_size(
+    Sphere(radius=0.02),
+    (0.04, 0.06, 0.01),
+    filename=ASSETS.mesh_path("badge.obj"),
+)
+```
+
 ## Material
 
 Use the `Material` constructor directly when you want to create a material object yourself:

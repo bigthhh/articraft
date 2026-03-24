@@ -52,6 +52,7 @@ from sdk._profiles import get_sdk_profile
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 CONSOLE = Console()
+_FIND_EXAMPLES_SKIPPED_CONTENT = "{Skipped: full content already returned earlier in this run.}"
 
 
 def _minimal_scaffold_text(*, sdk_package: str = "sdk") -> str:
@@ -303,6 +304,7 @@ class ArticraftAgent:
         self.sdk_docs_mode = _normalize_sdk_docs_mode(sdk_docs_mode)
         self._seen_compile_signal_sigs: set[str] = set()
         self._seen_tool_error_sigs: set[str] = set()
+        self._seen_find_example_paths: set[str] = set()
         self._last_compile_failure_sig: Optional[str] = None
         self._consecutive_compile_failure_count = 0
         self._post_success_design_audit_sent = False
@@ -629,6 +631,56 @@ class ArticraftAgent:
         else:
             path.write_text(_minimal_scaffold_text(sdk_package=self.sdk_package))
 
+    def _seed_find_examples_cache_from_conversation(self, conversation: list[dict]) -> None:
+        self._seen_find_example_paths = set()
+        for message in conversation:
+            if not isinstance(message, dict):
+                continue
+            if message.get("role") != "tool" or message.get("name") != "find_examples":
+                continue
+            content = message.get("content")
+            if isinstance(content, str):
+                try:
+                    payload = json.loads(content)
+                except json.JSONDecodeError:
+                    continue
+            elif isinstance(content, dict):
+                payload = content
+            else:
+                continue
+            result = payload.get("result") if isinstance(payload, dict) else None
+            if not isinstance(result, list):
+                continue
+            for item in result:
+                if not isinstance(item, dict):
+                    continue
+                path = item.get("path")
+                if isinstance(path, str) and path:
+                    self._seen_find_example_paths.add(path)
+
+    def _compress_find_examples_output(self, output: Any) -> Any:
+        if not isinstance(output, list):
+            return output
+
+        compressed: list[Any] = []
+        for item in output:
+            if not isinstance(item, dict):
+                compressed.append(item)
+                continue
+            path = item.get("path")
+            if not isinstance(path, str) or not path:
+                compressed.append(item)
+                continue
+
+            entry = dict(item)
+            if path in self._seen_find_example_paths:
+                entry["content"] = _FIND_EXAMPLES_SKIPPED_CONTENT
+                entry["content_skipped"] = True
+            else:
+                self._seen_find_example_paths.add(path)
+            compressed.append(entry)
+        return compressed
+
     async def _execute_tool(self, tool_call: dict) -> tuple[ToolResult, dict]:
         tool_id = tool_call["id"]
         call_type = str(tool_call.get("type", "function"))
@@ -768,6 +820,8 @@ class ArticraftAgent:
             else:
                 result = await invocation.execute()
                 result.tool_call_id = tool_id
+                if result.is_success() and func_name == "find_examples":
+                    result.output = self._compress_find_examples_output(result.output)
         except Exception as exc:
             from pydantic import ValidationError
 
@@ -832,6 +886,7 @@ class ArticraftAgent:
         self._ensure_code_file()
         self.display.start()
         conversation = initial_conversation or []
+        self._seed_find_examples_cache_from_conversation(conversation)
         if not conversation:
             conversation.extend(
                 _build_first_turn_messages(

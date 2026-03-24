@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 from agent.examples import load_example_documents, parse_example_document, search_example_documents
@@ -162,6 +163,79 @@ def test_find_examples_tool_supports_base_sdk_examples() -> None:
     assert (
         output[0]["path"] == "sdk/_examples/base/jet_engine_with_smooth_nacelle_dense_front_fan.md"
     )
+
+
+def test_find_examples_repeated_results_replace_full_content_with_blurb() -> None:
+    agent = ArticraftAgent.__new__(ArticraftAgent)
+    agent._seen_find_example_paths = set()
+
+    first = agent._compress_find_examples_output(
+        [
+            {
+                "title": "Making Lofts",
+                "description": "Loft example",
+                "tags": ["cadquery"],
+                "path": "sdk/_examples/hybrid/making_lofts.md",
+                "content": "# full example",
+            }
+        ]
+    )
+    second = agent._compress_find_examples_output(
+        [
+            {
+                "title": "Making Lofts",
+                "description": "Loft example",
+                "tags": ["cadquery"],
+                "path": "sdk/_examples/hybrid/making_lofts.md",
+                "content": "# full example",
+            }
+        ]
+    )
+
+    assert first[0]["content"] == "# full example"
+    assert second[0]["content_skipped"] is True
+    assert "already returned earlier in this run" in second[0]["content"]
+
+
+def test_find_examples_cache_can_seed_from_prior_conversation() -> None:
+    agent = ArticraftAgent.__new__(ArticraftAgent)
+    agent._seen_find_example_paths = set()
+
+    agent._seed_find_examples_cache_from_conversation(
+        [
+            {
+                "role": "tool",
+                "name": "find_examples",
+                "content": json.dumps(
+                    {
+                        "result": [
+                            {
+                                "title": "Making Lofts",
+                                "description": "Loft example",
+                                "tags": ["cadquery"],
+                                "path": "sdk/_examples/hybrid/making_lofts.md",
+                                "content": "# full example",
+                            }
+                        ]
+                    }
+                ),
+            }
+        ]
+    )
+
+    compressed = agent._compress_find_examples_output(
+        [
+            {
+                "title": "Making Lofts",
+                "description": "Loft example",
+                "tags": ["cadquery"],
+                "path": "sdk/_examples/hybrid/making_lofts.md",
+                "content": "# full example",
+            }
+        ]
+    )
+
+    assert compressed[0]["content_skipped"] is True
 
 
 def test_first_turn_no_tool_response_no_longer_injects_nudge(tmp_path: Path) -> None:

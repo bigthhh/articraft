@@ -58,7 +58,7 @@ def test_provider_tool_registry_schemas() -> None:
     assert "exactly once" in probe_description
     assert "inspection-only" in probe_description
     assert "non-mutating inspection" in probe_description
-    assert "pair_report" in probe_description
+    assert "exact probe helper catalog and signatures" in probe_description
     assert "current bound `model.py`" in probe_description.lower()
     assert set(find_examples_schema["function"]["parameters"]["properties"].keys()) == {
         "query",

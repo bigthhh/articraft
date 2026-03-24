@@ -7,6 +7,7 @@ from agent.prompts.spec import iter_prompt_variants
 
 REQUIRED_TAGS = (
     "<role>",
+    "<workflow>",
     "<tool_contract>",
     "<modeling_charter>",
     "<verification_contract>",
@@ -26,11 +27,21 @@ def _opening_tag_count(text: str) -> int:
 def _assert_shared_contract(text: str, *, budget: int) -> None:
     for tag in REQUIRED_TAGS:
         assert tag in text
-    assert _opening_tag_count(text) == 5
+    assert _opening_tag_count(text) == 6
     assert "<compile_signals>" in text
     assert 'Do not optimize for "passing" in the abstract' in text
+    assert "Start by reading the bound scaffold/file" in text
+    assert "Use `probe_model` for debugging and geometry intuition" in text
+    assert "persistent regression checks that survive across turns" in text
+    assert "If parts may be colliding when they should be separate" in text
+    assert "the model knows a specific pair should not overlap" in text
+    assert "resolve `part(...)`, `joint(...)`, and `visual(...)` locals once" in text
+    assert "find_floating_parts(...)" in text
+    assert "`summary(...)`, `dims(...)`, `projection(...)`" in text
+    assert "sample_poses(...)" in text
     assert "Use the injected SDK docs for exact helper signatures" in text
     assert "The model is not done until every applicable visual coverage category is proved" in text
+    assert "Prefer object-first tests and probes" in text
     assert "hero features are present" in text
     assert "connected/seated" in text
     assert "important parts are in the right place" in text
@@ -57,13 +68,14 @@ def test_prompt_outputs_are_current() -> None:
     }
 
     openai_text = compiled_by_name["designer_system_prompt_openai.txt"]
-    _assert_shared_contract(openai_text, budget=132)
+    _assert_shared_contract(openai_text, budget=144)
     assert "Use ONLY `read_file`, `apply_patch`, `probe_model`, and `find_examples`" in openai_text
     assert "write_code" not in openai_text
     assert (
         "probe_model` runs short Python snippets against the current bound model for "
         "inspection-only geometry diagnosis" in openai_text
     )
+    assert "The injected SDK docs contain the exact helper catalog and signatures." in openai_text
     assert "Use `probe_model` only for non-mutating inspection." in openai_text
     assert "find_examples` is lexical search over curated base SDK examples" in openai_text
     assert "stale or deprecated SDK code" in openai_text
@@ -72,7 +84,7 @@ def test_prompt_outputs_are_current() -> None:
     assert "silhouette-critical shells, ducts, nacelles, blades, petals" in openai_text
 
     openai_hybrid_text = compiled_by_name["designer_system_prompt_openai_hybrid.txt"]
-    _assert_shared_contract(openai_hybrid_text, budget=142)
+    _assert_shared_contract(openai_hybrid_text, budget=154)
     assert (
         "Use ONLY `read_file`, `apply_patch`, `probe_model`, and `find_examples`"
         in openai_hybrid_text
@@ -80,6 +92,10 @@ def test_prompt_outputs_are_current() -> None:
     assert (
         "probe_model` runs short Python snippets against the current bound model for "
         "inspection-only geometry diagnosis" in openai_hybrid_text
+    )
+    assert (
+        "The injected SDK docs contain the exact helper catalog and signatures."
+        in openai_hybrid_text
     )
     assert "Use `probe_model` only for non-mutating inspection." in openai_hybrid_text
     assert (
@@ -96,7 +112,7 @@ def test_prompt_outputs_are_current() -> None:
     assert "silhouette-critical shells, ducts, nacelles, blades, petals" in openai_hybrid_text
 
     gemini_text = compiled_by_name["designer_system_prompt_gemini.txt"]
-    _assert_shared_contract(gemini_text, budget=132)
+    _assert_shared_contract(gemini_text, budget=144)
     assert "Use ONLY `read_code`, `edit_code`, `probe_model`, and `find_examples`" in gemini_text
     assert 'old_string=""' in gemini_text
     assert "write_code" not in gemini_text
@@ -104,6 +120,7 @@ def test_prompt_outputs_are_current() -> None:
         "probe_model` runs short Python snippets against the current bound model for "
         "inspection-only geometry diagnosis" in gemini_text
     )
+    assert "The injected SDK docs contain the exact helper catalog and signatures." in gemini_text
     assert "Use `probe_model` only for non-mutating inspection." in gemini_text
     assert "find_examples` is lexical search over curated base SDK examples" in gemini_text
     assert "stale or deprecated SDK code" in gemini_text
@@ -111,7 +128,7 @@ def test_prompt_outputs_are_current() -> None:
     assert "Author visuals only; do not author collision geometry in `sdk`." in gemini_text
 
     gemini_hybrid_text = compiled_by_name["designer_system_prompt_gemini_hybrid.txt"]
-    _assert_shared_contract(gemini_hybrid_text, budget=142)
+    _assert_shared_contract(gemini_hybrid_text, budget=154)
     assert (
         "Use ONLY `read_code`, `edit_code`, `probe_model`, and `find_examples`"
         in gemini_hybrid_text
@@ -119,6 +136,10 @@ def test_prompt_outputs_are_current() -> None:
     assert (
         "probe_model` runs short Python snippets against the current bound model for "
         "inspection-only geometry diagnosis" in gemini_hybrid_text
+    )
+    assert (
+        "The injected SDK docs contain the exact helper catalog and signatures."
+        in gemini_hybrid_text
     )
     assert "Use `probe_model` only for non-mutating inspection." in gemini_hybrid_text
     assert (

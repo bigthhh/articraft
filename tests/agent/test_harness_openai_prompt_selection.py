@@ -73,6 +73,7 @@ def test_openai_prompt_resolution_and_payload_preview() -> None:
     docs_message = payload["input"][0]["content"][0]["text"]
 
     assert "<tool_contract>" in instructions
+    assert "<workflow>" in instructions
     assert "<modeling_charter>" in instructions
     assert "<verification_contract>" in instructions
     assert "<repair_strategy>" in instructions
@@ -80,10 +81,18 @@ def test_openai_prompt_resolution_and_payload_preview() -> None:
     assert "FREEFORM tool" in instructions
     assert "write_code" not in instructions
     assert "Do NOT provide `file_path`" in instructions
+    assert "Start by reading the bound scaffold/file" in instructions
+    assert "Use `probe_model` for debugging and geometry intuition" in instructions
+    assert "If parts may be colliding when they should be separate" in instructions
+    assert "the model knows a specific pair should not overlap" in instructions
+    assert "resolve `part(...)`, `joint(...)`, and `visual(...)` locals once" in instructions
+    assert "find_floating_parts(...)" in instructions
+    assert "sample_poses(...)" in instructions
     assert (
         "probe_model` runs short Python snippets against the current bound model for "
         "inspection-only geometry diagnosis" in instructions
     )
+    assert "The injected SDK docs contain the exact helper catalog and signatures." in instructions
     assert "Use `probe_model` only for non-mutating inspection." in instructions
     assert "lexical search over curated base SDK examples" in instructions
     assert "<compile_signals>" in instructions
@@ -92,6 +101,7 @@ def test_openai_prompt_resolution_and_payload_preview() -> None:
         "The model is not done until every applicable visual coverage category is proved"
         in instructions
     )
+    assert "Prefer object-first tests and probes" in instructions
     assert "important parts are in the right place" in instructions
     assert "keep the scaffolded hard gates" in instructions
     assert "If a warning-tier heuristic fires, investigate it with `probe_model`" in instructions
@@ -100,6 +110,7 @@ def test_openai_prompt_resolution_and_payload_preview() -> None:
     assert len(payload["prompt_cache_key"]) <= 64
     assert payload["prompt_cache_retention"] == "24h"
     assert "## sdk/_docs/common/00_quickstart.md" in docs_message
+    assert "## sdk/_docs/common/70_probe_tooling.md" in docs_message
     assert "## sdk/_docs/common/80_testing.md" in docs_message
 
 
@@ -110,8 +121,30 @@ def test_openai_hybrid_payload_preview_includes_hybrid_docs() -> None:
     )["input"][0]["content"][0]["text"]
     assert "## sdk/_docs/common/00_quickstart.md" in hybrid_docs_message
     assert "## sdk/_docs/cadquery/35_cadquery.md" in hybrid_docs_message
+    assert "## sdk/_docs/common/70_probe_tooling.md" in hybrid_docs_message
     assert "## sdk/_docs/common/80_testing.md" in hybrid_docs_message
     assert "## sdk/_docs/cadquery/39a_cadquery_examples.md" not in hybrid_docs_message
+
+
+def test_openai_core_payload_preview_includes_probe_doc() -> None:
+    docs_message = _build_openai_preview(sdk_package="sdk", sdk_docs_mode="core")["input"][0][
+        "content"
+    ][0]["text"]
+    assert "## sdk/_docs/common/00_quickstart.md" in docs_message
+    assert "## sdk/_docs/common/70_probe_tooling.md" in docs_message
+    assert "## sdk/_docs/common/80_testing.md" in docs_message
+    assert "## sdk/_docs/base/40_mesh_geometry.md" not in docs_message
+
+
+def test_openai_hybrid_core_payload_preview_includes_probe_doc() -> None:
+    docs_message = _build_openai_preview(sdk_package="sdk_hybrid", sdk_docs_mode="core")["input"][
+        0
+    ]["content"][0]["text"]
+    assert "## sdk/_docs/common/00_quickstart.md" in docs_message
+    assert "## sdk/_docs/cadquery/35_cadquery.md" in docs_message
+    assert "## sdk/_docs/common/70_probe_tooling.md" in docs_message
+    assert "## sdk/_docs/common/80_testing.md" in docs_message
+    assert "## sdk/_docs/cadquery/36_cadquery_primer.md" not in docs_message
 
 
 def test_openai_hybrid_payload_preview_includes_find_examples_tool() -> None:
@@ -255,6 +288,8 @@ def test_gemini_prompt_resolution_and_payload_preview() -> None:
         system_prompt_path=DESIGNER_PROMPT_NAME,
     )
     gemini_instructions = gemini_payload["config"]["system_instruction"]
+    gemini_docs_message = gemini_payload["contents"][0]["parts"][0]["text"]
+    assert "<workflow>" in gemini_instructions
     assert "<tool_contract>" in gemini_instructions
     assert "<verification_contract>" in gemini_instructions
     assert "<compile_signals>" in gemini_instructions
@@ -264,9 +299,20 @@ def test_gemini_prompt_resolution_and_payload_preview() -> None:
     )
     assert 'old_string=""' in gemini_instructions
     assert "write_code" not in gemini_instructions
+    assert "Start by reading the bound scaffold/file" in gemini_instructions
+    assert "Use `probe_model` for debugging and geometry intuition" in gemini_instructions
+    assert "If parts may be colliding when they should be separate" in gemini_instructions
+    assert "the model knows a specific pair should not overlap" in gemini_instructions
+    assert "resolve `part(...)`, `joint(...)`, and `visual(...)` locals once" in gemini_instructions
+    assert "find_floating_parts(...)" in gemini_instructions
+    assert "sample_poses(...)" in gemini_instructions
     assert (
         "probe_model` runs short Python snippets against the current bound model for "
         "inspection-only geometry diagnosis" in gemini_instructions
+    )
+    assert (
+        "The injected SDK docs contain the exact helper catalog and signatures."
+        in gemini_instructions
     )
     assert "Use `probe_model` only for non-mutating inspection." in gemini_instructions
     assert "lexical search over curated base SDK examples" in gemini_instructions
@@ -275,7 +321,9 @@ def test_gemini_prompt_resolution_and_payload_preview() -> None:
         "The model is not done until every applicable visual coverage category is proved"
         in gemini_instructions
     )
+    assert "Prefer object-first tests and probes" in gemini_instructions
     assert "important parts are in the right place" in gemini_instructions
+    assert "## sdk/_docs/common/70_probe_tooling.md" in gemini_docs_message
 
 
 def test_gemini_hybrid_payload_preview_includes_find_examples_tool() -> None:

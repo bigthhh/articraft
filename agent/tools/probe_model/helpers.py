@@ -27,28 +27,6 @@ def _normalize_aabb(aabb: Any) -> dict[str, list[float]] | None:
     }
 
 
-def _aabb_center(aabb: Any) -> list[float] | None:
-    if aabb is None:
-        return None
-    mn, mx = aabb
-    return [
-        0.5 * (float(mn[0]) + float(mx[0])),
-        0.5 * (float(mn[1]) + float(mx[1])),
-        0.5 * (float(mn[2]) + float(mx[2])),
-    ]
-
-
-def _aabb_dims(aabb: Any) -> list[float] | None:
-    if aabb is None:
-        return None
-    mn, mx = aabb
-    return [
-        float(mx[0]) - float(mn[0]),
-        float(mx[1]) - float(mn[1]),
-        float(mx[2]) - float(mn[2]),
-    ]
-
-
 def _transform_point(tf: Any, point: Sequence[float]) -> list[float] | None:
     try:
         x = float(point[0])
@@ -214,19 +192,20 @@ class ProbeSession:
 
     def dims(self, obj: object) -> list[float] | None:
         target = self._resolve_target(obj)
-        if target["visual"] is not None:
-            world_aabb = self.ctx.part_element_world_aabb(target["part"], elem=target["visual"])
-        else:
-            world_aabb = self.ctx.part_world_aabb(target["part"])
-        return _aabb_dims(world_aabb)
+        intervals = self._exact_target_intervals(target)
+        if intervals is None:
+            return None
+        return [float(intervals[axis][1]) - float(intervals[axis][0]) for axis in ("x", "y", "z")]
 
     def center(self, obj: object) -> list[float] | None:
         target = self._resolve_target(obj)
-        if target["visual"] is not None:
-            world_aabb = self.ctx.part_element_world_aabb(target["part"], elem=target["visual"])
-        else:
-            world_aabb = self.ctx.part_world_aabb(target["part"])
-        return _aabb_center(world_aabb)
+        intervals = self._exact_target_intervals(target)
+        if intervals is None:
+            return None
+        return [
+            0.5 * (float(intervals[axis][0]) + float(intervals[axis][1]))
+            for axis in ("x", "y", "z")
+        ]
 
     def position(self, obj: object) -> list[float] | None:
         if self._is_joint(obj):
@@ -239,22 +218,15 @@ class ProbeSession:
 
     def projection(self, obj: object, axis_or_axes: str | Sequence[str]) -> dict[str, Any]:
         target = self._resolve_target(obj)
-        elements, _, _, error = self.ctx._resolve_exact_elements(
-            target["part"],
-            elem=target["visual"],
-            kind_prefix="probe",
-        )
-        if error or elements is None:
-            raise ProbeLookupError(error or "missing exact geometry")
+        intervals = self._exact_target_intervals(target)
+        if intervals is None:
+            raise ProbeLookupError("missing exact geometry")
         axes = _normalize_axes(axis_or_axes)
-        intervals = {
-            axis: [float(v) for v in self.ctx._elements_projection_interval(elements, axis=axis)]
-            for axis in axes
-        }
+        axis_intervals = {axis: [float(v) for v in intervals[axis]] for axis in axes}
         return {
             "target": self._target_ref(target["part"], target["visual"]),
             "metric_kind": "exact_projection",
-            "intervals": intervals,
+            "intervals": axis_intervals,
         }
 
     def summary(self, obj: object) -> dict[str, Any]:
@@ -854,8 +826,31 @@ class ProbeSession:
         if parent is None:
             return None
         parent_part = self._resolve_part(parent)
-        parent_tf = self.ctx._world_tfs().get(self.name(parent_part))
-        return None if parent_tf is None else _transform_point(parent_tf, xyz)
+        world_tfs = getattr(self.ctx, "_world_tfs", None)
+        if not callable(world_tfs):
+            return None
+        parent_tf = world_tfs().get(self.name(parent_part))
+        if parent_tf is None:
+            return None
+        return _transform_point(parent_tf, xyz)
+
+    def _exact_target_intervals(
+        self,
+        target: dict[str, object | None],
+    ) -> dict[str, tuple[float, float]] | None:
+        elements, _, _, error = self.ctx._resolve_exact_elements(
+            target["part"],
+            elem=target["visual"],
+            kind_prefix="probe",
+        )
+        if error or elements is None:
+            return None
+        return {
+            axis: tuple(
+                float(v) for v in self.ctx._elements_projection_interval(elements, axis=axis)
+            )
+            for axis in ("x", "y", "z")
+        }
 
     def _resolve_visual_ref(self, part: object, elem: object | None) -> object | None:
         if elem is None:

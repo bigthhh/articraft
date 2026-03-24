@@ -42,6 +42,7 @@ _COMMON_DOCS = (
     Path("sdk/_docs/common/20_core_types.md"),
     Path("sdk/_docs/common/30_articulated_object.md"),
     Path("sdk/_docs/common/50_placement.md"),
+    Path("sdk/_docs/common/70_probe_tooling.md"),
     Path("sdk/_docs/common/80_testing.md"),
 )
 
@@ -69,6 +70,7 @@ SDK_PROFILES: dict[str, SdkProfile] = {
         docs_full=_COMMON_DOCS[:4] + _BASE_DOCS + _COMMON_DOCS[4:],
         docs_core=(
             Path("sdk/_docs/common/00_quickstart.md"),
+            Path("sdk/_docs/common/70_probe_tooling.md"),
             Path("sdk/_docs/common/80_testing.md"),
         ),
         openai_prompt_name=OPENAI_DESIGNER_PROMPT_NAME,
@@ -81,6 +83,7 @@ SDK_PROFILES: dict[str, SdkProfile] = {
         docs_core=(
             Path("sdk/_docs/common/00_quickstart.md"),
             Path("sdk/_docs/cadquery/35_cadquery.md"),
+            Path("sdk/_docs/common/70_probe_tooling.md"),
             Path("sdk/_docs/common/80_testing.md"),
         ),
         openai_prompt_name=HYBRID_OPENAI_DESIGNER_PROMPT_NAME,

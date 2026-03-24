@@ -108,6 +108,32 @@ def _write_nested_joint_probe_fixture(script_path: Path) -> None:
     script_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def _write_rotated_cylinder_probe_fixture(script_path: Path) -> None:
+    lines = [
+        "from __future__ import annotations",
+        "",
+        "from pathlib import Path",
+        "import math",
+        "",
+        "from sdk import ArticulatedObject, Cylinder, Origin, TestContext",
+        "",
+        "HERE = Path(__file__).resolve().parent",
+        "model = ArticulatedObject(name='rotated_cylinder_probe_fixture')",
+        "body = model.part('body')",
+        "body.visual(",
+        "    Cylinder(radius=0.1, length=0.6),",
+        "    origin=Origin(rpy=(math.pi / 4.0, math.pi / 4.0, 0.0)),",
+        "    name='angled_cylinder',",
+        ")",
+        "object_model = model",
+        "",
+        "def run_tests():",
+        "    ctx = TestContext(object_model, asset_root=HERE)",
+        "    return ctx.report()",
+    ]
+    script_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 async def _run_probe(
     script_path: Path,
     code: str,
@@ -331,3 +357,47 @@ def test_probe_model_joint_position_is_world_space(tmp_path: Path) -> None:
     assert abs(float(joint_pos[0]) - 1.0) < 1e-6
     assert abs(float(joint_pos[1]) - 1.0) < 1e-6
     assert abs(float(joint_pos[2]) - 1.0) < 1e-6
+
+
+def test_probe_model_non_aabb_measurements_use_exact_geometry(tmp_path: Path) -> None:
+    script_path = tmp_path / "model.py"
+    _write_rotated_cylinder_probe_fixture(script_path)
+
+    output = asyncio.run(
+        _run_probe(
+            script_path,
+            "\n".join(
+                [
+                    "target = visual('body', 'angled_cylinder')",
+                    "emit({",
+                    "    'dims': dims(target),",
+                    "    'center': center(target),",
+                    "    'position': position(target),",
+                    "    'projection': projection(target, 'xyz'),",
+                    "})",
+                ]
+            ),
+        )
+    )
+
+    assert output["ok"] is True
+    result = output["result"]
+    dims = result["dims"]
+    center = result["center"]
+    position = result["position"]
+    intervals = result["projection"]["intervals"]
+
+    expected_dims = [float(intervals[axis][1]) - float(intervals[axis][0]) for axis in "xyz"]
+    expected_center = [
+        0.5 * (float(intervals[axis][0]) + float(intervals[axis][1])) for axis in "xyz"
+    ]
+
+    assert isinstance(dims, list)
+    assert isinstance(center, list)
+    assert isinstance(position, list)
+    for observed, expected in zip(dims, expected_dims, strict=False):
+        assert abs(float(observed) - float(expected)) < 1e-6
+    for observed, expected in zip(center, expected_center, strict=False):
+        assert abs(float(observed) - float(expected)) < 1e-6
+    for observed, expected in zip(position, expected_center, strict=False):
+        assert abs(float(observed) - float(expected)) < 1e-6

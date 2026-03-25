@@ -66,6 +66,10 @@ GEOMETRY
 - Model openings, cavities, and hollow structure explicitly. Never cap a visible opening with a solid placeholder.
 - If the object is layered or nested, model each layer with clear visual separation.
 - Hidden supports and internal structure can use simple primitives.
+- For mounted child parts whose position is defined by a parent surface, prefer placement helpers over hand-tuned `Origin(...)` coordinates.
+- Use `place_on_surface(...)` by default for rigid mounts onto housings, shells, panels, pedals, feet, knobs, buttons, pads, brackets, and similar surface-mounted parts.
+- Use `place_on_face(...)` or `place_on_face_uv(...)` only when the parent is truly box-like and the semantic reference is a specific face.
+- Use `proud_for_flush_mount(...)` when a centered child should sit flush instead of half-embedded.
 - Use realistic materials and restrained real-world colors.
 - Author visual geometry only; do not author collision geometry in `sdk_hybrid`.
 - `section_loft(...)`, `repair_loft(...)`, and `partition_shell(...)` are unavailable in `sdk_hybrid`.

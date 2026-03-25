@@ -482,16 +482,18 @@ class ArticraftAgent:
             return False
 
         content = (
-            "Compile passed. Do a final design audit before concluding.\n\n"
+            "Compile passed — no overlaps or structural violations remain. "
+            "Do a final design audit before concluding.\n\n"
             "<design_audit>\n"
-            "- Check whether the prompt's hero features are prominent and unobscured.\n"
-            "- Check whether the dominant silhouette reads correctly.\n"
-            "- Check whether materials, proportions, and visible structure support realism.\n"
-            "- Check whether your tests prove the important prompt-specific claims, not just generic validity.\n"
+            "- Scan each part: where a crude box or cylinder stands in for something that "
+            "should be curved, tapered, or sculpted, upgrade it with lofts, sweeps, or booleans.\n"
+            "- Check the overall silhouette and proportions — do they read as the real object?\n"
+            "- Verify the prompt's defining features are prominent, not afterthoughts.\n"
+            "- Confirm materials and colors are realistic, not placeholder defaults.\n"
             "</design_audit>\n\n"
-            "<continue_if_needed>\n"
-            "- If any of those are weak, keep editing.\n"
-            "</continue_if_needed>"
+            "<instructions>\n"
+            "If any of the above are weak, revise now. Otherwise you may conclude.\n"
+            "</instructions>"
         )
         msg = {"role": "user", "content": content}
         conversation.append(msg)

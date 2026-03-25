@@ -134,3 +134,17 @@ If you intentionally model in millimeters inside CadQuery, pass `unit_scale=0.00
 - Use `warn_if_articulation_overlaps(...)` only when joint clearance is genuinely uncertain or mechanically important.
 - Do not try to infer URDF joints from CadQuery assemblies. Declare joints explicitly in `ArticulatedObject`.
 - Be careful with repeated `faces(...).workplane()` feature loops: the workplane origin can drift between iterations, so repeated cuts are often safer when built from a fixed global plane and subtracted explicitly.
+
+## Common CadQuery failure mode: selector-based fillets
+
+CadQuery fillets and chamfers only work on the currently selected edges. If a selector matches no suitable edges, OCCT raises:
+
+```text
+Standard_Failure: There are no suitable edges for chamfer or fillet
+```
+
+This commonly happens after booleans, or when the selector does not match the actual topology. In particular, `edges("|X")` is often wrong for cylinders extruded along `X`: their visible edges are usually circular rims normal to `X`, not edges parallel to `X`.
+
+- Apply fillets before unions/cuts when possible.
+- Match selectors to the geometry you actually created, not just the extrusion axis.
+- If a cosmetic fillet is brittle, drop it rather than failing mesh export.

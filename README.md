@@ -89,7 +89,7 @@ If you do not pass overrides, `just wb` defaults to:
 ```bash
 model=gpt-5.4
 thinking=high
-sdk=sdk
+sdk=
 ```
 
 To change either setting, pass overrides on the same command:
@@ -99,13 +99,13 @@ To change either setting, pass overrides on the same command:
 just model=gemini-3-flash-preview wb "Create a compact desk fan with adjustable tilt."
 
 # Use the hybrid SDK (same model)
-just sdk=sdk_hybrid wb "Create a compact desk fan with adjustable tilt."
+just sdk=hybrid wb "Create a compact desk fan with adjustable tilt."
 
 # Change both model and SDK together
-just model=gpt-5.4 sdk=sdk_hybrid wb "Create a compact desk fan with adjustable tilt."
+just model=gpt-5.4 sdk=hybrid wb "Create a compact desk fan with adjustable tilt."
 ```
 
-Use `sdk=sdk` for the standard pipeline and `sdk=sdk_hybrid` when you want the hybrid rendering path.
+For `wb` and `wb-init`, leaving `sdk` blank uses the standard pipeline. Use `sdk=sdk` for an explicit standard override and `sdk=hybrid` for the hybrid rendering path. Record-based commands like `compile`, `compile-strict`, `compile-unsafe`, and `rerun` use the record's saved `sdk_package` unless you override them with `sdk=...`.
 
 ## 6. Run A Dataset Batch From CSV
 
@@ -178,7 +178,8 @@ Recompile one saved record:
 ```bash
 just compile data/records/<record-id>
 just compile-strict data/records/<record-id>
-just sdk_package=sdk_hybrid compile data/records/<record-id>
+just compile-unsafe data/records/<record-id>
+just sdk=hybrid compile-unsafe data/records/<record-id>
 ```
 
 Bulk compile variants:

@@ -107,64 +107,189 @@ just model=gpt-5.4 sdk=hybrid wb "Create a compact desk fan with adjustable tilt
 
 For `wb` and `wb-init`, leaving `sdk` blank uses the standard pipeline. Use `sdk=sdk` for an explicit standard override and `sdk=hybrid` for the hybrid rendering path. Record-based commands like `compile`, `compile-strict`, `compile-unsafe`, and `rerun` use the record's saved `sdk_package` unless you override them with `sdk=...`.
 
-## 6. Run A Dataset Batch From CSV
+## 6. Run And Resume Dataset Batches
 
-Tracked dataset batch specs live under `data/batch_specs/`. Each CSV row defines one dataset generation job, including its own model settings.
+Dataset batches are driven by CSV specs under `data/batch_specs/`. The CSV filename stem becomes the batch's `batch_spec_id`.
 
-Create a new empty spec with the correct header:
+That detail matters for resume:
+
+- `--resume` looks up the latest prior run for the same `batch_spec_id`
+- if you rename `chairs_v1.csv` to `chairs_v2.csv`, resume will treat it as a different batch
+- resume also matches rows by `row_id`, so stable `row_id` values are important if you plan to retry or edit a spec later
+
+### 6.1 Create the spec
+
+Start with the built-in template:
 
 ```bash
 just name=<batch-id> batch-spec-new
 ```
 
-Use this v1 header:
+This creates:
+
+```text
+data/batch_specs/<batch-id>.csv
+```
+
+with the current v1 header:
 
 ```csv
 row_id,category_slug,category_title,prompt,provider,model_id,thinking_level,max_turns,sdk_package,label,design_audit
 ```
 
-Notes:
+### 6.2 Fill the CSV
 
-- Required columns: `category_slug`, `prompt`, `provider`, `model_id`, `thinking_level`, `max_turns`, `sdk_package`
-- `category_title` is required when a row introduces a new category
-- `row_id` and `label` are optional; if `row_id` is omitted it defaults to `row_0001`, `row_0002`, and so on
-- `design_audit` is optional: `true` (default from CLI) or `false` to disable post-success design-audit prompts for that row
-- `image_path` is not supported in v1
-- `provider` must be `openai` or `gemini`
-- `thinking_level` must be `low`, `med`, or `high`
+Each row is one dataset generation job.
 
-Run a batch directly:
+| Column | Required | Details |
+| --- | --- | --- |
+| `row_id` | Recommended | Stable row identifier used by resume. If omitted, it defaults to `row_0001`, `row_0002`, and so on, based on row order. For resumable batches, set this explicitly and do not change it after the first run. |
+| `category_slug` | Yes | Dataset category slug. |
+| `category_title` | Sometimes | Required for any row whose `category_slug` does not already exist in repo storage. If a new category appears on multiple rows, include the title on each of those rows. |
+| `prompt` | Yes | The generation prompt. |
+| `provider` | Yes | Must be `openai` or `gemini`. |
+| `model_id` | Yes | Model to use for that row. It must agree with `provider`. |
+| `thinking_level` | Yes | Must be `low`, `med`, or `high`. |
+| `max_turns` | Yes | Positive integer turn cap for the row. |
+| `sdk_package` | Yes | Usually `sdk` or `sdk_hybrid`. |
+| `label` | No | Optional free-form label for your own tracking. |
+| `design_audit` | No | `true` or `false`. If blank, the row inherits the CLI default for the batch. |
+
+Batch CSV v1 notes:
+
+- `image_path` is not supported in batch CSV v1
+- duplicate `row_id` values are rejected
+- if the batch introduces a new category and `category_title` is missing, validation fails before the run starts
+
+Example:
+
+```csv
+row_id,category_slug,category_title,prompt,provider,model_id,thinking_level,max_turns,sdk_package,label,design_audit
+hinge_01,hinge,Hinge,"Create a steel door hinge with two rectangular leaves and a center pin.",openai,gpt-5.4,high,12,sdk,baseline,true
+hinge_02,hinge,Hinge,"Create a compact cabinet hinge with offset leaves and a short pin.",gemini,gemini-3-flash-preview,med,10,sdk_hybrid,hybrid,false
+```
+
+### 6.3 Run the first pass
+
+Use `uv` directly:
 
 ```bash
 uv run articraft-dataset --repo-root . run-batch data/batch_specs/<batch-id>.csv --row-concurrency 8 --subprocess-concurrency auto
 ```
-Use `--design-audit` or `--no-design-audit` to override the default for the full batch.
-Resume flags are available for recovery flows:
+
+Or use the `just` wrapper:
 
 ```bash
-uv run articraft-dataset --repo-root . run-batch data/batch_specs/<batch-id>.csv --resume --resume-policy failed_or_pending
-# --resume-policy choices: failed_only | failed_or_pending | all
-uv run articraft-dataset --repo-root . run-batch data/batch_specs/<batch-id>.csv --resume --allow-resume-spec-mismatch
-# --allow-resume-spec-mismatch is risky: only use when you intentionally need to force a
-# spec-incompatible resume.
+just row_concurrency=8 subprocess_concurrency=auto dataset-batch data/batch_specs/<batch-id>.csv
 ```
 
-Resume the latest run for that spec:
+Useful execution controls:
+
+- `--row-concurrency`: maximum number of live batch rows at once; use `auto`, `max`, or a positive integer
+- `--subprocess-concurrency`: maximum number of compile/QC/probe subprocess-heavy operations at once; use `auto`, `max`, or a positive integer
+- `--design-audit` or `--no-design-audit`: set the batch-wide default for rows whose `design_audit` cell is blank
+
+If any row fails, the batch exits non-zero. That is expected. The normal recovery path is to fix the issue and rerun with `--resume`.
+
+### 6.4 Resume a batch safely
+
+The most common recovery command is:
 
 ```bash
 uv run articraft-dataset --repo-root . run-batch data/batch_specs/<batch-id>.csv --row-concurrency 8 --subprocess-concurrency auto --resume
 ```
 
-Or use the `just` shortcut:
+or with `just`:
 
 ```bash
-just row_concurrency=8 subprocess_concurrency=auto dataset-batch data/batch_specs/<batch-id>.csv
 just row_concurrency=8 subprocess_concurrency=auto resume=true dataset-batch data/batch_specs/<batch-id>.csv
-just row_concurrency=8 subprocess_concurrency=auto resume=true resume_policy=failed_or_pending dataset-batch data/batch_specs/<batch-id>.csv
-just row_concurrency=8 subprocess_concurrency=auto resume=true allow_resume_spec_mismatch=true dataset-batch data/batch_specs/<batch-id>.csv
 ```
 
-Batch rows run concurrently up to the requested row limit, successful outputs are promoted into canonical dataset storage under `data/records/`, and resumable batch state is stored under `data/cache/runs/<run_id>/`.
+What `--resume` does:
+
+- reuses the latest prior run for the same `batch_spec_id`
+- resumes that run in place under the existing `data/cache/runs/<run_id>/`
+- reuses the prior `dataset_id` and `record_id` allocations from `allocations.json`
+- preserves rows that already have durable successful outputs instead of rerunning them
+- by default, reruns rows whose latest status is `failed`, `pending`, or `running`
+
+Resume policies:
+
+```bash
+uv run articraft-dataset --repo-root . run-batch data/batch_specs/<batch-id>.csv --resume --resume-policy failed_only
+uv run articraft-dataset --repo-root . run-batch data/batch_specs/<batch-id>.csv --resume --resume-policy failed_or_pending
+uv run articraft-dataset --repo-root . run-batch data/batch_specs/<batch-id>.csv --resume --resume-policy all
+```
+
+- `failed_only`: rerun only rows whose latest status is `failed`
+- `failed_or_pending`: rerun `failed`, `pending`, and interrupted `running` rows; this is the default
+- `all`: rerun every row using the existing allocations
+
+Important resume rules:
+
+- keep the CSV filename stable so the `batch_spec_id` stays the same
+- keep `row_id` stable; changing or reordering implicit row ids can break resume matching
+- by default, resume rejects spec changes for `category_slug`, `prompt`, `provider`, `model_id`, `thinking_level`, `max_turns`, `sdk_package`, and `design_audit`
+- if a row already produced a durable record but the cached state says `running`, resume reconciles that success instead of rerunning it
+
+You can bypass the spec-compatibility check:
+
+```bash
+uv run articraft-dataset --repo-root . run-batch data/batch_specs/<batch-id>.csv --resume --allow-resume-spec-mismatch
+```
+
+or:
+
+```bash
+just resume=true allow_resume_spec_mismatch=true dataset-batch data/batch_specs/<batch-id>.csv
+```
+
+Use `--allow-resume-spec-mismatch` only for deliberate recovery work. It forces the current CSV to reuse the prior run's row allocations even though the row definitions no longer match.
+
+This is the escape hatch for "retry the same row, but with different execution settings." A common example is raising `max_turns` for failed rows, or switching a failed row to a different `provider` and `model_id`, `thinking_level`, `sdk_package`, `prompt`, or `design_audit` setting before resuming.
+
+Typical override workflow:
+
+1. Edit the existing row in `data/batch_specs/<batch-id>.csv` without changing its `row_id`.
+2. Resume with `--allow-resume-spec-mismatch`.
+3. Usually pair that with `--resume-policy failed_only` so already successful rows stay preserved.
+
+Example:
+
+```bash
+uv run articraft-dataset --repo-root . run-batch data/batch_specs/<batch-id>.csv --row-concurrency 8 --subprocess-concurrency auto --resume --resume-policy failed_only --allow-resume-spec-mismatch
+```
+
+or:
+
+```bash
+just row_concurrency=8 subprocess_concurrency=auto resume=true resume_policy=failed_only allow_resume_spec_mismatch=true dataset-batch data/batch_specs/<batch-id>.csv
+```
+
+When you do this:
+
+- the rerun uses the current CSV values for row execution settings
+- the rerun still keeps the existing `dataset_id`, `record_id`, and prompt allocation from the original run
+- only rows selected by the current `resume_policy` will actually rerun
+- keep `row_id` and the batch filename stable
+- do not treat `category_slug` as a routine override during resume; it is part of dataset identity, and changing it while reusing prior allocations can lead to confusing results
+
+### 6.5 Know where the outputs and state go
+
+After a successful row:
+
+- the canonical record is written under `data/records/<record-id>/`
+- dataset storage and category metadata are updated
+
+During the batch:
+
+- resumable run state lives under `data/cache/runs/<run_id>/`
+- `run.json` stores batch-level metadata
+- `allocations.json` stores the stable `dataset_id` and `record_id` assigned to each `row_id`
+- `results.jsonl` stores one result row per batch row
+- `state/<row_id>.json` stores per-row attempt status
+
+If you need to inspect or debug a resume decision, `allocations.json`, `results.jsonl`, and `state/<row_id>.json` are the first files to check.
 
 ## 7. Reference
 
@@ -224,3 +349,5 @@ Run a batch directly with `uv`:
 uv run articraft-dataset --repo-root . run-batch data/batch_specs/<batch-id>.csv --row-concurrency 8 --subprocess-concurrency auto
 uv run articraft-dataset --repo-root . run-batch data/batch_specs/<batch-id>.csv --row-concurrency 8 --subprocess-concurrency auto --resume
 ```
+
+See Section 6 for the batch CSV schema, resume policies, and run-state details.

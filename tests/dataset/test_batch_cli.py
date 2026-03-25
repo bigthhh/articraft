@@ -358,6 +358,193 @@ def test_build_batch_config_resolves_auto_concurrency_to_logical_cpu_count(
     assert config.concurrency == 6
 
 
+def test_build_batch_config_supports_design_audit_default_and_row_overrides(
+    tmp_path: Path,
+) -> None:
+    repo = StorageRepo(tmp_path)
+    repo.ensure_layout()
+    CategoryStore(repo).save(
+        CategoryRecord(schema_version=1, slug="hinge", title="Hinge", description="")
+    )
+
+    spec_path = tmp_path / "source_specs" / "design_audit_batch.csv"
+    _write_csv(
+        spec_path,
+        [
+            {
+                "row_id": "disabled_row",
+                "category_slug": "hinge",
+                "category_title": "Hinge",
+                "prompt": "make hinge",
+                "provider": "openai",
+                "model_id": "gpt-5.4",
+                "thinking_level": "high",
+                "max_turns": "10",
+                "sdk_package": "sdk",
+                "design_audit": "false",
+            },
+            {
+                "row_id": "enabled_row",
+                "category_slug": "hinge",
+                "category_title": "Hinge",
+                "prompt": "make another hinge",
+                "provider": "openai",
+                "model_id": "gpt-5.4",
+                "thinking_level": "high",
+                "max_turns": "10",
+                "sdk_package": "sdk",
+                "design_audit": "true",
+            },
+            {
+                "row_id": "defaulted_row",
+                "category_slug": "hinge",
+                "category_title": "Hinge",
+                "prompt": "make third hinge",
+                "provider": "openai",
+                "model_id": "gpt-5.4",
+                "thinking_level": "high",
+                "max_turns": "10",
+                "sdk_package": "sdk",
+            },
+        ],
+    )
+
+    config = batch_runner.build_batch_config(
+        repo_root=tmp_path,
+        spec_arg=str(spec_path),
+        concurrency=1,
+        system_prompt_path="designer_system_prompt.txt",
+        sdk_docs_mode="full",
+        qc_blurb_path=None,
+        post_success_design_audit=False,
+        resume=False,
+        resume_policy="failed_or_pending",
+        keep_awake=False,
+        pause_file=None,
+        pause_poll_seconds=1.0,
+        keyboard_pause_enabled=False,
+    )
+
+    assert len(config.rows) == 3
+    row_by_id = {row.row_id: row for row in config.rows}
+    assert row_by_id["disabled_row"].post_success_design_audit is False
+    assert row_by_id["enabled_row"].post_success_design_audit is True
+    assert row_by_id["defaulted_row"].post_success_design_audit is False
+
+
+def test_build_batch_config_rejects_invalid_design_audit_value(tmp_path: Path) -> None:
+    repo = StorageRepo(tmp_path)
+    repo.ensure_layout()
+    CategoryStore(repo).save(
+        CategoryRecord(schema_version=1, slug="hinge", title="Hinge", description="")
+    )
+
+    spec_path = tmp_path / "source_specs" / "invalid_design_audit.csv"
+    _write_csv(
+        spec_path,
+        [
+            {
+                "row_id": "bad_row",
+                "category_slug": "hinge",
+                "category_title": "Hinge",
+                "prompt": "make hinge",
+                "provider": "openai",
+                "model_id": "gpt-5.4",
+                "thinking_level": "high",
+                "max_turns": "10",
+                "sdk_package": "sdk",
+                "design_audit": "maybe",
+            }
+        ],
+    )
+
+    with pytest.raises(ValueError, match="invalid design_audit"):
+        batch_runner.build_batch_config(
+            repo_root=tmp_path,
+            spec_arg=str(spec_path),
+            concurrency=1,
+            system_prompt_path="designer_system_prompt.txt",
+            sdk_docs_mode="full",
+            qc_blurb_path=None,
+            post_success_design_audit=True,
+            resume=False,
+            resume_policy="failed_or_pending",
+            keep_awake=False,
+            pause_file=None,
+            pause_poll_seconds=1.0,
+            keyboard_pause_enabled=False,
+        )
+
+
+def test_run_batch_design_audit_cli_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = StorageRepo(tmp_path)
+    repo.ensure_layout()
+    CategoryStore(repo).save(
+        CategoryRecord(schema_version=1, slug="hinge", title="Hinge", description="")
+    )
+    spec_path = tmp_path / "source_specs" / "design_audit_cli.csv"
+    _write_csv(
+        spec_path,
+        [
+            {
+                "row_id": "row_1",
+                "category_slug": "hinge",
+                "category_title": "Hinge",
+                "prompt": "make a hinge",
+                "provider": "openai",
+                "model_id": "gpt-5.4",
+                "thinking_level": "high",
+                "max_turns": "12",
+                "sdk_package": "sdk",
+                "design_audit": "true",
+            },
+            {
+                "row_id": "row_2",
+                "category_slug": "hinge",
+                "category_title": "Hinge",
+                "prompt": "make another hinge",
+                "provider": "openai",
+                "model_id": "gpt-5.4",
+                "thinking_level": "high",
+                "max_turns": "12",
+                "sdk_package": "sdk",
+            },
+        ],
+    )
+
+    captured: list[bool] = []
+
+    async def fake_run_dataset_batch(config: object) -> dict[str, object]:
+        if hasattr(config, "rows"):
+            for row in getattr(config, "rows"):
+                captured.append(bool(getattr(row, "post_success_design_audit", False)))
+        return {
+            "run_id": "run_mocked",
+            "status": "success",
+            "prompt_count": 2,
+            "success_count": 2,
+            "failed_count": 0,
+        }
+
+    monkeypatch.setattr(batch_runner, "run_dataset_batch", fake_run_dataset_batch)
+
+    exit_code = dataset_main(
+        [
+            "--repo-root",
+            str(tmp_path),
+            "run-batch",
+            str(spec_path),
+            "--concurrency",
+            "1",
+            "--no-design-audit",
+        ]
+    )
+    assert exit_code == 0
+    assert captured == [True, False]
+
+
 def test_run_batch_persists_records_and_batch_metadata(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

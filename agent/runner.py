@@ -382,6 +382,7 @@ def _single_run_settings_summary(
     sdk_docs_mode: str,
     openai_transport: str,
     openai_reasoning_summary: str | None,
+    post_success_design_audit: bool,
 ) -> dict[str, Any]:
     summary: dict[str, Any] = {
         "provider": provider,
@@ -391,6 +392,7 @@ def _single_run_settings_summary(
         "system_prompt_path": system_prompt_path,
         "sdk_package": sdk_package,
         "sdk_docs_mode": sdk_docs_mode,
+        "post_success_design_audit": post_success_design_audit,
     }
     if provider == "openai":
         summary["openai_transport"] = openai_transport
@@ -519,6 +521,21 @@ def _optional_string(value: Any) -> str | None:
     return text or None
 
 
+def _optional_bool(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if not text:
+        return None
+    if text in {"1", "true", "t", "yes", "y", "on"}:
+        return True
+    if text in {"0", "false", "f", "no", "n", "off"}:
+        return False
+    return None
+
+
 def _normalize_prompt_kind(value: Any) -> str:
     prompt_kind = str(value or "single_prompt")
     if prompt_kind not in {"single_prompt", "prompt_series"}:
@@ -622,6 +639,7 @@ def create_workbench_draft_record(
     sdk_package: str = "sdk",
     sdk_docs_mode: str = "full",
     openai_reasoning_summary: str | None = "auto",
+    post_success_design_audit: bool = True,
     label: str | None = None,
     tags: Optional[list[str]] = None,
     record_id: str | None = None,
@@ -685,6 +703,7 @@ def create_workbench_draft_record(
             system_prompt_file=loaded_system_prompt_path.name,
             system_prompt_sha256=system_prompt_sha,
             sdk_docs_mode=sdk_docs_mode,
+            post_success_design_audit=post_success_design_audit,
         ),
         sdk=SdkSettings(
             sdk_package=sdk_package,
@@ -767,6 +786,7 @@ def _write_success_record(
     sdk_package: str,
     sdk_docs_mode: str,
     openai_reasoning_summary: str | None,
+    post_success_design_audit: bool,
     final_code: str,
     urdf_xml: str,
     compile_warnings: list[str],
@@ -867,6 +887,7 @@ def _write_success_record(
             system_prompt_file=system_prompt_path.name,
             system_prompt_sha256=system_prompt_sha,
             sdk_docs_mode=sdk_docs_mode,
+            post_success_design_audit=post_success_design_audit,
         ),
         sdk=SdkSettings(
             sdk_package=sdk_package,
@@ -1074,6 +1095,7 @@ async def run_from_input(
     sdk_package: str = "sdk",
     sdk_docs_mode: str = "full",
     openai_reasoning_summary: Optional[str] = "auto",
+    post_success_design_audit: bool = True,
     label: str | None = None,
     tags: Optional[list[str]] = None,
     collection: str = "workbench",
@@ -1101,6 +1123,7 @@ async def run_from_input(
         sdk_package=sdk_package,
         sdk_docs_mode=sdk_docs_mode,
         openai_reasoning_summary=openai_reasoning_summary,
+        post_success_design_audit=post_success_design_audit,
         label=label,
         tags=tags,
         collection=collection,
@@ -1137,6 +1160,7 @@ async def _execute_single_run(
     sdk_package: str = "sdk",
     sdk_docs_mode: str = "full",
     openai_reasoning_summary: Optional[str] = "auto",
+    post_success_design_audit: bool = True,
     label: str | None = None,
     tags: Optional[list[str]] = None,
     collection: str = "workbench",
@@ -1222,6 +1246,7 @@ async def _execute_single_run(
                         sdk_docs_mode=sdk_docs_mode,
                         openai_transport=openai_transport,
                         openai_reasoning_summary=openai_reasoning_summary,
+                        post_success_design_audit=post_success_design_audit,
                     ),
                 ),
             )
@@ -1268,6 +1293,7 @@ async def _execute_single_run(
                     sdk_docs_mode=sdk_docs_mode,
                     openai_transport=openai_transport,
                     openai_reasoning_summary=openai_reasoning_summary,
+                    post_success_design_audit=post_success_design_audit,
                 ),
             ),
         )
@@ -1298,6 +1324,7 @@ async def _execute_single_run(
             sdk_package=sdk_package,
             sdk_docs_mode=sdk_docs_mode,
             openai_reasoning_summary=openai_reasoning_summary,
+            post_success_design_audit=post_success_design_audit,
         ) as agent:
             logger.info("Using system prompt: %s", agent.loaded_system_prompt_path)
             loaded_system_prompt_path = Path(agent.loaded_system_prompt_path)
@@ -1407,6 +1434,7 @@ async def _execute_single_run(
             sdk_package=sdk_package,
             sdk_docs_mode=sdk_docs_mode,
             openai_reasoning_summary=openai_reasoning_summary,
+            post_success_design_audit=post_success_design_audit,
             final_code=final_code,
             urdf_xml=urdf_xml,
             compile_warnings=compile_warnings,
@@ -1495,6 +1523,7 @@ async def _execute_single_run(
                     sdk_docs_mode=sdk_docs_mode,
                     openai_transport=openai_transport,
                     openai_reasoning_summary=openai_reasoning_summary,
+                    post_success_design_audit=post_success_design_audit,
                 ),
             ),
         )
@@ -1537,6 +1566,7 @@ async def _run_from_input_impl(
     sdk_package: str = "sdk",
     sdk_docs_mode: str = "full",
     openai_reasoning_summary: Optional[str] = "auto",
+    post_success_design_audit: bool = True,
     label: str | None = None,
     tags: Optional[list[str]] = None,
     collection: str = "workbench",
@@ -1602,6 +1632,7 @@ async def _run_from_input_impl(
         sdk_package=sdk_package,
         sdk_docs_mode=sdk_docs_mode,
         openai_reasoning_summary=openai_reasoning_summary,
+        post_success_design_audit=post_success_design_audit,
         label=label,
         tags=tags,
         collection=collection,
@@ -1622,6 +1653,7 @@ async def rerun_record_in_place(
     model_id: str | None = None,
     thinking_level: str | None = None,
     sdk_package: str | None = None,
+    post_success_design_audit: bool | None = None,
     display_enabled: Optional[bool] = None,
 ) -> int:
     resolved_repo_root = repo_root.resolve()
@@ -1690,6 +1722,16 @@ async def rerun_record_in_place(
         if sdk_package is not None
         else _first_string(sdk.get("sdk_package"), existing_record.get("sdk_package"))
     )
+    stored_post_success_design_audit = _optional_bool(prompting.get("post_success_design_audit"))
+    post_success_design_audit = (
+        bool(post_success_design_audit)
+        if post_success_design_audit is not None
+        else (
+            stored_post_success_design_audit
+            if stored_post_success_design_audit is not None
+            else True
+        )
+    )
     model_id = _optional_string(model_id) or stored_model_id
     thinking_level = _optional_string(thinking_level) or stored_thinking_level
     provider = _infer_provider_from_model_id(model_id) or provider
@@ -1754,6 +1796,7 @@ async def rerun_record_in_place(
         sdk_package=sdk_package,
         sdk_docs_mode=sdk_docs_mode,
         openai_reasoning_summary=openai_reasoning_summary,
+        post_success_design_audit=post_success_design_audit,
         label=(
             _optional_string(workbench_entry.get("label"))
             if isinstance(workbench_entry, dict)
@@ -1912,6 +1955,12 @@ def main(argv: list[str] | None = None) -> int:
         default="sdk",
         help="SDK package to use for prompt selection, scaffolding, and compilation.",
     )
+    parser.add_argument(
+        "--design-audit",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable or disable post-success design-audit injection.",
+    )
     args = parser.parse_args(argv)
     if args.collection == "dataset":
         if not args.dataset_id:
@@ -2012,6 +2061,7 @@ def main(argv: list[str] | None = None) -> int:
             sdk_package=sdk_package,
             sdk_docs_mode=args.sdk_docs_mode,
             openai_reasoning_summary=openai_reasoning_summary,
+            post_success_design_audit=args.design_audit,
             label=args.label,
             tags=list(args.tag or []),
             collection=args.collection,

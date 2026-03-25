@@ -16,6 +16,7 @@ def test_runner_help_text(capsys: pytest.CaptureFixture[str]) -> None:
     assert "--prompt" in help_text
     assert "--image" in help_text
     assert "--provider {gemini,openai}" in help_text
+    assert "--design-audit" in help_text
     assert "--openai-transport {http,websocket}" in help_text
     assert "--sdk-docs-mode {core,full,none}" in help_text
     assert "--sdk-package SDK_PACKAGE" in help_text

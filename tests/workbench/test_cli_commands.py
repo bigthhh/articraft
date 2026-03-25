@@ -406,7 +406,7 @@ def test_workbench_init_record_command(
     assert "blocking broad-part floating check for isolated parts" in model_text
     assert "warning-tier within-part sensor for disconnected geometry islands" in model_text
     assert "blocking rest-pose part-to-part overlap backstop" in model_text
-    assert "justify it with `ctx.allow_overlap(...)`" in model_text
+    assert "Use `ctx.allow_overlap(...)` only for true intended penetration." in model_text
     assert "If you add a warning-tier heuristic and it fires" in model_text
     assert "Add `ctx.warn_if_articulation_overlaps(...)` only when joint clearance is" in model_text
     assert 'hinge_leaf = lid.get_visual("hinge_leaf")' in model_text
@@ -434,7 +434,87 @@ def test_workbench_init_record_command(
 
     captured = capsys.readouterr().out
     assert f"initialized record_id={record_dir.name}" in captured
-    assert "search_index=" in captured
+
+
+def test_workbench_rerun_record_command_accepts_design_audit_override(
+    fake_agent: None,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo_root = tmp_path
+    exit_code = asyncio.run(
+        runner.run_from_input(
+            "make a coffee machine",
+            prompt_text="make a coffee machine",
+            display_prompt="make a coffee machine",
+            repo_root=repo_root,
+            image_path=None,
+            provider="openai",
+            thinking_level="high",
+            max_turns=30,
+            system_prompt_path="designer_system_prompt.txt",
+            sdk_package="sdk",
+            sdk_docs_mode="full",
+            label="coffee rerun",
+            tags=["coffee"],
+        )
+    )
+    assert exit_code == 0
+    capsys.readouterr()
+
+    record_dir = next((repo_root / "data" / "records").iterdir())
+    assert (
+        workbench_main(
+            [
+                "--repo-root",
+                str(repo_root),
+                "rerun-record",
+                str(record_dir),
+                "--no-design-audit",
+            ]
+        )
+        == 0
+    )
+
+    provenance = json.loads((record_dir / "provenance.json").read_text(encoding="utf-8"))
+    assert provenance["prompting"]["post_success_design_audit"] is False
+    output = capsys.readouterr().out
+    assert f"reran record_id={record_dir.name}" in output
+    assert "search_index=" in output
+
+
+def test_workbench_init_record_command_accepts_design_audit_override(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo_root = tmp_path
+
+    assert (
+        workbench_main(
+            [
+                "--repo-root",
+                str(repo_root),
+                "init-record",
+                "build a folding reading lamp",
+                "--provider",
+                "openai",
+                "--model-id",
+                "gpt-5.4",
+                "--thinking-level",
+                "high",
+                "--no-design-audit",
+            ]
+        )
+        == 0
+    )
+
+    records = sorted((repo_root / "data" / "records").iterdir())
+    assert len(records) == 1
+    record_dir = records[0]
+
+    provenance = json.loads((record_dir / "provenance.json").read_text(encoding="utf-8"))
+    assert provenance["prompting"]["post_success_design_audit"] is False
+    assert f"initialized record_id={record_dir.name}" in capsys.readouterr().out
 
 
 def test_workbench_init_record_command_persists_input_image(

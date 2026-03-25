@@ -120,7 +120,7 @@ just name=<batch-id> batch-spec-new
 Use this v1 header:
 
 ```csv
-row_id,category_slug,category_title,prompt,provider,model_id,thinking_level,max_turns,sdk_package,label
+row_id,category_slug,category_title,prompt,provider,model_id,thinking_level,max_turns,sdk_package,label,design_audit
 ```
 
 Notes:
@@ -128,6 +128,7 @@ Notes:
 - Required columns: `category_slug`, `prompt`, `provider`, `model_id`, `thinking_level`, `max_turns`, `sdk_package`
 - `category_title` is required when a row introduces a new category
 - `row_id` and `label` are optional; if `row_id` is omitted it defaults to `row_0001`, `row_0002`, and so on
+- `design_audit` is optional: `true` (default from CLI) or `false` to disable post-success design-audit prompts for that row
 - `image_path` is not supported in v1
 - `provider` must be `openai` or `gemini`
 - `thinking_level` must be `low`, `med`, or `high`
@@ -137,6 +138,7 @@ Run a batch directly:
 ```bash
 uv run articraft-dataset --repo-root . run-batch data/batch_specs/<batch-id>.csv --concurrency 8
 ```
+Use `--design-audit` or `--no-design-audit` to override the default for the full batch.
 
 Resume the latest run for that spec:
 

@@ -560,7 +560,10 @@ def _build_parser() -> argparse.ArgumentParser:
     run_batch.add_argument(
         "--concurrency",
         default="auto",
-        help="Maximum number of batch rows to run concurrently: auto, max, or a positive integer.",
+        help=(
+            "Maximum number of batch rows to run concurrently: "
+            "auto (CPU-bounded), max (all candidate rows), or a positive integer."
+        ),
     )
     run_batch.add_argument(
         "--system-prompt-path",
@@ -576,6 +579,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--qc-blurb",
         default=None,
         help="Optional QC checklist file to append to every prompt.",
+    )
+    run_batch.add_argument(
+        "--design-audit",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable or disable post-success design-audit injection for this batch.",
     )
     run_batch.add_argument(
         "--resume",
@@ -829,6 +838,7 @@ def main(argv: list[str] | None = None) -> int:
                 system_prompt_path=args.system_prompt_path,
                 sdk_docs_mode=args.sdk_docs_mode,
                 qc_blurb_path=args.qc_blurb,
+                post_success_design_audit=args.design_audit,
                 resume=args.resume,
                 resume_policy=args.resume_policy,
                 keep_awake=bool(args.keep_awake),

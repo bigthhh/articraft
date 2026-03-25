@@ -13,6 +13,7 @@ api_host := host
 api_port := port
 viewer_target := "/"
 concurrency := "auto"
+design_audit := ""
 limit := ""
 name := ""
 
@@ -94,6 +95,11 @@ wb prompt:
       --thinking "$thinking"
       --sdk-package "$sdk_package"
     )
+    if [ "$design_audit" = "false" ]; then
+      cmd+=(--no-design-audit)
+    elif [ "$design_audit" = "true" ]; then
+      cmd+=(--design-audit)
+    fi
     if [ -n "$image" ]; then
       cmd+=(--image "$image")
     fi
@@ -148,6 +154,11 @@ wb-init prompt:
     )
     if [ -n "$image" ]; then
       cmd+=(--image "$image")
+    fi
+    if [ "$design_audit" = "false" ]; then
+      cmd+=(--no-design-audit)
+    elif [ "$design_audit" = "true" ]; then
+      cmd+=(--design-audit)
     fi
     exec "${cmd[@]}"
 
@@ -236,9 +247,15 @@ dataset-batch spec_path="":
     set -euo pipefail
     spec_path={{ quote(spec_path) }}
     concurrency_value={{ quote(concurrency) }}
+    design_audit_value={{ quote(design_audit) }}
     if [ -z "$spec_path" ]; then
       echo "Usage: just concurrency=<n> dataset-batch path/to/batch.csv" >&2
       exit 1
+    fi
+    if [ "$design_audit_value" = "false" ]; then
+      exec uv run articraft-dataset --repo-root . run-batch "$spec_path" --concurrency "$concurrency_value" --no-design-audit
+    elif [ "$design_audit_value" = "true" ]; then
+      exec uv run articraft-dataset --repo-root . run-batch "$spec_path" --concurrency "$concurrency_value" --design-audit
     fi
     exec uv run articraft-dataset --repo-root . run-batch "$spec_path" --concurrency "$concurrency_value"
 
@@ -256,7 +273,7 @@ batch-spec-new:
       exit 1
     fi
     mkdir -p "$(dirname "$spec_path")"
-    printf '%s\n' 'row_id,category_slug,category_title,prompt,provider,model_id,thinking_level,max_turns,sdk_package,label' >"$spec_path"
+    printf '%s\n' 'row_id,category_slug,category_title,prompt,provider,model_id,thinking_level,max_turns,sdk_package,label,design_audit' >"$spec_path"
     echo "Created $spec_path"
 
 search-index:

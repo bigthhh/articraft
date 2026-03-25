@@ -185,6 +185,7 @@ class ArticraftAgent:
         sdk_package: str = "sdk",
         sdk_docs_mode: str = "full",
         openai_reasoning_summary: Optional[str] = "auto",
+        post_success_design_audit: bool = True,
     ):
         self.file_path = file_path
         self.max_turns = max_turns
@@ -196,6 +197,7 @@ class ArticraftAgent:
         self._last_compile_failure_sig: Optional[str] = None
         self._consecutive_compile_failure_count = 0
         self._post_success_design_audit_sent = False
+        self._post_success_design_audit_enabled = post_success_design_audit
         self.checkpoint_urdf_path = (
             Path(checkpoint_urdf_path).resolve() if checkpoint_urdf_path else None
         )
@@ -357,6 +359,8 @@ class ArticraftAgent:
 
     def _maybe_inject_post_success_design_audit(self, conversation: list[dict]) -> bool:
         if self._post_success_design_audit_sent:
+            return False
+        if not getattr(self, "_post_success_design_audit_enabled", True):
             return False
 
         content = (

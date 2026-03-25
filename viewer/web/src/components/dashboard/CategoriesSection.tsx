@@ -1,8 +1,9 @@
 import { useCallback, useState, useMemo, type JSX } from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, Download, Search } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronRight, Download, Search } from "lucide-react";
 
 import { formatCost } from "@/lib/dashboard-stats";
 import { formatCategoryLabel } from "@/lib/utils";
+import type { SupercategoryOption } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -13,16 +14,16 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+type CategoryStats = {
+  count: number;
+  sdk_package: string | null;
+  average_rating: number | null;
+  average_cost_usd: number | null;
+};
+
 type CategoriesSectionProps = {
-  categoryStats: Record<
-    string,
-    {
-      count: number;
-      sdk_package: string | null;
-      average_rating: number | null;
-      average_cost_usd: number | null;
-    }
-  >;
+  categoryStats: Record<string, CategoryStats>;
+  supercategories?: SupercategoryOption[];
 };
 
 type SortKey = "category" | "sdk_package" | "count" | "average_rating" | "average_cost_usd";
@@ -38,49 +39,178 @@ function formatSdkPackage(value: string | null): string {
   return "—";
 }
 
-export function CategoriesSection({ categoryStats }: CategoriesSectionProps): JSX.Element | null {
+type CategoryRow = [string, CategoryStats];
+
+function sortRows(rows: CategoryRow[], sortKey: SortKey, sortDirection: SortDirection): CategoryRow[] {
+  return [...rows].sort((left, right) => {
+    const [leftCategory, leftStats] = left;
+    const [rightCategory, rightStats] = right;
+    const leftCategoryLabel = formatCategoryLabel(leftCategory);
+    const rightCategoryLabel = formatCategoryLabel(rightCategory);
+
+    const categoryFallback = leftCategoryLabel.localeCompare(rightCategoryLabel);
+
+    if (sortKey === "category") {
+      return sortDirection === "asc" ? categoryFallback : -categoryFallback;
+    }
+
+    if (sortKey === "sdk_package") {
+      const leftValue = formatSdkPackage(leftStats.sdk_package);
+      const rightValue = formatSdkPackage(rightStats.sdk_package);
+      const sdkDelta = leftValue.localeCompare(rightValue);
+      if (sdkDelta === 0) return categoryFallback;
+      return sortDirection === "asc" ? sdkDelta : -sdkDelta;
+    }
+
+    const leftValue = leftStats[sortKey];
+    const rightValue = rightStats[sortKey];
+
+    if (leftValue == null && rightValue == null) return categoryFallback;
+    if (leftValue == null) return 1;
+    if (rightValue == null) return -1;
+
+    const numericDelta = leftValue - rightValue;
+    if (numericDelta === 0) return categoryFallback;
+    return sortDirection === "asc" ? numericDelta : -numericDelta;
+  });
+}
+
+type SupercategoryGroup = {
+  slug: string;
+  title: string;
+  rows: CategoryRow[];
+  totalCount: number;
+  avgRating: number | null;
+  avgCost: number | null;
+};
+
+function buildGroups(
+  rows: CategoryRow[],
+  supercategories: SupercategoryOption[],
+): SupercategoryGroup[] {
+  const catToSuper = new Map<string, string>();
+  const superBySlug = new Map<string, SupercategoryOption>();
+  for (const sc of supercategories) {
+    superBySlug.set(sc.slug, sc);
+    for (const cat of sc.category_slugs) {
+      catToSuper.set(cat, sc.slug);
+    }
+  }
+
+  const grouped = new Map<string, CategoryRow[]>();
+  for (const sc of supercategories) {
+    grouped.set(sc.slug, []);
+  }
+  grouped.set("__uncategorized__", []);
+
+  for (const row of rows) {
+    const superSlug = catToSuper.get(row[0]);
+    const key = superSlug ?? "__uncategorized__";
+    grouped.get(key)!.push(row);
+  }
+
+  const groups: SupercategoryGroup[] = [];
+  for (const sc of supercategories) {
+    const scRows = grouped.get(sc.slug) ?? [];
+    if (scRows.length === 0) continue;
+    groups.push(buildGroupStats(sc.slug, sc.title, scRows));
+  }
+  const uncategorized = grouped.get("__uncategorized__") ?? [];
+  if (uncategorized.length > 0) {
+    groups.push(buildGroupStats("__uncategorized__", "Uncategorized", uncategorized));
+  }
+  return groups;
+}
+
+function buildGroupStats(slug: string, title: string, rows: CategoryRow[]): SupercategoryGroup {
+  let totalCount = 0;
+  let ratingSum = 0;
+  let ratingCount = 0;
+  let costSum = 0;
+  let costCount = 0;
+  for (const [, stats] of rows) {
+    totalCount += stats.count;
+    if (stats.average_rating != null) {
+      ratingSum += stats.average_rating * stats.count;
+      ratingCount += stats.count;
+    }
+    if (stats.average_cost_usd != null) {
+      costSum += stats.average_cost_usd * stats.count;
+      costCount += stats.count;
+    }
+  }
+  return {
+    slug,
+    title,
+    rows,
+    totalCount,
+    avgRating: ratingCount > 0 ? Math.round((ratingSum / ratingCount) * 10) / 10 : null,
+    avgCost: costCount > 0 ? Math.round((costSum / costCount) * 10000) / 10000 : null,
+  };
+}
+
+function CategoryTableRows({
+  rows,
+  startIndex,
+}: {
+  rows: CategoryRow[];
+  startIndex: number;
+}): JSX.Element {
+  return (
+    <>
+      {rows.map(([category, stats], index) => (
+        <TableRow
+          key={category}
+          className="border-b border-[var(--border-subtle)] hover:bg-[var(--surface-1)]"
+        >
+          <TableCell className="w-8 px-0 py-[5px] text-center font-mono tabular-nums text-[var(--text-quaternary)]">
+            {startIndex + index + 1}
+          </TableCell>
+          <TableCell className="w-full px-4 py-[5px] text-[var(--text-secondary)]">
+            {formatCategoryLabel(category)}
+          </TableCell>
+          <TableCell className="whitespace-nowrap px-4 py-[5px] text-[var(--text-tertiary)]">
+            {stats.sdk_package ? (
+              <Badge variant="secondary" className="rounded-sm px-1.5 py-0 font-mono text-[10px]">
+                {formatSdkPackage(stats.sdk_package)}
+              </Badge>
+            ) : (
+              <span className="font-mono text-[var(--text-quaternary)]">—</span>
+            )}
+          </TableCell>
+          <TableCell className="whitespace-nowrap px-4 py-[5px] text-right font-mono tabular-nums text-[var(--text-tertiary)]">
+            {stats.count}
+          </TableCell>
+          <TableCell className="whitespace-nowrap px-4 py-[5px] text-right font-mono tabular-nums text-[var(--text-tertiary)]">
+            {formatAverageRating(stats.average_rating)}
+          </TableCell>
+          <TableCell className="whitespace-nowrap px-4 py-[5px] text-right font-mono tabular-nums text-[var(--text-tertiary)]">
+            {formatCost(stats.average_cost_usd)}
+          </TableCell>
+        </TableRow>
+      ))}
+    </>
+  );
+}
+
+export function CategoriesSection({ categoryStats, supercategories }: CategoriesSectionProps): JSX.Element | null {
   const [filter, setFilter] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("count");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+
+  const allEntries = useMemo(
+    () => Object.entries(categoryStats) as CategoryRow[],
+    [categoryStats],
+  );
 
   const allSorted = useMemo(
-    () =>
-      Object.entries(categoryStats).sort((left, right) => {
-        const [leftCategory, leftStats] = left;
-        const [rightCategory, rightStats] = right;
-        const leftCategoryLabel = formatCategoryLabel(leftCategory);
-        const rightCategoryLabel = formatCategoryLabel(rightCategory);
-
-        const categoryFallback = leftCategoryLabel.localeCompare(rightCategoryLabel);
-
-        if (sortKey === "category") {
-          return sortDirection === "asc" ? categoryFallback : -categoryFallback;
-        }
-
-        if (sortKey === "sdk_package") {
-          const leftValue = formatSdkPackage(leftStats.sdk_package);
-          const rightValue = formatSdkPackage(rightStats.sdk_package);
-          const sdkDelta = leftValue.localeCompare(rightValue);
-          if (sdkDelta === 0) return categoryFallback;
-          return sortDirection === "asc" ? sdkDelta : -sdkDelta;
-        }
-
-        const leftValue = leftStats[sortKey];
-        const rightValue = rightStats[sortKey];
-
-        if (leftValue == null && rightValue == null) return categoryFallback;
-        if (leftValue == null) return 1;
-        if (rightValue == null) return -1;
-
-        const numericDelta = leftValue - rightValue;
-        if (numericDelta === 0) return categoryFallback;
-        return sortDirection === "asc" ? numericDelta : -numericDelta;
-      }),
-    [categoryStats, sortDirection, sortKey],
+    () => sortRows(allEntries, sortKey, sortDirection),
+    [allEntries, sortKey, sortDirection],
   );
 
   const exportCsv = useCallback(
-    (rows: [string, CategoriesSectionProps["categoryStats"][string]][]) => {
+    (rows: CategoryRow[]) => {
       const header = "Category,SDK,Count,Avg Stars,Avg Cost USD";
       const lines = rows.map(([slug, s]) => {
         const cat = formatCategoryLabel(slug).replaceAll('"', '""');
@@ -100,12 +230,28 @@ export function CategoriesSection({ categoryStats }: CategoriesSectionProps): JS
     [],
   );
 
-  if (allSorted.length === 0) return null;
+  const filtered = useMemo(() => {
+    const needle = filter.trim().toLowerCase();
+    return needle
+      ? allSorted.filter(([category]) => formatCategoryLabel(category).toLowerCase().includes(needle))
+      : allSorted;
+  }, [allSorted, filter]);
 
-  const needle = filter.trim().toLowerCase();
-  const filtered = needle
-    ? allSorted.filter(([category]) => formatCategoryLabel(category).toLowerCase().includes(needle))
-    : allSorted;
+  const hasSupercategories = supercategories && supercategories.length > 0;
+
+  const groups = useMemo(() => {
+    if (!hasSupercategories) return null;
+    return buildGroups(
+      sortRows(
+        filtered.map(([cat, stats]) => [cat, stats]),
+        sortKey,
+        sortDirection,
+      ),
+      supercategories,
+    );
+  }, [filtered, hasSupercategories, supercategories, sortKey, sortDirection]);
+
+  if (allSorted.length === 0) return null;
 
   function toggleSort(nextSortKey: SortKey): void {
     if (nextSortKey === sortKey) {
@@ -114,6 +260,18 @@ export function CategoriesSection({ categoryStats }: CategoriesSectionProps): JS
     }
     setSortKey(nextSortKey);
     setSortDirection(nextSortKey === "category" || nextSortKey === "sdk_package" ? "asc" : "desc");
+  }
+
+  function toggleGroup(slug: string): void {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(slug)) {
+        next.delete(slug);
+      } else {
+        next.add(slug);
+      }
+      return next;
+    });
   }
 
   function SortIndicator({ column }: { column: SortKey }): JSX.Element {
@@ -125,6 +283,8 @@ export function CategoriesSection({ categoryStats }: CategoriesSectionProps): JS
     }
     return <ArrowDown className="size-3 text-[var(--text-tertiary)]" />;
   }
+
+  let runningIndex = 0;
 
   return (
     <section>
@@ -141,10 +301,10 @@ export function CategoriesSection({ categoryStats }: CategoriesSectionProps): JS
           <button
             type="button"
             onClick={() => exportCsv(filtered)}
-            className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--surface-1)] hover:text-[var(--text-secondary)]"
+            title="Export CSV"
+            className="rounded p-0.5 text-[var(--text-quaternary)] transition-colors hover:bg-[var(--surface-1)] hover:text-[var(--text-tertiary)]"
           >
             <Download className="size-3" />
-            <span>Export</span>
           </button>
         </div>
       </div>
@@ -226,42 +386,81 @@ export function CategoriesSection({ categoryStats }: CategoriesSectionProps): JS
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map(([category, stats], index) => (
-                  <TableRow
-                    key={category}
-                    className="border-b border-[var(--border-subtle)] hover:bg-[var(--surface-1)]"
-                  >
-                    <TableCell className="w-8 px-0 py-[5px] text-center font-mono tabular-nums text-[var(--text-quaternary)]">
-                      {index + 1}
-                    </TableCell>
-                    <TableCell className="w-full px-4 py-[5px] text-[var(--text-secondary)]">
-                      {formatCategoryLabel(category)}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap px-4 py-[5px] text-[var(--text-tertiary)]">
-                      {stats.sdk_package ? (
-                        <Badge variant="secondary" className="rounded-sm px-1.5 py-0 font-mono text-[10px]">
-                          {formatSdkPackage(stats.sdk_package)}
-                        </Badge>
-                      ) : (
-                        <span className="font-mono text-[var(--text-quaternary)]">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap px-4 py-[5px] text-right font-mono tabular-nums text-[var(--text-tertiary)]">
-                      {stats.count}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap px-4 py-[5px] text-right font-mono tabular-nums text-[var(--text-tertiary)]">
-                      {formatAverageRating(stats.average_rating)}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap px-4 py-[5px] text-right font-mono tabular-nums text-[var(--text-tertiary)]">
-                      {formatCost(stats.average_cost_usd)}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {groups
+                  ? groups.map((group) => {
+                      const collapsed = collapsedGroups.has(group.slug);
+                      const groupStartIndex = runningIndex;
+                      if (!collapsed) {
+                        runningIndex += group.rows.length;
+                      }
+                      return (
+                        <SupercategoryGroupRows
+                          key={group.slug}
+                          group={group}
+                          collapsed={collapsed}
+                          startIndex={groupStartIndex}
+                          onToggle={() => toggleGroup(group.slug)}
+                        />
+                      );
+                    })
+                  : (
+                    <CategoryTableRows rows={filtered} startIndex={0} />
+                  )}
               </TableBody>
             </Table>
           )}
         </div>
       </div>
     </section>
+  );
+}
+
+function SupercategoryGroupRows({
+  group,
+  collapsed,
+  startIndex,
+  onToggle,
+}: {
+  group: SupercategoryGroup;
+  collapsed: boolean;
+  startIndex: number;
+  onToggle: () => void;
+}): JSX.Element {
+  return (
+    <>
+      <TableRow
+        className="border-b border-[var(--border-default)] bg-[var(--surface-1)] hover:bg-[var(--surface-1)]"
+      >
+        <TableCell colSpan={3} className="px-2 py-[5px]">
+          <button
+            type="button"
+            onClick={onToggle}
+            className="flex items-center gap-1.5 text-left text-[11px] font-medium text-[var(--text-secondary)]"
+          >
+            {collapsed ? (
+              <ChevronRight className="size-3 text-[var(--text-tertiary)]" />
+            ) : (
+              <ChevronDown className="size-3 text-[var(--text-tertiary)]" />
+            )}
+            <span>{group.title}</span>
+            <span className="font-normal text-[var(--text-quaternary)]">
+              ({group.rows.length})
+            </span>
+          </button>
+        </TableCell>
+        <TableCell className="whitespace-nowrap px-4 py-[5px] text-right font-mono tabular-nums text-[var(--text-tertiary)]">
+          {group.totalCount}
+        </TableCell>
+        <TableCell className="whitespace-nowrap px-4 py-[5px] text-right font-mono tabular-nums text-[var(--text-tertiary)]">
+          {formatAverageRating(group.avgRating)}
+        </TableCell>
+        <TableCell className="whitespace-nowrap px-4 py-[5px] text-right font-mono tabular-nums text-[var(--text-tertiary)]">
+          {formatCost(group.avgCost)}
+        </TableCell>
+      </TableRow>
+      {!collapsed ? (
+        <CategoryTableRows rows={group.rows} startIndex={startIndex} />
+      ) : null}
+    </>
   );
 }

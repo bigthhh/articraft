@@ -43,6 +43,7 @@ from viewer.api.schemas import (
     RunDetailResponse,
     RunSummaryResponse,
     StagingEntryResponse,
+    SupercategoryOptionResponse,
     ViewerBootstrapResponse,
     WorkbenchEntryResponse,
 )
@@ -412,6 +413,10 @@ def create_app(*, repo_root: Path | None = None) -> FastAPI:
     @app.get("/api/categories", response_model=list[CategoryOptionResponse])
     async def categories() -> list[CategoryOptionResponse]:
         return app.state.viewer_store.list_categories()
+
+    @app.get("/api/supercategories", response_model=list[SupercategoryOptionResponse])
+    async def supercategories() -> list[SupercategoryOptionResponse]:
+        return app.state.viewer_store.list_supercategories()
 
     @app.get("/api/staging", response_model=list[StagingEntryResponse])
     async def staging_entries() -> list[StagingEntryResponse]:

@@ -648,6 +648,40 @@ def test_run_batch_persists_records_and_batch_metadata(
     assert run_id in queries.list_run_ids_for_category("hinge")
     assert run_id in queries.list_run_ids_for_category("fan")
 
+    dataset_store = DatasetStore(repo)
+    hinge_entry = dataset_store.load_entry("rec_hinge_0001")
+    fan_entry = dataset_store.load_entry("rec_fan_0001")
+    assert hinge_entry == {
+        "schema_version": 1,
+        "dataset_id": "ds_hinge_0001",
+        "record_id": "rec_hinge_0001",
+        "category_slug": "hinge",
+        "promoted_at": hinge_entry["promoted_at"],
+    }
+    assert fan_entry == {
+        "schema_version": 1,
+        "dataset_id": "ds_fan_0001",
+        "record_id": "rec_fan_0001",
+        "category_slug": "fan",
+        "promoted_at": fan_entry["promoted_at"],
+    }
+    manifest = repo.read_json(repo.layout.dataset_manifest_path())
+    assert manifest == {
+        "generated": [
+            {"name": "ds_fan_0001", "record_id": "rec_fan_0001"},
+            {"name": "ds_hinge_0001", "record_id": "rec_hinge_0001"},
+        ]
+    }
+
+    hinge_category = CategoryStore(repo).load("hinge")
+    fan_category = CategoryStore(repo).load("fan")
+    assert hinge_category["current_count"] == 1
+    assert hinge_category["last_item_index"] == 1
+    assert hinge_category["run_count"] == 1
+    assert fan_category["current_count"] == 1
+    assert fan_category["last_item_index"] == 1
+    assert fan_category["run_count"] == 1
+
     viewer_store = ViewerStore(tmp_path)
     run_detail = viewer_store.load_run_detail(run_id)
     assert run_detail is not None
@@ -719,6 +753,9 @@ def test_run_batch_resume_reuses_allocations_and_only_reruns_failed_rows(
     allocations = repo.read_json(repo.layout.run_allocations_path(run_id))
     assert allocations is not None
     allocations_by_row = {row["row_id"]: row for row in allocations["rows"]}
+    fan_row_id = next(
+        row_id for row_id in allocations_by_row if row_id not in {"ok_row", "retry_row"}
+    )
     failed_record_id = allocations_by_row["retry_row"]["record_id"]
     failed_dataset_id = allocations_by_row["retry_row"]["dataset_id"]
 
@@ -728,6 +765,36 @@ def test_run_batch_resume_reuses_allocations_and_only_reruns_failed_rows(
     ]
     assert len(first_results) == 3
     assert next(row for row in first_results if row["row_id"] == "retry_row")["status"] == "failed"
+
+    dataset_store = DatasetStore(repo)
+    ok_entry = dataset_store.load_entry(allocations_by_row["ok_row"]["record_id"])
+    fan_entry = dataset_store.load_entry(allocations_by_row[fan_row_id]["record_id"])
+    failed_entry = dataset_store.load_entry(failed_record_id)
+    assert ok_entry is not None
+    assert ok_entry["dataset_id"] == allocations_by_row["ok_row"]["dataset_id"]
+    assert fan_entry is not None
+    assert fan_entry["dataset_id"] == allocations_by_row[fan_row_id]["dataset_id"]
+    assert failed_entry is None
+
+    first_manifest = repo.read_json(repo.layout.dataset_manifest_path())
+    assert first_manifest == {
+        "generated": [
+            {
+                "name": allocations_by_row[fan_row_id]["dataset_id"],
+                "record_id": allocations_by_row[fan_row_id]["record_id"],
+            },
+            {
+                "name": allocations_by_row["ok_row"]["dataset_id"],
+                "record_id": allocations_by_row["ok_row"]["record_id"],
+            },
+        ]
+    }
+    hinge_category = CategoryStore(repo).load("hinge")
+    fan_category = CategoryStore(repo).load("fan")
+    assert hinge_category["current_count"] == 1
+    assert hinge_category["last_item_index"] == 1
+    assert fan_category["current_count"] == 1
+    assert fan_category["last_item_index"] == 1
 
     second_exit_code = dataset_main(
         [
@@ -759,6 +826,30 @@ def test_run_batch_resume_reuses_allocations_and_only_reruns_failed_rows(
     record = repo.read_json(repo.layout.record_metadata_path(failed_record_id))
     assert record["source"]["row_id"] == "retry_row"
     assert record["source"]["run_id"] == run_id
+
+    retry_entry = dataset_store.load_entry(failed_record_id)
+    assert retry_entry is not None
+    assert retry_entry["dataset_id"] == failed_dataset_id
+    second_manifest = repo.read_json(repo.layout.dataset_manifest_path())
+    assert second_manifest == {
+        "generated": [
+            {
+                "name": allocations_by_row[fan_row_id]["dataset_id"],
+                "record_id": allocations_by_row[fan_row_id]["record_id"],
+            },
+            {
+                "name": allocations_by_row["ok_row"]["dataset_id"],
+                "record_id": allocations_by_row["ok_row"]["record_id"],
+            },
+            {
+                "name": failed_dataset_id,
+                "record_id": failed_record_id,
+            },
+        ]
+    }
+    hinge_category = CategoryStore(repo).load("hinge")
+    assert hinge_category["current_count"] == 2
+    assert hinge_category["last_item_index"] == 2
 
 
 def test_run_batch_resume_reconciles_durable_success_without_rerunning(

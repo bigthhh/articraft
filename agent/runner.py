@@ -21,13 +21,14 @@ from typing import Any, Callable, Optional
 from dotenv import load_dotenv
 
 from agent.compiler import (
+    _should_rewrite_visual_meshes_to_glb,
+    rewrite_visual_meshes_to_glb,
+)
+from agent.compiler import (
     compile_urdf as _compile_urdf,
 )
 from agent.compiler import (
     compile_urdf_report_maybe_timeout as _compile_urdf_report_maybe_timeout,
-)
-from agent.compiler import (
-    rewrite_visual_meshes_to_glb,
 )
 from agent.defaults import DEFAULT_MAX_TURNS
 from agent.harness import ArticraftAgent, build_openai_prompt_cache_settings
@@ -167,7 +168,7 @@ def compile_urdf(
     script_path: Path,
     *,
     sdk_package: str = "sdk",
-    rewrite_visual_glb: bool = True,
+    rewrite_visual_glb: bool | None = None,
 ) -> str:
     """Compatibility export for legacy imports from agent.runner."""
     return _compile_urdf(
@@ -184,7 +185,7 @@ def compile_urdf_report_maybe_timeout(
     run_checks: bool = True,
     ignore_geom_qc: bool = False,
     target: str = "full",
-    rewrite_visual_glb: bool = True,
+    rewrite_visual_glb: bool | None = None,
 ) -> AgentCompileReport:
     """Compatibility export for legacy imports from agent.runner."""
     return _compile_urdf_report_maybe_timeout(
@@ -809,12 +810,17 @@ def _write_success_record(
 ) -> Path:
     materializations = MaterializationStore(storage_repo)
     persisted_warnings = list(compile_warnings)
-    persisted_urdf_xml = rewrite_visual_meshes_to_glb(
-        urdf_xml,
+    persisted_urdf_xml = urdf_xml
+    if _should_rewrite_visual_meshes_to_glb(
         sdk_package=sdk_package,
-        asset_root=context.staging_dir,
-        warnings=persisted_warnings,
-    )
+        rewrite_visual_glb=None,
+    ):
+        persisted_urdf_xml = rewrite_visual_meshes_to_glb(
+            urdf_xml,
+            sdk_package=sdk_package,
+            asset_root=context.staging_dir,
+            warnings=persisted_warnings,
+        )
     record_store.ensure_record_dirs(context.record_id)
     storage_repo.write_text(context.record_prompt_path, prompt_text)
     storage_repo.write_text(context.record_model_path, final_code)

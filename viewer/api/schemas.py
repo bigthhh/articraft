@@ -48,6 +48,8 @@ class RecordSummaryResponse(BaseModel):
     total_cost_usd: float | None = None
     category_slug: str | None = None
     run_id: str | None = None
+    run_status: str | None = None
+    run_message: str | None = None
     collections: list[str] = Field(default_factory=list)
     materialization_status: str | None = None
     has_compile_report: bool = False
@@ -72,9 +74,17 @@ class DatasetEntryResponse(BaseModel):
     record: RecordSummaryResponse | None = None
 
 
+class SupercategoryOptionResponse(BaseModel):
+    slug: str
+    title: str
+    description: str = ""
+    category_slugs: list[str] = Field(default_factory=list)
+
+
 class CategoryOptionResponse(BaseModel):
     slug: str
     title: str
+    supercategory_slug: str | None = None
 
 
 class StagingEntryResponse(BaseModel):
@@ -181,6 +191,7 @@ class ViewerBootstrapResponse(BaseModel):
     dataset_entries: list[DatasetEntryResponse]
     staging_entries: list[StagingEntryResponse]
     runs: list[RunSummaryResponse]
+    supercategories: list[SupercategoryOptionResponse] = Field(default_factory=list)
 
 
 class CategoryStatsResponse(BaseModel):

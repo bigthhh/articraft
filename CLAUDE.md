@@ -107,6 +107,7 @@ Validation rules:
 - `sdk_package` is normalized through the same validation path as single runs
 - `image_path` is intentionally unsupported in v1
 - If `row_id` is omitted, it defaults to `row_0001`, `row_0002`, and so on
+- Prompt writing guidelines are in [`data/CATEGORY_PROMPT_GUIDE.md`](/Users/matthewzhou/articraft/data/CATEGORY_PROMPT_GUIDE.md)
 
 ### Viewer architecture
 

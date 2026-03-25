@@ -20,6 +20,7 @@ from storage.queries import StorageQueries
 from storage.records import RecordStore
 from storage.repo import StorageRepo
 from storage.search import SearchIndex
+from storage.supercategories import SupercategoryStore
 from viewer.api.schemas import (
     CategoryOptionResponse,
     CategoryStatsResponse,
@@ -31,6 +32,7 @@ from viewer.api.schemas import (
     RunResultResponse,
     RunSummaryResponse,
     StagingEntryResponse,
+    SupercategoryOptionResponse,
     ViewerBootstrapResponse,
     WorkbenchEntryResponse,
 )
@@ -242,11 +244,14 @@ class ViewerStore:
         self.datasets = DatasetStore(self.repo)
         self.records = RecordStore(self.repo)
         self.materializations = MaterializationStore(self.repo)
+        self.supercategory_store = SupercategoryStore(self.repo)
         self.search = SearchIndex(self.repo)
         if ensure_search_index:
             self.search.ensure_current()
         self._compile_locks_guard = threading.Lock()
         self._compile_locks: dict[str, threading.Lock] = {}
+        self._run_results_cache_guard = threading.Lock()
+        self._run_results_cache: dict[str, tuple[int | None, dict[str, dict[str, Any]]]] = {}
 
     def _record_compile_lock(self, record_id: str) -> threading.Lock:
         with self._compile_locks_guard:
@@ -513,6 +518,33 @@ class ViewerStore:
                 rows.append(parsed)
         return rows
 
+    def _run_result_for_record(self, run_id: str, record_id: str) -> dict[str, Any] | None:
+        results_path = self.repo.layout.run_results_path(run_id)
+        try:
+            mtime_ns = results_path.stat().st_mtime_ns
+        except OSError:
+            mtime_ns = None
+
+        cached_lookup: dict[str, dict[str, Any]] | None = None
+        with self._run_results_cache_guard:
+            cached = self._run_results_cache.get(run_id)
+            if cached is not None and cached[0] == mtime_ns:
+                cached_lookup = cached[1]
+
+        if cached_lookup is None:
+            lookup: dict[str, dict[str, Any]] = {}
+            for row in self._read_jsonl(results_path):
+                row_record_id = _coerce_string(row.get("record_id"))
+                if row_record_id is None:
+                    continue
+                lookup[row_record_id] = row
+            with self._run_results_cache_guard:
+                self._run_results_cache[run_id] = (mtime_ns, lookup)
+            cached_lookup = lookup
+
+        row = cached_lookup.get(record_id)
+        return row if isinstance(row, dict) else None
+
     def _read_text(self, path: Path) -> str | None:
         if not path.exists() or not path.is_file():
             return None
@@ -611,10 +643,13 @@ class ViewerStore:
 
         turn_count: int | None = None
         thinking_level: str | None = None
+        run_status: str | None = None
+        run_message: str | None = None
         if isinstance(provenance, dict):
             run_summary = provenance.get("run_summary")
             if isinstance(run_summary, dict):
                 turn_count = _coerce_int(run_summary.get("turn_count"))
+                run_status = _coerce_string(run_summary.get("final_status"))
             thinking_level = _thinking_level_from_provenance(provenance)
 
         total_cost_usd: float | None = None
@@ -624,6 +659,13 @@ class ViewerStore:
                 costs_usd = total.get("costs_usd")
                 if isinstance(costs_usd, dict):
                     total_cost_usd = _coerce_float(costs_usd.get("total"))
+
+        run_id = _coerce_string(source.get("run_id")) if isinstance(source, dict) else None
+        if run_id is not None:
+            run_result = self._run_result_for_record(run_id, record_id)
+            if isinstance(run_result, dict):
+                run_status = _coerce_string(run_result.get("status")) or run_status
+                run_message = _coerce_string(run_result.get("message"))
 
         summary = RecordSummaryResponse(
             record_id=record_id,
@@ -639,7 +681,9 @@ class ViewerStore:
             turn_count=turn_count,
             total_cost_usd=total_cost_usd,
             category_slug=record.get("category_slug"),
-            run_id=source.get("run_id"),
+            run_id=run_id,
+            run_status=run_status,
+            run_message=run_message,
             collections=[str(item) for item in record.get("collections", [])],
             materialization_status=materialization_status,
             has_compile_report=compile_path.exists(),
@@ -724,6 +768,20 @@ class ViewerStore:
             )
         return entries
 
+    def list_supercategories(self) -> list[SupercategoryOptionResponse]:
+        manifest = self.supercategory_store.load_manifest()
+        if manifest is None:
+            return []
+        return [
+            SupercategoryOptionResponse(
+                slug=entry.slug,
+                title=entry.title,
+                description=entry.description,
+                category_slugs=list(entry.category_slugs),
+            )
+            for entry in manifest.supercategories
+        ]
+
     def list_categories(self) -> list[CategoryOptionResponse]:
         categories_by_slug: dict[str, str] = {}
 
@@ -753,8 +811,14 @@ class ViewerStore:
                     continue
                 categories_by_slug[slug] = slug.replace("_", " ").replace("-", " ").title()
 
+        cat_to_super = self.supercategory_store.build_category_to_supercategory_map()
+
         return [
-            CategoryOptionResponse(slug=slug, title=title)
+            CategoryOptionResponse(
+                slug=slug,
+                title=title,
+                supercategory_slug=cat_to_super.get(slug),
+            )
             for slug, title in sorted(
                 categories_by_slug.items(),
                 key=lambda item: (item[1].lower(), item[0]),
@@ -1013,6 +1077,7 @@ class ViewerStore:
             dataset_entries=self.list_dataset_entries(summary_cache=summary_cache),
             staging_entries=self.list_staging_entries(summary_cache=summary_cache),
             runs=self.list_runs(),
+            supercategories=self.list_supercategories(),
         )
 
     def search_records(

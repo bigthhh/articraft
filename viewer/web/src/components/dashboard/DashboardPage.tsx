@@ -4,6 +4,7 @@ import { fetchRepoStats } from "@/lib/api";
 import type { RepoStats } from "@/lib/types";
 import { useViewer } from "@/lib/viewer-context";
 import { OverviewSection } from "@/components/dashboard/OverviewSection";
+import { SupercategoriesSection } from "@/components/dashboard/SupercategoriesSection";
 import { CategoriesSection } from "@/components/dashboard/CategoriesSection";
 
 export function DashboardPage(): JSX.Element {
@@ -46,7 +47,11 @@ export function DashboardPage(): JSX.Element {
             </p>
           ) : null}
 
-          {stats ? <CategoriesSection categoryStats={stats.category_stats} /> : null}
+          {stats && bootstrap?.supercategories && bootstrap.supercategories.length > 0 ? (
+            <SupercategoriesSection categoryStats={stats.category_stats} supercategories={bootstrap.supercategories} />
+          ) : null}
+
+          {stats ? <CategoriesSection categoryStats={stats.category_stats} supercategories={bootstrap?.supercategories} /> : null}
         </div>
       </div>
     </main>

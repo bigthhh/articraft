@@ -2,7 +2,7 @@ import { useEffect, useState, type JSX } from "react";
 
 import { useViewer } from "@/lib/viewer-context";
 import { fetchRecordFile, fetchRecordTraceFile, fetchStagingFile, fetchStagingTraceFile } from "@/lib/api";
-import { findRecordInBootstrap, findRunInBootstrap, findStagingEntryInBootstrap } from "@/lib/record-summary";
+import { findRecordInBootstrap, findStagingEntryInBootstrap } from "@/lib/record-summary";
 import { TracePanel } from "@/components/inspector/TracePanel";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -44,7 +44,6 @@ export function MetadataPanel(): JSX.Element {
     ? findStagingEntryInBootstrap(bootstrap, selection.runId, selection.recordId)
     : null;
   const record = selectedRecordId ? findRecordInBootstrap(bootstrap, selectedRecordId) : null;
-  const run = findRunInBootstrap(bootstrap, record?.run_id);
   const compileStatus =
     typeof compileReport?.status === "string" ? compileReport.status : record?.has_compile_report ? "available" : null;
   const stagingSelectionKey =
@@ -304,12 +303,15 @@ export function MetadataPanel(): JSX.Element {
         <section>
           <SectionLabel>Status</SectionLabel>
           <div className="flex flex-wrap items-center gap-1.5">
-            <Badge variant={statusVariant(run?.status)}>Run: {run?.status ?? "unknown"}</Badge>
+            <Badge variant={statusVariant(record.run_status)}>Run: {record.run_status ?? "unknown"}</Badge>
             <Badge variant={statusVariant(compileStatus)}>Compile: {compileStatus ?? "unknown"}</Badge>
             <Badge variant={statusVariant(record.materialization_status)}>
               Assets: {record.materialization_status ?? "unknown"}
             </Badge>
           </div>
+          {record.run_message ? (
+            <p className="mt-2 text-[11px] text-[var(--text-secondary)]">{record.run_message}</p>
+          ) : null}
         </section>
 
         {/* Metrics */}

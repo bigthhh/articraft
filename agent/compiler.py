@@ -96,7 +96,7 @@ def compile_urdf(
     run_checks: bool = True,
     ignore_geom_qc: bool = False,
     target: str = "full",
-    rewrite_visual_glb: bool = True,
+    rewrite_visual_glb: bool | None = None,
 ) -> str:
     """Execute a generated script and return the exported XML payload."""
     report = compile_urdf_report_maybe_timeout(
@@ -216,7 +216,7 @@ def compile_urdf_report(
     run_checks: bool = True,
     ignore_geom_qc: bool = False,
     target: str = "full",
-    rewrite_visual_glb: bool = True,
+    rewrite_visual_glb: bool | None = None,
 ) -> CompileReport:
     """Execute a generated script and return export XML plus non-blocking warnings."""
     globals_dict = load_model_globals(script_path, sdk_package=sdk_package)
@@ -279,7 +279,10 @@ def compile_urdf_report(
     )
     if not isinstance(urdf_xml, str):
         raise ValueError("object_model must compile into an exportable XML payload")
-    if rewrite_visual_glb:
+    if _should_rewrite_visual_meshes_to_glb(
+        sdk_package=sdk_package,
+        rewrite_visual_glb=rewrite_visual_glb,
+    ):
         urdf_xml = rewrite_visual_meshes_to_glb(
             urdf_xml,
             sdk_package=sdk_package,
@@ -322,6 +325,16 @@ def rewrite_visual_meshes_to_glb(
 
     warnings.extend(str(item) for item in conversion_warnings)
     return converted_xml
+
+
+def _should_rewrite_visual_meshes_to_glb(
+    *,
+    sdk_package: str,
+    rewrite_visual_glb: bool | None,
+) -> bool:
+    if rewrite_visual_glb is not None:
+        return rewrite_visual_glb
+    return sdk_package != "sdk_hybrid"
 
 
 def load_model_globals(
@@ -580,7 +593,7 @@ def compile_urdf_report_maybe_timeout(
     run_checks: bool = True,
     ignore_geom_qc: bool = False,
     target: str = "full",
-    rewrite_visual_glb: bool = True,
+    rewrite_visual_glb: bool | None = None,
 ) -> CompileReport:
     """
     Run `compile_urdf_report` with a hard timeout to prevent indefinite hangs.

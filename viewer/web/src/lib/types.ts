@@ -13,6 +13,8 @@ export type RecordSummary = {
   total_cost_usd: number | null;
   category_slug: string | null;
   run_id: string | null;
+  run_status: string | null;
+  run_message: string | null;
   collections: string[];
   materialization_status: string | null;
   has_compile_report: boolean;
@@ -37,9 +39,17 @@ export type DatasetEntry = {
   record: RecordSummary | null;
 };
 
+export type SupercategoryOption = {
+  slug: string;
+  title: string;
+  description: string;
+  category_slugs: string[];
+};
+
 export type CategoryOption = {
   slug: string;
   title: string;
+  supercategory_slug: string | null;
 };
 
 export type StagingEntry = {
@@ -173,6 +183,7 @@ export type ViewerBootstrap = {
   dataset_entries: DatasetEntry[];
   staging_entries: StagingEntry[];
   runs: RunSummary[];
+  supercategories: SupercategoryOption[];
 };
 
 export type ViewerSelection =

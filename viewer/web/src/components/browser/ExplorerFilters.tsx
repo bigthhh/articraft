@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type JSX } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, Search } from "lucide-react";
 
-import type { CostFilter, RatingFilter, RatingFilterValue, RecordSummary, TimeFilter } from "@/lib/types";
+import type { CostFilter, RatingFilter, RatingFilterValue, RecordSummary, SupercategoryOption, TimeFilter } from "@/lib/types";
 import { useViewer, useViewerDispatch } from "@/lib/viewer-context";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -48,6 +48,7 @@ function uniqueRecords(records: Array<RecordSummary | null>): RecordSummary[] {
 type CategoryOption = {
   value: string;
   label: string;
+  group?: string;
 };
 
 type CostBounds = {
@@ -219,29 +220,38 @@ function MultiSelectFilter({
                 {noMatchLabel}
               </div>
             ) : null}
-            {filteredOptions.map((option) => {
+            {filteredOptions.map((option, index) => {
               const selected = selectedSet.has(option.value);
+              const showGroupHeader =
+                option.group &&
+                (index === 0 || filteredOptions[index - 1]?.group !== option.group);
               return (
-                <button
-                  key={option.value}
-                  type="button"
-                  role="option"
-                  aria-selected={selected}
-                  onClick={() => toggleValue(option.value)}
-                  className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[12px] text-[var(--text-primary)] outline-none transition-colors hover:bg-[var(--accent-soft)] focus-visible:bg-[var(--accent-soft)]"
-                >
-                  <span
-                    className={cn(
-                      "flex size-3.5 shrink-0 items-center justify-center rounded-sm border",
-                      selected
-                        ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]"
-                        : "border-[var(--border-default)] bg-[var(--surface-1)] text-transparent",
-                    )}
+                <div key={option.value}>
+                  {showGroupHeader ? (
+                    <div className="px-2.5 pb-0.5 pt-2 text-[10px] font-medium uppercase tracking-[0.04em] text-[var(--text-quaternary)]">
+                      {option.group}
+                    </div>
+                  ) : null}
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={selected}
+                    onClick={() => toggleValue(option.value)}
+                    className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[12px] text-[var(--text-primary)] outline-none transition-colors hover:bg-[var(--accent-soft)] focus-visible:bg-[var(--accent-soft)]"
                   >
-                    <Check className="size-3" />
-                  </span>
-                  <span className="truncate">{option.label}</span>
-                </button>
+                    <span
+                      className={cn(
+                        "flex size-3.5 shrink-0 items-center justify-center rounded-sm border",
+                        selected
+                          ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]"
+                          : "border-[var(--border-default)] bg-[var(--surface-1)] text-transparent",
+                      )}
+                    >
+                      <Check className="size-3" />
+                    </span>
+                    <span className="truncate">{option.label}</span>
+                  </button>
+                </div>
               );
             })}
           </div>
@@ -528,15 +538,49 @@ export function ExplorerFilters(): JSX.Element | null {
   const availableCategories = useMemo(() => {
     if (!bootstrap) return [];
 
-    return Array.from(
+    const slugs = Array.from(
       new Set(
         bootstrap.dataset_entries
           .map((entry) => entry.category_slug.trim())
           .filter((value) => value.length > 0),
       ),
-    )
-      .map((value) => ({ value, label: formatCategoryLabel(value) }))
-      .sort((left, right) => left.label.localeCompare(right.label));
+    );
+
+    const supercategories: SupercategoryOption[] = bootstrap.supercategories ?? [];
+    if (supercategories.length === 0) {
+      return slugs
+        .map((value) => ({ value, label: formatCategoryLabel(value) }))
+        .sort((left, right) => left.label.localeCompare(right.label));
+    }
+
+    const catToSuper = new Map<string, string>();
+    const superOrder = new Map<string, number>();
+    for (let i = 0; i < supercategories.length; i++) {
+      const sc = supercategories[i];
+      superOrder.set(sc.slug, i);
+      for (const cat of sc.category_slugs) {
+        catToSuper.set(cat, sc.title);
+      }
+    }
+
+    return slugs
+      .map((value) => ({
+        value,
+        label: formatCategoryLabel(value),
+        group: catToSuper.get(value),
+      }))
+      .sort((left, right) => {
+        const leftGroup = left.group ?? "\uffff";
+        const rightGroup = right.group ?? "\uffff";
+        if (leftGroup !== rightGroup) {
+          const leftSuper = supercategories.find((sc) => sc.title === leftGroup);
+          const rightSuper = supercategories.find((sc) => sc.title === rightGroup);
+          const leftIdx = leftSuper ? (superOrder.get(leftSuper.slug) ?? Infinity) : Infinity;
+          const rightIdx = rightSuper ? (superOrder.get(rightSuper.slug) ?? Infinity) : Infinity;
+          return leftIdx - rightIdx;
+        }
+        return left.label.localeCompare(right.label);
+      });
   }, [bootstrap]);
 
   useEffect(() => {

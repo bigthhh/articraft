@@ -11,10 +11,10 @@ import subprocess
 import sys
 import threading
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Iterator, Literal
 
 from rich.console import Console
 
@@ -49,8 +49,15 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 CONSOLE = Console()
 
-DEFAULT_RESUME_POLICY = "failed_or_pending"
-RESUME_POLICIES = {"failed_or_pending", "failed_only", "all"}
+BatchRowStatus = Literal["pending", "running", "success", "failed"]
+ResumePolicy = Literal["failed_or_pending", "failed_only", "all"]
+ResumeAction = Literal["run", "skip", "reuse_success"]
+
+BATCH_RUN_MODE = "dataset_batch"
+DEFAULT_RESUME_POLICY: ResumePolicy = "failed_or_pending"
+RESUME_POLICIES: set[ResumePolicy] = {"failed_or_pending", "failed_only", "all"}
+VALID_PROVIDERS = {"openai", "gemini"}
+VALID_THINKING_LEVELS = {"low", "med", "high"}
 _SUPPORTED_HEADERS = {
     "row_id",
     "category_slug",
@@ -73,6 +80,86 @@ _REQUIRED_HEADERS = {
     "max_turns",
     "sdk_package",
 }
+
+
+@dataclass(slots=True, frozen=True)
+class BatchAttemptRecord:
+    timestamp: str
+    provider: str
+    model_id: str
+    thinking_level: str
+    max_turns: int
+    sdk_package: str
+    post_success_design_audit: bool
+    success: bool
+    message: str | None
+    turn_count: int | None
+    tool_call_count: int | None
+    compile_attempt_count: int | None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True, frozen=True)
+class BatchResultRecord:
+    row_id: str
+    record_id: str
+    dataset_id: str
+    category_slug: str
+    prompt_index: int
+    status: BatchRowStatus
+    message: str | None
+    staging_dir: str
+    turn_count: int | None = None
+    tool_call_count: int | None = None
+    compile_attempt_count: int | None = None
+    record_dir: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = {
+            "row_id": self.row_id,
+            "record_id": self.record_id,
+            "dataset_id": self.dataset_id,
+            "category_slug": self.category_slug,
+            "prompt_index": self.prompt_index,
+            "status": self.status,
+            "message": self.message,
+            "staging_dir": self.staging_dir,
+        }
+        if self.status != "running":
+            payload["turn_count"] = self.turn_count
+            payload["tool_call_count"] = self.tool_call_count
+            payload["compile_attempt_count"] = self.compile_attempt_count
+            payload["record_dir"] = self.record_dir
+        return payload
+
+
+@dataclass(slots=True, frozen=True)
+class BatchRowStateRecord:
+    row_id: str
+    prompt_index: int
+    category_slug: str
+    dataset_id: str
+    record_id: str
+    latest_status: BatchRowStatus
+    latest_error_message: str | None
+    current_attempt_started_at: str | None
+    attempt_count: int
+    attempts: list[dict[str, Any]]
+    last_updated: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True, frozen=True)
+class ResumeDecision:
+    action: ResumeAction
+    latest_status: BatchRowStatus
+
+    def should_queue(self) -> bool:
+        return self.action == "run"
 
 
 def _utc_now(now: datetime | None = None) -> str:
@@ -423,6 +510,18 @@ class BatchRowSpec:
     post_success_design_audit: bool = True
     label: str | None = None
 
+    def resume_signature(self) -> tuple[str, str, str, str, str, int, str, bool]:
+        return (
+            self.category_slug,
+            self.prompt,
+            self.provider,
+            self.model_id,
+            self.thinking_level,
+            self.max_turns,
+            self.sdk_package,
+            self.post_success_design_audit,
+        )
+
 
 @dataclass(slots=True, frozen=True)
 class BatchRowAllocation:
@@ -472,8 +571,118 @@ def _read_csv_rows(spec_path: Path) -> list[dict[str, str]]:
 
         rows: list[dict[str, str]] = []
         for row in reader:
-            rows.append({str(key).strip(): str(value or "").strip() for key, value in row.items()})
+            rows.append(_normalize_raw_batch_row(row))
         return rows
+
+
+def _normalize_raw_batch_row(raw_row: dict[str, str | None]) -> dict[str, str]:
+    return {str(key).strip(): str(value or "").strip() for key, value in raw_row.items()}
+
+
+def _parse_max_turns(max_turns_text: str, *, row_index: int) -> int:
+    try:
+        max_turns = int(max_turns_text)
+    except ValueError as exc:
+        raise ValueError(f"Row {row_index} has invalid max_turns: {max_turns_text!r}") from exc
+    if max_turns <= 0:
+        raise ValueError(f"Row {row_index} must set max_turns > 0")
+    return max_turns
+
+
+def _resolve_category_title(
+    categories: CategoryStore,
+    *,
+    row_index: int,
+    category_slug: str,
+    category_title: str | None,
+) -> str | None:
+    existing_category = categories.load(category_slug)
+    if existing_category is None and not category_title:
+        raise ValueError(
+            f"Row {row_index} introduces new category {category_slug!r} without category_title"
+        )
+    if not isinstance(existing_category, dict):
+        return category_title
+
+    existing_title = str(existing_category.get("title") or "")
+    if category_title and existing_title and category_title != existing_title:
+        raise ValueError(
+            f"Row {row_index} category_title mismatch for {category_slug!r}: "
+            f"{category_title!r} != {existing_title!r}"
+        )
+    if not category_title and existing_title:
+        return existing_title
+    return category_title
+
+
+def _parse_batch_row(
+    raw_row: dict[str, str],
+    *,
+    row_index: int,
+    categories: CategoryStore,
+    default_post_success_design_audit: bool,
+) -> BatchRowSpec:
+    row_id = raw_row.get("row_id") or f"row_{row_index:04d}"
+    category_slug = raw_row.get("category_slug", "")
+    prompt = raw_row.get("prompt", "")
+    provider = raw_row.get("provider", "").lower()
+    model_id = raw_row.get("model_id", "")
+    thinking_level = raw_row.get("thinking_level", "").lower()
+    max_turns_text = raw_row.get("max_turns", "")
+    sdk_package = raw_row.get("sdk_package", "")
+    category_title = raw_row.get("category_title") or None
+    label = raw_row.get("label") or None
+
+    if not category_slug:
+        raise ValueError(f"Row {row_index} is missing category_slug")
+    if not prompt:
+        raise ValueError(f"Row {row_index} is missing prompt")
+    if provider not in VALID_PROVIDERS:
+        raise ValueError(f"Row {row_index} has invalid provider: {provider or '(empty)'}")
+    if not model_id:
+        raise ValueError(f"Row {row_index} is missing model_id")
+
+    inferred_provider = _infer_provider_from_model_id(model_id)
+    if inferred_provider is not None and inferred_provider != provider:
+        raise ValueError(
+            f"Row {row_index} has provider/model mismatch: provider={provider} model_id={model_id}"
+        )
+    if thinking_level not in VALID_THINKING_LEVELS:
+        raise ValueError(
+            f"Row {row_index} has invalid thinking_level: {thinking_level or '(empty)'}"
+        )
+
+    max_turns = _parse_max_turns(max_turns_text, row_index=row_index)
+    sdk_package = runner_normalize_sdk_package(sdk_package, row_index=row_index)
+    post_success_design_audit = _parse_optional_bool(
+        raw_row.get("design_audit"),
+        row_index=row_index,
+        field_name="design_audit",
+    )
+    if post_success_design_audit is None:
+        post_success_design_audit = default_post_success_design_audit
+
+    category_title = _resolve_category_title(
+        categories,
+        row_index=row_index,
+        category_slug=category_slug,
+        category_title=category_title,
+    )
+    return BatchRowSpec(
+        csv_row_number=row_index,
+        prompt_index=row_index,
+        row_id=row_id,
+        category_slug=category_slug,
+        category_title=category_title,
+        prompt=prompt,
+        provider=provider,
+        model_id=model_id,
+        thinking_level=thinking_level,
+        max_turns=max_turns,
+        sdk_package=sdk_package,
+        post_success_design_audit=post_success_design_audit,
+        label=label,
+    )
 
 
 def _load_batch_rows(
@@ -486,86 +695,18 @@ def _load_batch_rows(
     categories = CategoryStore(repo)
     rows: list[BatchRowSpec] = []
     seen_row_ids: set[str] = set()
-    for index, raw in enumerate(raw_rows, start=1):
-        row_id = raw.get("row_id") or f"row_{index:04d}"
+    for index, raw_row in enumerate(raw_rows, start=1):
+        row = _parse_batch_row(
+            raw_row,
+            row_index=index,
+            categories=categories,
+            default_post_success_design_audit=default_post_success_design_audit,
+        )
+        row_id = row.row_id
         if row_id in seen_row_ids:
             raise ValueError(f"Duplicate row_id in CSV: {row_id}")
         seen_row_ids.add(row_id)
-
-        category_slug = raw.get("category_slug", "")
-        prompt = raw.get("prompt", "")
-        provider = raw.get("provider", "").lower()
-        model_id = raw.get("model_id", "")
-        thinking_level = raw.get("thinking_level", "").lower()
-        max_turns_text = raw.get("max_turns", "")
-        sdk_package = raw.get("sdk_package", "")
-        category_title = raw.get("category_title") or None
-        label = raw.get("label") or None
-
-        if not category_slug:
-            raise ValueError(f"Row {index} is missing category_slug")
-        if not prompt:
-            raise ValueError(f"Row {index} is missing prompt")
-        if provider not in {"openai", "gemini"}:
-            raise ValueError(f"Row {index} has invalid provider: {provider or '(empty)'}")
-        if not model_id:
-            raise ValueError(f"Row {index} is missing model_id")
-        inferred_provider = _infer_provider_from_model_id(model_id)
-        if inferred_provider is not None and inferred_provider != provider:
-            raise ValueError(
-                f"Row {index} has provider/model mismatch: provider={provider} model_id={model_id}"
-            )
-        if thinking_level not in {"low", "med", "high"}:
-            raise ValueError(
-                f"Row {index} has invalid thinking_level: {thinking_level or '(empty)'}"
-            )
-        try:
-            max_turns = int(max_turns_text)
-        except ValueError as exc:
-            raise ValueError(f"Row {index} has invalid max_turns: {max_turns_text!r}") from exc
-        if max_turns <= 0:
-            raise ValueError(f"Row {index} must set max_turns > 0")
-        sdk_package = runner_normalize_sdk_package(sdk_package, row_index=index)
-        post_success_design_audit = _parse_optional_bool(
-            raw.get("design_audit"),
-            row_index=index,
-            field_name="design_audit",
-        )
-        if post_success_design_audit is None:
-            post_success_design_audit = default_post_success_design_audit
-
-        existing_category = categories.load(category_slug)
-        if existing_category is None and not category_title:
-            raise ValueError(
-                f"Row {index} introduces new category {category_slug!r} without category_title"
-            )
-        if isinstance(existing_category, dict):
-            existing_title = str(existing_category.get("title") or "")
-            if category_title and existing_title and category_title != existing_title:
-                raise ValueError(
-                    f"Row {index} category_title mismatch for {category_slug!r}: "
-                    f"{category_title!r} != {existing_title!r}"
-                )
-            if not category_title and existing_title:
-                category_title = existing_title
-
-        rows.append(
-            BatchRowSpec(
-                csv_row_number=index,
-                prompt_index=index,
-                row_id=row_id,
-                category_slug=category_slug,
-                category_title=category_title,
-                prompt=prompt,
-                provider=provider,
-                model_id=model_id,
-                thinking_level=thinking_level,
-                max_turns=max_turns,
-                sdk_package=sdk_package,
-                post_success_design_audit=post_success_design_audit,
-                label=label,
-            )
-        )
+        rows.append(row)
     if not rows:
         raise ValueError(f"No rows found in {spec_path}")
     return rows
@@ -587,10 +728,7 @@ def _build_allocations(
 ) -> dict[str, BatchRowAllocation]:
     datasets = DatasetStore(repo)
     categories = CategoryStore(repo)
-    rows_by_category: dict[str, list[BatchRowSpec]] = {}
-    for row in rows:
-        rows_by_category.setdefault(row.category_slug, []).append(row)
-
+    rows_by_category = _group_rows_by_category(rows)
     allocations: dict[str, BatchRowAllocation] = {}
     for category_slug, group_rows in rows_by_category.items():
         category = categories.load(category_slug)
@@ -652,12 +790,94 @@ def _settings_summary(
     }
 
 
-def _resume_policy_should_run(status: str, policy: str) -> bool:
+def _group_rows_by_category(rows: list[BatchRowSpec]) -> dict[str, list[BatchRowSpec]]:
+    rows_by_category: dict[str, list[BatchRowSpec]] = {}
+    for row in rows:
+        rows_by_category.setdefault(row.category_slug, []).append(row)
+    return rows_by_category
+
+
+def _resume_policy_should_run(status: BatchRowStatus, policy: ResumePolicy) -> bool:
     if policy == "all":
         return True
     if policy == "failed_only":
         return status == "failed"
     return status in {"failed", "pending", "running"}
+
+
+def _resume_decision(
+    *,
+    resume: bool,
+    latest_status: BatchRowStatus,
+    resume_policy: ResumePolicy,
+    has_persisted_success: bool,
+) -> ResumeDecision:
+    if resume and has_persisted_success:
+        return ResumeDecision(action="reuse_success", latest_status="success")
+    if not resume:
+        return ResumeDecision(action="run", latest_status=latest_status)
+    if _resume_policy_should_run(latest_status, resume_policy):
+        return ResumeDecision(action="run", latest_status=latest_status)
+    return ResumeDecision(action="skip", latest_status=latest_status)
+
+
+def _overall_batch_status(
+    final_status_by_row: dict[str, BatchRowStatus], *, expected_row_count: int
+) -> BatchRowStatus:
+    if len(final_status_by_row) != expected_row_count:
+        return "failed"
+    if any(status != "success" for status in final_status_by_row.values()):
+        return "failed"
+    return "success"
+
+
+def _resume_signature_text(value: Any) -> str:
+    return str(value or "")
+
+
+def _resume_signature_mismatch_field(existing: dict[str, Any], row: BatchRowSpec) -> str | None:
+    comparable_values = (
+        (
+            "category_slug",
+            _resume_signature_text(existing.get("category_slug")),
+            _resume_signature_text(row.category_slug),
+        ),
+        (
+            "prompt",
+            _resume_signature_text(existing.get("prompt")),
+            _resume_signature_text(row.prompt),
+        ),
+        (
+            "provider",
+            _resume_signature_text(existing.get("provider")),
+            _resume_signature_text(row.provider),
+        ),
+        (
+            "model_id",
+            _resume_signature_text(existing.get("model_id")),
+            _resume_signature_text(row.model_id),
+        ),
+        (
+            "thinking_level",
+            _resume_signature_text(existing.get("thinking_level")),
+            _resume_signature_text(row.thinking_level),
+        ),
+        ("max_turns", int(existing.get("max_turns") or 0), row.max_turns),
+        (
+            "sdk_package",
+            _resume_signature_text(existing.get("sdk_package")),
+            _resume_signature_text(row.sdk_package),
+        ),
+        (
+            "post_success_design_audit",
+            _resume_signature_text(existing.get("post_success_design_audit")),
+            _resume_signature_text(row.post_success_design_audit),
+        ),
+    )
+    for field_name, existing_value, row_value in comparable_values:
+        if existing_value != row_value:
+            return field_name
+    return None
 
 
 def _find_latest_batch_run(repo: StorageRepo, batch_spec_id: str) -> str | None:
@@ -672,7 +892,7 @@ def _find_latest_batch_run(repo: StorageRepo, batch_spec_id: str) -> str | None:
         payload = repo.read_json(repo.layout.run_metadata_path(run_dir.name))
         if not isinstance(payload, dict):
             continue
-        if payload.get("run_mode") != "dataset_batch":
+        if payload.get("run_mode") != BATCH_RUN_MODE:
             continue
         if payload.get("batch_spec_id") != batch_spec_id:
             continue
@@ -690,8 +910,8 @@ def _write_row_state(
     run_id: str,
     row: BatchRowSpec,
     allocation: BatchRowAllocation,
-    latest_status: str,
-    attempt: dict[str, Any] | None = None,
+    latest_status: BatchRowStatus,
+    attempt: BatchAttemptRecord | None = None,
     current_attempt_started_at: str | None = None,
     latest_error_message: str | None = None,
 ) -> dict[str, Any]:
@@ -701,20 +921,20 @@ def _write_row_state(
     if not isinstance(attempts, list):
         attempts = []
     if attempt is not None:
-        attempts.append(attempt)
-    state = {
-        "row_id": row.row_id,
-        "prompt_index": allocation.prompt_index,
-        "category_slug": row.category_slug,
-        "dataset_id": allocation.dataset_id,
-        "record_id": allocation.record_id,
-        "latest_status": latest_status,
-        "latest_error_message": latest_error_message,
-        "current_attempt_started_at": current_attempt_started_at,
-        "attempt_count": len(attempts),
-        "attempts": attempts,
-        "last_updated": _utc_now(),
-    }
+        attempts.append(attempt.to_dict())
+    state = BatchRowStateRecord(
+        row_id=row.row_id,
+        prompt_index=allocation.prompt_index,
+        category_slug=row.category_slug,
+        dataset_id=allocation.dataset_id,
+        record_id=allocation.record_id,
+        latest_status=latest_status,
+        latest_error_message=latest_error_message,
+        current_attempt_started_at=current_attempt_started_at,
+        attempt_count=len(attempts),
+        attempts=attempts,
+        last_updated=_utc_now(),
+    ).to_dict()
     repo.write_json(path, state)
     return state
 
@@ -773,19 +993,11 @@ def _validate_resume_allocations(
         if existing is None:
             raise ValueError(f"Resume run {run_id} is missing allocation for row_id={row.row_id}")
         if not allow_spec_mismatch:
-            for key in (
-                "category_slug",
-                "prompt",
-                "provider",
-                "model_id",
-                "thinking_level",
-                "sdk_package",
-                "post_success_design_audit",
-            ):
-                if str(existing.get(key) or "") != str(getattr(row, key) or ""):
-                    raise ValueError(f"Resume spec mismatch for row_id={row.row_id} field={key}")
-            if int(existing.get("max_turns") or 0) != row.max_turns:
-                raise ValueError(f"Resume spec mismatch for row_id={row.row_id} field=max_turns")
+            mismatch_field = _resume_signature_mismatch_field(existing, row)
+            if mismatch_field is not None:
+                raise ValueError(
+                    f"Resume spec mismatch for row_id={row.row_id} field={mismatch_field}"
+                )
         allocations[row.row_id] = BatchRowAllocation(
             row_id=row.row_id,
             category_slug=str(existing.get("category_slug") or row.category_slug),
@@ -824,7 +1036,7 @@ async def _write_run_metadata(
         RunRecord(
             schema_version=1,
             run_id=config.run_id,
-            run_mode="dataset_batch",
+            run_mode=BATCH_RUN_MODE,
             collection="dataset",
             created_at=created_at,
             updated_at=_utc_now(),
@@ -845,12 +1057,9 @@ async def _upsert_run_result(
     run_store: RunStore,
     *,
     run_id: str,
-    row_id: str,
-    payload: dict[str, Any],
+    result_record: BatchResultRecord,
 ) -> None:
-    result = dict(payload)
-    result["row_id"] = row_id
-    await asyncio.to_thread(run_store.upsert_result, run_id, result, key="row_id")
+    await asyncio.to_thread(run_store.upsert_result, run_id, result_record.to_dict(), key="row_id")
 
 
 async def _remove_staging_dir(path: Path) -> None:
@@ -887,6 +1096,54 @@ class BatchRowOutcome:
     record_dir: Path | None
     staging_dir: Path
     model_id: str
+
+
+def _build_batch_result_record(
+    *,
+    config: BatchRunConfig,
+    row: BatchRowSpec,
+    allocation: BatchRowAllocation,
+    status: BatchRowStatus,
+    message: str | None,
+    staging_dir: Path,
+    turn_count: int | None = None,
+    tool_call_count: int | None = None,
+    compile_attempt_count: int | None = None,
+    record_dir: Path | None = None,
+) -> BatchResultRecord:
+    return BatchResultRecord(
+        row_id=row.row_id,
+        record_id=allocation.record_id,
+        dataset_id=allocation.dataset_id,
+        category_slug=row.category_slug,
+        prompt_index=allocation.prompt_index,
+        status=status,
+        message=message,
+        turn_count=turn_count,
+        tool_call_count=tool_call_count,
+        compile_attempt_count=compile_attempt_count,
+        record_dir=_relative_to_repo(record_dir, config.repo_root)
+        if record_dir is not None
+        else None,
+        staging_dir=_relative_to_repo(staging_dir, config.repo_root),
+    )
+
+
+def _build_batch_attempt_record(row: BatchRowSpec, outcome: BatchRowOutcome) -> BatchAttemptRecord:
+    return BatchAttemptRecord(
+        timestamp=_utc_now(),
+        provider=row.provider,
+        model_id=outcome.model_id,
+        thinking_level=row.thinking_level,
+        max_turns=row.max_turns,
+        sdk_package=row.sdk_package,
+        post_success_design_audit=row.post_success_design_audit,
+        success=outcome.success,
+        message=outcome.message,
+        turn_count=outcome.turn_count,
+        tool_call_count=outcome.tool_call_count,
+        compile_attempt_count=outcome.compile_attempt_count,
+    )
 
 
 def _load_persisted_batch_row_outcome(
@@ -951,6 +1208,7 @@ async def _run_batch_row(
     *,
     config: BatchRunConfig,
     repo: StorageRepo,
+    run_store: RunStore,
     row: BatchRowSpec,
     allocation: BatchRowAllocation,
     commit_lock: asyncio.Lock,
@@ -970,15 +1228,14 @@ async def _run_batch_row(
     await asyncio.to_thread(repo.write_text, context.staging_prompt_path, prompt_with_qc)
 
     started_at = _utc_now()
-    running_row = {
-        "record_id": allocation.record_id,
-        "dataset_id": allocation.dataset_id,
-        "category_slug": row.category_slug,
-        "prompt_index": allocation.prompt_index,
-        "status": "running",
-        "message": None,
-        "staging_dir": _relative_to_repo(context.staging_dir, config.repo_root),
-    }
+    running_result = _build_batch_result_record(
+        config=config,
+        row=row,
+        allocation=allocation,
+        status="running",
+        message=None,
+        staging_dir=context.staging_dir,
+    )
     async with commit_lock:
         _write_row_state(
             repo,
@@ -988,10 +1245,8 @@ async def _run_batch_row(
             latest_status="running",
             current_attempt_started_at=started_at,
         )
-        await _upsert_run_result(
-            run_store=RunStore(repo), run_id=config.run_id, row_id=row.row_id, payload=running_row
-        )
-        await _write_run_metadata(RunStore(repo), config=config, status="running")
+        await _upsert_run_result(run_store, run_id=config.run_id, result_record=running_result)
+        await _write_run_metadata(run_store, config=config, status="running")
 
     outcome = await _execute_single_run(
         user_content,
@@ -1002,7 +1257,7 @@ async def _run_batch_row(
         record_store=RecordStore(repo),
         collections=CollectionStore(repo),
         datasets=DatasetStore(repo),
-        run_store=RunStore(repo),
+        run_store=run_store,
         image_path=None,
         provider=row.provider,
         model_id=row.model_id,
@@ -1020,7 +1275,7 @@ async def _run_batch_row(
         collection="dataset",
         category_slug=row.category_slug,
         dataset_id=allocation.dataset_id,
-        run_mode="dataset_batch",
+        run_mode=BATCH_RUN_MODE,
         post_success_design_audit=row.post_success_design_audit,
         context=context,
         persist_run_metadata=False,
@@ -1053,16 +1308,13 @@ async def _finalize_batch_dataset_artifacts(
     *,
     repo: StorageRepo,
     config: BatchRunConfig,
-    final_status_by_row: dict[str, str],
+    final_status_by_row: dict[str, BatchRowStatus],
 ) -> None:
     datasets = DatasetStore(repo)
     queries = StorageQueries(repo)
     await asyncio.to_thread(datasets.write_dataset_manifest)
 
-    rows_by_category: dict[str, list[BatchRowSpec]] = {}
-    for row in config.rows:
-        rows_by_category.setdefault(row.category_slug, []).append(row)
-
+    rows_by_category = _group_rows_by_category(config.rows)
     for category_slug, category_rows in rows_by_category.items():
         sequence: int | None = None
         record: dict[str, Any] | None = None
@@ -1102,16 +1354,258 @@ async def _finalize_batch_dataset_artifacts(
         )
 
 
+@dataclass(slots=True)
+class BatchRunSession:
+    config: BatchRunConfig
+    repo: StorageRepo
+    run_store: RunStore
+    search: SearchIndex
+    display: BatchRunDisplay
+    pause_controller: PauseController
+    commit_lock: asyncio.Lock
+    runtime_limits: BatchRuntimeLimits
+    work_queue: asyncio.Queue[BatchRowSpec] = field(default_factory=asyncio.Queue)
+    final_status_by_row: dict[str, BatchRowStatus] = field(default_factory=dict)
+    preserved_success_count: int = 0
+    skipped_row_count: int = 0
+    watcher_task: asyncio.Task[None] | None = None
+
+    def start(self) -> None:
+        self.pause_controller.start_keyboard_listener()
+        self.watcher_task = asyncio.create_task(self.pause_controller.watch())
+        self.display.start()
+        if hasattr(self.display, "print_runtime_setting"):
+            self.display.print_runtime_setting("limits", _local_work_runtime_message(self.config))
+
+    async def prepare_run(self) -> None:
+        async with self.commit_lock:
+            await _write_run_metadata(self.run_store, config=self.config, status="running")
+            if not self.config.resume:
+                await asyncio.to_thread(
+                    _write_allocations,
+                    self.repo,
+                    run_id=self.config.run_id,
+                    batch_spec_id=self.config.batch_spec_id,
+                    spec_path=self.config.spec_path,
+                    rows=self.config.rows,
+                    allocations=self.config.allocations,
+                )
+
+    async def commit_preserved_success(self, row: BatchRowSpec, outcome: BatchRowOutcome) -> None:
+        allocation = self.config.allocations[row.row_id]
+        result_record = _build_batch_result_record(
+            config=self.config,
+            row=row,
+            allocation=allocation,
+            status="success",
+            message=None,
+            staging_dir=outcome.staging_dir,
+            turn_count=outcome.turn_count,
+            tool_call_count=outcome.tool_call_count,
+            compile_attempt_count=outcome.compile_attempt_count,
+            record_dir=outcome.record_dir,
+        )
+        async with self.commit_lock:
+            await asyncio.to_thread(
+                _write_row_state,
+                self.repo,
+                run_id=self.config.run_id,
+                row=row,
+                allocation=allocation,
+                latest_status="success",
+                latest_error_message=None,
+            )
+            await _upsert_run_result(
+                self.run_store, run_id=self.config.run_id, result_record=result_record
+            )
+            await _write_run_metadata(self.run_store, config=self.config, status="running")
+        self.final_status_by_row[row.row_id] = "success"
+        self.display.complete_run(
+            slug=allocation.record_id,
+            success=True,
+            cost=outcome.total_cost,
+            error=None,
+        )
+
+    async def enqueue_rows(self) -> None:
+        for row in self.config.rows:
+            allocation = self.config.allocations[row.row_id]
+            state_payload = await asyncio.to_thread(
+                _load_row_state, self.repo, run_id=self.config.run_id, row_id=row.row_id
+            )
+            latest_status: BatchRowStatus = (
+                str(state_payload.get("latest_status") or "pending")
+                if isinstance(state_payload, dict)
+                else "pending"
+            )
+            persisted_success = None
+            if self.config.resume:
+                persisted_success = await asyncio.to_thread(
+                    _load_persisted_batch_row_outcome,
+                    self.repo,
+                    run_id=self.config.run_id,
+                    batch_spec_id=self.config.batch_spec_id,
+                    row=row,
+                    allocation=allocation,
+                )
+
+            decision = _resume_decision(
+                resume=self.config.resume,
+                latest_status=latest_status,
+                resume_policy=self.config.resume_policy,
+                has_persisted_success=persisted_success is not None,
+            )
+            if decision.action == "reuse_success":
+                self.preserved_success_count += 1
+                await self.commit_preserved_success(row, persisted_success)
+                continue
+            if decision.action == "skip":
+                self.final_status_by_row[row.row_id] = decision.latest_status
+                if decision.latest_status == "success":
+                    self.preserved_success_count += 1
+                else:
+                    self.skipped_row_count += 1
+                self.display.complete_run(
+                    slug=allocation.record_id,
+                    success=decision.latest_status == "success",
+                    cost=0.0,
+                    error=None
+                    if decision.latest_status == "success"
+                    else f"Skipped by resume policy ({self.config.resume_policy})",
+                )
+                continue
+            self.work_queue.put_nowait(row)
+
+        if self.config.resume:
+            self.display.print_resume_summary(
+                preserved_successes=self.preserved_success_count,
+                queued_rows=self.work_queue.qsize(),
+                skipped_rows=self.skipped_row_count,
+            )
+
+    async def commit_outcome(self, row: BatchRowSpec, outcome: BatchRowOutcome) -> None:
+        allocation = self.config.allocations[row.row_id]
+        result_status: BatchRowStatus = "success" if outcome.success else "failed"
+        attempt_record = _build_batch_attempt_record(row, outcome)
+        result_record = _build_batch_result_record(
+            config=self.config,
+            row=row,
+            allocation=allocation,
+            status=result_status,
+            message=outcome.message,
+            staging_dir=outcome.staging_dir,
+            turn_count=outcome.turn_count,
+            tool_call_count=outcome.tool_call_count,
+            compile_attempt_count=outcome.compile_attempt_count,
+            record_dir=outcome.record_dir,
+        )
+        async with self.commit_lock:
+            await asyncio.to_thread(
+                _write_row_state,
+                self.repo,
+                run_id=self.config.run_id,
+                row=row,
+                allocation=allocation,
+                latest_status=result_status,
+                attempt=attempt_record,
+                latest_error_message=outcome.message,
+            )
+            await _upsert_run_result(
+                self.run_store, run_id=self.config.run_id, result_record=result_record
+            )
+            await _write_run_metadata(self.run_store, config=self.config, status="running")
+        self.final_status_by_row[row.row_id] = result_status
+        self.display.complete_run(
+            slug=allocation.record_id,
+            success=outcome.success,
+            cost=outcome.total_cost,
+            error=None if outcome.success else outcome.message,
+        )
+
+    async def worker(self) -> None:
+        while True:
+            try:
+                row = self.work_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                return
+            await self.pause_controller.wait_until_resumed()
+            allocation = self.config.allocations[row.row_id]
+            self.display.start_run(allocation.record_id)
+            outcome = await _run_batch_row(
+                config=self.config,
+                repo=self.repo,
+                run_store=self.run_store,
+                row=row,
+                allocation=allocation,
+                commit_lock=self.commit_lock,
+                display=self.display,
+                runtime_limits=self.runtime_limits,
+            )
+            await self.commit_outcome(row, outcome)
+            self.work_queue.task_done()
+
+    async def run_workers(self) -> None:
+        workers = [
+            asyncio.create_task(self.worker())
+            for _ in range(
+                min(max(1, self.config.concurrency), max(1, self.work_queue.qsize() or 1))
+            )
+        ]
+        if workers:
+            await asyncio.gather(*workers)
+
+    async def finalize(self) -> dict[str, Any]:
+        overall_status = _overall_batch_status(
+            self.final_status_by_row,
+            expected_row_count=len(self.config.rows),
+        )
+        try:
+            async with self.commit_lock:
+                self.display.print_finalizing("rebuilding dataset manifests and categories")
+                await _finalize_batch_dataset_artifacts(
+                    repo=self.repo,
+                    config=self.config,
+                    final_status_by_row=self.final_status_by_row,
+                )
+                await _write_run_metadata(self.run_store, config=self.config, status=overall_status)
+                self.display.print_finalizing("rebuilding search index")
+                await asyncio.to_thread(self.search.rebuild)
+        except Exception as exc:
+            async with self.commit_lock:
+                await _write_run_metadata(self.run_store, config=self.config, status="failed")
+            self.display.print_finalizing(f"failed: {exc}")
+            raise
+
+        self.display.stop()
+        return {
+            "run_id": self.config.run_id,
+            "status": overall_status,
+            "prompt_count": len(self.config.rows),
+            "success_count": sum(
+                1 for status in self.final_status_by_row.values() if status == "success"
+            ),
+            "failed_count": sum(
+                1 for status in self.final_status_by_row.values() if status != "success"
+            ),
+        }
+
+    async def run(self) -> dict[str, Any]:
+        self.start()
+        await self.prepare_run()
+        try:
+            await self.enqueue_rows()
+            await self.run_workers()
+        finally:
+            self.pause_controller.stop()
+            if self.watcher_task is not None:
+                await self.watcher_task
+        return await self.finalize()
+
+
 async def run_dataset_batch(config: BatchRunConfig) -> dict[str, Any]:
     repo = StorageRepo(config.repo_root)
     await asyncio.to_thread(repo.ensure_layout)
     run_store = RunStore(repo)
-    search = SearchIndex(repo)
-    commit_lock = asyncio.Lock()
-    runtime_limits = BatchRuntimeLimits(
-        local_work_semaphore=asyncio.Semaphore(config.local_work_concurrency)
-    )
-
     display = BatchRunDisplay(
         console=CONSOLE,
         experiment_name=config.batch_spec_id,
@@ -1122,7 +1616,6 @@ async def run_dataset_batch(config: BatchRunConfig) -> dict[str, Any]:
     )
     for row in config.rows:
         display.add_run(config.allocations[row.row_id].record_id, row.prompt)
-
     pause_controller = PauseController(
         pause_file=config.pause_file,
         poll_seconds=config.pause_poll_seconds,
@@ -1132,235 +1625,19 @@ async def run_dataset_batch(config: BatchRunConfig) -> dict[str, Any]:
             reason=reason,
         ),
     )
-    pause_controller.start_keyboard_listener()
-    watcher_task = asyncio.create_task(pause_controller.watch())
-    display.start()
-    if hasattr(display, "print_runtime_setting"):
-        display.print_runtime_setting("limits", _local_work_runtime_message(config))
-
-    async with commit_lock:
-        await _write_run_metadata(run_store, config=config, status="running")
-        if not config.resume:
-            await asyncio.to_thread(
-                _write_allocations,
-                repo,
-                run_id=config.run_id,
-                batch_spec_id=config.batch_spec_id,
-                spec_path=config.spec_path,
-                rows=config.rows,
-                allocations=config.allocations,
-            )
-
-    work_queue: asyncio.Queue[BatchRowSpec] = asyncio.Queue()
-    final_status_by_row: dict[str, str] = {}
-    preserved_success_count = 0
-    skipped_row_count = 0
-
-    async def _commit_preserved_success(row: BatchRowSpec, outcome: BatchRowOutcome) -> None:
-        allocation = config.allocations[row.row_id]
-        result_row = {
-            "record_id": allocation.record_id,
-            "dataset_id": allocation.dataset_id,
-            "category_slug": row.category_slug,
-            "prompt_index": allocation.prompt_index,
-            "status": "success",
-            "message": None,
-            "turn_count": outcome.turn_count,
-            "tool_call_count": outcome.tool_call_count,
-            "compile_attempt_count": outcome.compile_attempt_count,
-            "record_dir": (
-                _relative_to_repo(outcome.record_dir, config.repo_root)
-                if outcome.record_dir is not None
-                else None
-            ),
-            "staging_dir": _relative_to_repo(outcome.staging_dir, config.repo_root),
-        }
-        async with commit_lock:
-            await asyncio.to_thread(
-                _write_row_state,
-                repo,
-                run_id=config.run_id,
-                row=row,
-                allocation=allocation,
-                latest_status="success",
-                latest_error_message=None,
-            )
-            await _upsert_run_result(
-                run_store, run_id=config.run_id, row_id=row.row_id, payload=result_row
-            )
-            await _write_run_metadata(run_store, config=config, status="running")
-        final_status_by_row[row.row_id] = "success"
-        display.complete_run(
-            slug=allocation.record_id,
-            success=True,
-            cost=outcome.total_cost,
-            error=None,
-        )
-
-    for row in config.rows:
-        state = await asyncio.to_thread(
-            _load_row_state, repo, run_id=config.run_id, row_id=row.row_id
-        )
-        latest_status = (
-            str(state.get("latest_status") or "pending") if isinstance(state, dict) else "pending"
-        )
-        if config.resume:
-            persisted_success = await asyncio.to_thread(
-                _load_persisted_batch_row_outcome,
-                repo,
-                run_id=config.run_id,
-                batch_spec_id=config.batch_spec_id,
-                row=row,
-                allocation=config.allocations[row.row_id],
-            )
-            if persisted_success is not None:
-                preserved_success_count += 1
-                await _commit_preserved_success(row, persisted_success)
-                continue
-        if config.resume and not _resume_policy_should_run(latest_status, config.resume_policy):
-            final_status_by_row[row.row_id] = latest_status
-            if latest_status == "success":
-                preserved_success_count += 1
-            else:
-                skipped_row_count += 1
-            display.complete_run(
-                slug=config.allocations[row.row_id].record_id,
-                success=latest_status == "success",
-                cost=0.0,
-                error=None
-                if latest_status == "success"
-                else f"Skipped by resume policy ({config.resume_policy})",
-            )
-            continue
-        work_queue.put_nowait(row)
-
-    if config.resume:
-        display.print_resume_summary(
-            preserved_successes=preserved_success_count,
-            queued_rows=work_queue.qsize(),
-            skipped_rows=skipped_row_count,
-        )
-
-    async def _commit_outcome(row: BatchRowSpec, outcome: BatchRowOutcome) -> None:
-        allocation = config.allocations[row.row_id]
-        attempt = {
-            "timestamp": _utc_now(),
-            "provider": row.provider,
-            "model_id": outcome.model_id,
-            "thinking_level": row.thinking_level,
-            "max_turns": row.max_turns,
-            "sdk_package": row.sdk_package,
-            "post_success_design_audit": row.post_success_design_audit,
-            "success": outcome.success,
-            "message": outcome.message,
-            "turn_count": outcome.turn_count,
-            "tool_call_count": outcome.tool_call_count,
-            "compile_attempt_count": outcome.compile_attempt_count,
-        }
-        result_row = {
-            "record_id": allocation.record_id,
-            "dataset_id": allocation.dataset_id,
-            "category_slug": row.category_slug,
-            "prompt_index": allocation.prompt_index,
-            "status": "success" if outcome.success else "failed",
-            "message": outcome.message,
-            "turn_count": outcome.turn_count,
-            "tool_call_count": outcome.tool_call_count,
-            "compile_attempt_count": outcome.compile_attempt_count,
-            "record_dir": (
-                _relative_to_repo(outcome.record_dir, config.repo_root)
-                if outcome.record_dir is not None
-                else None
-            ),
-            "staging_dir": _relative_to_repo(outcome.staging_dir, config.repo_root),
-        }
-        async with commit_lock:
-            await asyncio.to_thread(
-                _write_row_state,
-                repo,
-                run_id=config.run_id,
-                row=row,
-                allocation=allocation,
-                latest_status=result_row["status"],
-                attempt=attempt,
-                latest_error_message=outcome.message,
-            )
-            await _upsert_run_result(
-                run_store, run_id=config.run_id, row_id=row.row_id, payload=result_row
-            )
-            await _write_run_metadata(run_store, config=config, status="running")
-        final_status_by_row[row.row_id] = result_row["status"]
-        display.complete_run(
-            slug=allocation.record_id,
-            success=outcome.success,
-            cost=outcome.total_cost,
-            error=None if outcome.success else outcome.message,
-        )
-
-    async def _worker() -> None:
-        while True:
-            try:
-                row = work_queue.get_nowait()
-            except asyncio.QueueEmpty:
-                return
-            await pause_controller.wait_until_resumed()
-            allocation = config.allocations[row.row_id]
-            display.start_run(allocation.record_id)
-            outcome = await _run_batch_row(
-                config=config,
-                repo=repo,
-                row=row,
-                allocation=allocation,
-                commit_lock=commit_lock,
-                display=display,
-                runtime_limits=runtime_limits,
-            )
-            await _commit_outcome(row, outcome)
-            work_queue.task_done()
-
-    try:
-        workers = [
-            asyncio.create_task(_worker())
-            for _ in range(min(max(1, config.concurrency), max(1, work_queue.qsize() or 1)))
-        ]
-        if workers:
-            await asyncio.gather(*workers)
-    finally:
-        pause_controller.stop()
-        await watcher_task
-
-    overall_status = "success"
-    if any(status != "success" for status in final_status_by_row.values()) or len(
-        final_status_by_row
-    ) != len(config.rows):
-        overall_status = "failed"
-
-    try:
-        async with commit_lock:
-            display.print_finalizing("rebuilding dataset manifests and categories")
-            await _finalize_batch_dataset_artifacts(
-                repo=repo,
-                config=config,
-                final_status_by_row=final_status_by_row,
-            )
-            await _write_run_metadata(run_store, config=config, status=overall_status)
-            display.print_finalizing("rebuilding search index")
-            await asyncio.to_thread(search.rebuild)
-    except Exception as exc:
-        async with commit_lock:
-            await _write_run_metadata(run_store, config=config, status="failed")
-        display.print_finalizing(f"failed: {exc}")
-        raise
-
-    display.stop()
-
-    return {
-        "run_id": config.run_id,
-        "status": overall_status,
-        "prompt_count": len(config.rows),
-        "success_count": sum(1 for status in final_status_by_row.values() if status == "success"),
-        "failed_count": sum(1 for status in final_status_by_row.values() if status != "success"),
-    }
+    session = BatchRunSession(
+        config=config,
+        repo=repo,
+        run_store=run_store,
+        search=SearchIndex(repo),
+        display=display,
+        pause_controller=pause_controller,
+        commit_lock=asyncio.Lock(),
+        runtime_limits=BatchRuntimeLimits(
+            local_work_semaphore=asyncio.Semaphore(config.local_work_concurrency)
+        ),
+    )
+    return await session.run()
 
 
 def build_batch_config(

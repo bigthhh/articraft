@@ -1,208 +1,150 @@
 # Wires, Tubes, and Frames (`sdk.mesh`)
 
-Use this stack for thin curved parts such as:
+## Purpose
 
-- bottle bails and loops
-- wire handles and pulls
-- whisk cages
-- fan guards
-- shopping-cart baskets
-- stroller / hand-truck / tubular support frames
-
-## Recommended defaults
-
-For most tasks, choose one of these two paths:
-
-1. One smooth path:
-   `tube_from_spline_points(...)`
-2. One smooth path with a custom profile:
-   `sweep_profile_along_spline(...)`
-
-These are the preferred APIs for new generated code. If a part has several rails,
-model it as several spline sweeps. Do not approximate one smooth rail by
-chaining many short tube segments.
-
-## Choosing between spline tubes and polyline tubes
-
-As a rule of thumb, choose the helper that matches the intended shape language
-of the part.
-
-- Use `tube_from_spline_points(...)` when the real part should read as one
-  continuously bent tube or wire, especially if you only have a sparse set of
-  estimated points.
-- Use `wire_from_points(...)` when the path is intentionally piecewise-linear or
-  when the corners themselves are part of the design, such as elbows,
-  rectangular guards, welded basket corners, or other explicit bends.
-- For straight two-point members, either approach can work, but a direct
-  straight tube path is often simpler.
-
-A useful check is: if the viewer should perceive the part as a smooth bent
-member rather than a sequence of straight runs joined at corners, prefer the
-spline-based helper.
+Use this stack for thin curved parts such as handles, loops, whisk cages, fan
+guards, baskets, and tubular frames.
 
 ## Import
 
 ```python
 from sdk import (
+    WirePath,
+    wire_from_points,
     tube_from_spline_points,
     sweep_profile_along_spline,
-    wire_from_points,
+    rounded_rect_profile,
 )
 ```
 
-Legacy/advanced helpers such as `sample_cubic_bezier_spline_3d`,
-`ArcPipeGeometry`, and `WirePolylineGeometry` remain available for compatibility,
-but they are no longer the recommended default surface.
+## Recommended APIs
 
-## 1) Interpolating spline through points
+| Shape intent | Helper |
+| --- | --- |
+| Smooth circular tube through sparse points | `tube_from_spline_points(...)` |
+| Smooth custom-profile sweep through sparse points | `sweep_profile_along_spline(...)` |
+| Explicit piecewise-linear bent tube or wire | `wire_from_points(...)` |
+| Readable manual path authoring | `WirePath` |
 
-```python
-sample_catmull_rom_spline_3d(
-    points,
-    samples_per_segment=12,
-    closed=False,
-    alpha=0.5,
-) -> list[(x, y, z)]
-```
+## API Reference
 
-- Fits a smooth spline through the given points.
-- Use this when you have clicked/estimated points and want a clean fitted path.
-- `closed=True` returns a closed loop with the first point repeated at the end.
-- The default `alpha=0.5` is centripetal Catmull-Rom, which is a good general
-  choice for avoiding exaggerated overshoot.
-
-## 2) Single spline tube path
+### `tube_from_spline_points(...)`
 
 ```python
 tube_from_spline_points(
     points,
-    radius,
-    samples_per_segment=12,
-    closed_spline=False,
-    spline="catmull_rom",
-    alpha=0.5,
-    radial_segments=16,
-    cap_ends=True,
+    *,
+    radius: float,
+    samples_per_segment: int = 12,
+    closed_spline: bool = False,
+    spline: str = "catmull_rom",
+    alpha: float = 0.5,
+    radial_segments: int = 16,
+    cap_ends: bool = True,
     up_hint=(0.0, 0.0, 1.0),
-    min_segment_length=1e-6,
+    min_segment_length: float = 1e-6,
 ) -> MeshGeometry
 ```
 
-- Fits a spline through the points, then builds a circular tube along that path.
-- This is the default helper for single handle/tube/wire paths.
-- `spline` may be `"catmull_rom"` or `"bezier"`.
-- With `spline="bezier"`, `points` are chained cubic Bezier control points:
-  `[P0, P1, P2, P3, P4, P5, P6, ...]`.
-- For closed Bezier paths, the sampled Bezier chain must already end where it starts.
-- Internally it uses a mitered sweep because the sampled spline is already smooth.
+- Fits a spline through the input points, then builds a circular tube.
+- `spline`: `"catmull_rom"` or `"bezier"`.
+- `alpha`: Catmull-Rom parameter, used only for `"catmull_rom"`.
+- `closed_spline`: closes the fitted path.
+- `cap_ends`: adds end caps when the path is open.
 
-## 3) Single spline profile sweep
+### `sweep_profile_along_spline(...)`
 
 ```python
 sweep_profile_along_spline(
     points,
-    profile=...,
-    samples_per_segment=12,
-    closed_spline=False,
-    spline="catmull_rom",
-    alpha=0.5,
-    cap_profile=True,
+    *,
+    profile,
+    samples_per_segment: int = 12,
+    closed_spline: bool = False,
+    spline: str = "catmull_rom",
+    alpha: float = 0.5,
+    cap_profile: bool = True,
     up_hint=(0.0, 0.0, 1.0),
-    min_segment_length=1e-6,
+    min_segment_length: float = 1e-6,
 ) -> MeshGeometry
 ```
 
-- Fits a spline through the points, then sweeps a closed 2D profile along that path.
-- Use this for non-circular handles, trim, rails, and custom section sweeps.
-- `spline` may be `"catmull_rom"` or `"bezier"`.
-- With `spline="bezier"`, `points` are chained cubic Bezier control points.
-- For the common circular-tube case, prefer `tube_from_spline_points(...)`.
+- Fits a spline through the input points, then sweeps a closed 2D profile.
+- Use this when the section is not circular.
 
-## 4) Single wire/tube path (advanced)
+### `wire_from_points(...)`
 
 ```python
 wire_from_points(
     points,
-    radius,
-    radial_segments=16,
-    closed_path=False,
-    cap_ends=False,
-    corner_mode="fillet",   # "fillet" | "miter" | "bevel"
-    corner_radius=0.0,
-    corner_segments=8,
+    *,
+    radius: float,
+    radial_segments: int = 16,
+    closed_path: bool = False,
+    cap_ends: bool = False,
+    corner_mode: str = "fillet",
+    corner_radius: float = 0.0,
+    corner_segments: int = 8,
     up_hint=(0.0, 0.0, 1.0),
-    min_segment_length=1e-6,
+    min_segment_length: float = 1e-6,
 ) -> MeshGeometry
 ```
 
-Use this for one continuous path such as a loop, bail, handle, hook, or a
-single bent support tube.
+- Builds one continuous tube from an explicit polyline path.
+- `corner_mode`: `"fillet"`, `"miter"`, or `"bevel"`.
+- `corner_radius`: bend radius for filleted or beveled corners.
+- `closed_path`: closes the centerline loop.
 
-Practical guidance:
-
-- If your path was already smoothed by `sample_catmull_rom_spline_3d(...)` or
-  dense Bezier sampling, prefer `corner_mode="miter"`.
-- If your path is sparse and piecewise-linear, use `corner_mode="fillet"` with
-  nonzero `corner_radius`.
-- Increase `radial_segments` to make the tube rounder.
-
-Be careful using `wire_from_points(...)` with a sparse 3-6 point path when the
-intended result is a smooth bent tube. Even with fillets, the result can still
-read as segmented rather than continuously curved. In those cases,
-`tube_from_spline_points(...)` is usually the better fit.
-
-Compile-time collision mirroring handles wire visuals automatically.
-
-## 5) Path authoring builder
+### `WirePath`
 
 ```python
-from sdk import WirePath
-
-wp = WirePath((x0, y0, z0))
-wp.line_to((x1, y1, z1))
-wp.bezier_to(c1, c2, end, samples=12)
-wp.arc(center=center, normal=normal, angle=..., segments=16)
-points = wp.to_points()
+WirePath(start)
+WirePath.from_points(points) -> WirePath
 ```
 
-Use `WirePath` when readability matters more than spline fitting from a loose
-point set.
-
-## 6) Advanced / low-level
+Methods:
 
 ```python
-from sdk import PipeGeometry
-
-PipeGeometry(profile_2d, path_3d, cap=False, closed=True, path_closed=False, up_hint=(0, 0, 1))
+wp.line_to(point) -> WirePath
+wp.line_by(dx, dy, dz) -> WirePath
+wp.bezier_to(control1, control2, end, *, samples=12) -> WirePath
+wp.arc(*, center, normal, angle, segments=16) -> WirePath
+wp.extend(points) -> WirePath
+wp.to_points() -> list[tuple[float, float, float]]
 ```
 
-Use `PipeGeometry` only when you need:
+Use `WirePath` when readability matters more than fitting a spline from an
+existing point set.
 
-- a non-circular profile
-- direct control of the swept profile shape
-- custom low-level path/frame behavior
+## Advice
 
-`WirePolylineGeometry`, `ArcPipeGeometry`, and explicit cubic Bezier sampling are
-still available, but prefer the higher-level APIs above for new code.
+### Choosing spline vs polyline
 
-## Tuning
+- Use `tube_from_spline_points(...)` when the real part should read as one
+  continuously bent tube or wire.
+- Use `wire_from_points(...)` when the corners themselves are part of the
+  design, such as elbows, basket corners, or welded rectangular guards.
 
-- Increase centerline sampling density first.
-- Then increase `radial_segments` if the tube still looks faceted.
-- Use `miter` for already-smooth centerlines.
-- Use `fillet` for sparse bend points.
-- Keep `min_segment_length` small enough that neighboring points are not
-  accidentally collapsed.
-- For baskets, guards, and frames, prefer a few longer spline sweeps over a
-  dense network of tiny path segments.
+### Tuning smoothness vs control
 
-## Recipes
+- Increase `samples_per_segment` first when a spline result looks coarse.
+- Increase `radial_segments` when the tube still looks visibly faceted.
+- Use `corner_mode="miter"` when the centerline is already smooth.
+- Use `corner_mode="fillet"` when the input path is sparse and intentionally
+  piecewise-linear.
 
-### Smooth handle from fitted points
+### When to use `WirePath`
+
+- Use `WirePath` when the path is easier to author procedurally than to specify
+  as a finished point list.
+- Finish with `wp.to_points()`, then pass those points into the preferred sweep
+  helper.
+
+## Examples
+
+### Smooth handle
 
 ```python
-from sdk import tube_from_spline_points
-
 handle = tube_from_spline_points(
     [
         (-0.03, 0.00, 0.00),
@@ -217,11 +159,9 @@ handle = tube_from_spline_points(
 )
 ```
 
-### Swept trim / non-circular rail
+### Custom-profile rail
 
 ```python
-from sdk import rounded_rect_profile, sweep_profile_along_spline
-
 trim = sweep_profile_along_spline(
     [
         (-0.04, 0.00, 0.00),
@@ -235,21 +175,23 @@ trim = sweep_profile_along_spline(
 )
 ```
 
-### Basket / guard / frame rails
+### Explicit bent wire
 
 ```python
-from sdk import tube_from_spline_points
-
-side_rail = tube_from_spline_points(
+loop = wire_from_points(
     [
-        (-0.10, -0.08, 0.00),
-        (-0.10, -0.02, 0.06),
-        (-0.10, 0.04, 0.12),
-        (-0.10, 0.08, 0.16),
+        (-0.04, -0.02, 0.00),
+        (-0.04, 0.02, 0.00),
+        (0.04, 0.02, 0.00),
+        (0.04, -0.02, 0.00),
     ],
-    radius=0.006,
-    samples_per_segment=16,
+    radius=0.0015,
+    closed_path=True,
+    corner_mode="fillet",
+    corner_radius=0.006,
 )
 ```
 
-Compile-time collision generation derives collisions from the resulting rail mesh automatically.
+## See Also
+
+- `40_mesh_geometry.md` for general procedural mesh authoring

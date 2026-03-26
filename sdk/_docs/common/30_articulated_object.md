@@ -1,115 +1,182 @@
 # ArticulatedObject
 
-Import:
+## Purpose
+
+`ArticulatedObject` is the root authored assembly. Use it to create parts,
+articulations, materials, and model-level metadata.
+
+## Import
 
 ```python
 from sdk import ArticulatedObject
 ```
 
-`ArticulatedObject` is the root authored assembly.
+## Recommended Surface
+
+- `ArticulatedObject(...)`
+- `model.part(...)`
+- `model.articulation(...)`
+- `model.material(...)`
+- `model.get_part(...)`
+- `model.get_articulation(...)`
+- `model.root_parts()`
+- `model.validate(strict=True)`
 
 ## Construction
 
 ```python
-model = ArticulatedObject(name="desk_lamp")
-```
-
-Fields:
-
-- `name: str`
-- `parts: list[Part]`
-- `articulations: list[Articulation]`
-- `materials: list[Material]`
-- `meta: dict[str, object]`
-
-## Authoring API
-
-Create parts with:
-
-```python
-base = model.part("base")
-lid = model.part("lid")
-```
-
-Create motion with:
-
-```python
-model.articulation(
-    "base_to_lid",
-    ArticulationType.REVOLUTE,
-    parent="base",
-    child="lid",
-    origin=Origin(...),
-    axis=(0.0, 1.0, 0.0),
-    motion_limits=MotionLimits(...),
+ArticulatedObject(
+    name: str,
+    parts: list[Part] = [],
+    articulations: list[Articulation] = [],
+    materials: list[Material] = [],
+    meta: dict[str, object] = {},
+    assets: AssetContext | None = None,
 )
 ```
 
-Joint-limit rules:
+Important fields:
 
-- `revolute` and `prismatic` articulations require `MotionLimits` with `effort`, `velocity`, `lower`, and `upper`.
-- `continuous` articulations require `MotionLimits` with `effort` and `velocity`, and must not set `lower` or `upper`.
-- `fixed` and `floating` articulations should not set `motion_limits`.
+- `name`: model name.
+- `parts`: authored parts.
+- `articulations`: authored articulations.
+- `materials`: registered materials.
+- `meta`: optional model-level metadata.
+- `assets`: optional asset context for mesh-backed models.
 
-Example continuous articulation:
+## Authoring Helpers
+
+### `model.part(...)`
+
+```python
+model.part(
+    name: str,
+    *,
+    visuals: Iterable[Visual] | None = None,
+    inertial: Inertial | None = None,
+    meta: dict[str, object] | None = None,
+) -> Part
+```
+
+- Creates a `Part`, appends it to `model.parts`, and returns it.
+- The returned part is the normal place to call `part.visual(...)`.
+
+### `model.articulation(...)`
 
 ```python
 model.articulation(
-    "chassis_to_mast",
-    ArticulationType.CONTINUOUS,
-    parent="chassis",
-    child="mast",
-    origin=Origin(...),
-    axis=(0.0, 0.0, 1.0),
-    motion_limits=MotionLimits(effort=12.0, velocity=1.5),
-)
+    name: str,
+    articulation_type: ArticulationType | str,
+    parent: str | Part,
+    child: str | Part,
+    *,
+    origin: Origin | None = None,
+    axis: tuple[float, float, float] | None = None,
+    motion_limits: MotionLimits | None = None,
+    motion_properties: MotionProperties | None = None,
+    meta: dict[str, object] | None = None,
+) -> Articulation
 ```
 
-Lookup helpers:
+- `parent`, `child`: either part objects or part names.
+- `origin`: articulation origin. Defaults to `Origin()`.
+- `axis`: defaults to `(0.0, 0.0, 1.0)`.
+- `motion_limits`: joint limits where required.
+- `motion_properties`: optional damping and friction.
+
+### `model.material(...)`
 
 ```python
-model.get_part("base")
-model.get_articulation("base_to_lid")
-model.root_parts()
+model.material(
+    name: str,
+    *,
+    rgba: Sequence[float] | None = None,
+    color: Sequence[float] | None = None,
+    texture: str | None = None,
+) -> Material
 ```
 
-Create and register named materials with:
+- Registers the material on `model.materials`.
+- Use either `rgba=...` or `color=...`, not both.
+- A 3-tuple color is expanded to `(r, g, b, 1.0)`.
+
+## Lookup Helpers
+
+### `model.get_part(name) -> Part`
 
 ```python
-steel = model.material("steel", rgba=(0.55, 0.57, 0.60, 1.0))
-glass = model.material("glass", color=(0.72, 0.84, 0.92, 0.35))
-
-base.visual(Box((0.20, 0.20, 0.05)), material=steel)
-lid.visual(Box((0.18, 0.18, 0.02)), material="glass")
+model.get_part(name: str | Part) -> Part
 ```
 
-Notes:
+Returns the named part. Raises `ValidationError` if it does not exist.
 
-- `model.material(...)` registers the material on `model.materials`.
-- `model.material(...)` accepts either `rgba=...` or `color=...`.
-- The lower-level `Material(...)` constructor uses `rgba=...` and does not accept `color=...`.
+### `model.get_articulation(name) -> Articulation`
+
+```python
+model.get_articulation(name: str | Articulation) -> Articulation
+```
+
+Returns the named articulation. Raises `ValidationError` if it does not exist.
+
+### `model.root_parts() -> list[Part]`
+
+Returns all parts that are not the child of another articulation.
 
 ## Validation
 
+### `model.validate(...)`
+
 ```python
-model.validate(strict=True)
+model.validate(
+    *,
+    strict: bool = True,
+    strict_mesh_paths: bool = False,
+) -> None
 ```
 
-This checks:
+Validation includes:
 
 - at least one part exists
-- part and articulation names are unique
-- every articulation references existing parts
-- axes are valid in strict mode
-- `revolute` and `prismatic` articulations include `effort`, `velocity`, `lower`, and `upper`
-- `continuous` articulations include `effort` and `velocity`, but no `lower` or `upper`
-- the articulation graph is connected from at least one root part
+- part names are unique
+- articulation names are unique
+- material names are unique
+- articulations reference existing parent and child parts
+- each part has at most one parent articulation
+- geometry and materials are valid
+- in strict mode, the articulation graph is connected from at least one root
 
-## Geometry validation
+## Joint Rules
 
-Use `TestContext` inside `run_tests()` for geometry and articulation QC.
+Use these rules when calling `model.articulation(...)`:
 
-- Keep `ctx.check_model_valid()`, `ctx.check_mesh_files_exist()`, `ctx.fail_if_isolated_parts()`, `ctx.warn_if_part_contains_disconnected_geometry_islands()`, and `ctx.fail_if_parts_overlap_in_current_pose()` as the default scaffold stack.
-- Use prompt-specific `expect_*` assertions as the primary proof that parts are attached and the mechanism behaves correctly.
-- Add `ctx.warn_if_articulation_overlaps(...)` only when joint clearance is genuinely uncertain or mechanically important.
-- `ctx.warn_if_articulation_origin_far_from_geometry(...)` and `ctx.warn_if_overlaps(...)` are deprecated as blanket scaffold defaults in new generated code.
+- `ArticulationType.REVOLUTE` and `ArticulationType.PRISMATIC` require
+  `MotionLimits(effort=..., velocity=..., lower=..., upper=...)`.
+- `ArticulationType.CONTINUOUS` requires
+  `MotionLimits(effort=..., velocity=...)` and must not set `lower` or `upper`.
+- `ArticulationType.FIXED` and `ArticulationType.FLOATING` must not use
+  `motion_limits`.
+- In strict mode, articulated motion axes must be non-zero 3-vectors.
+
+## Example
+
+```python
+model = ArticulatedObject(name="desk_lamp")
+
+base = model.part("base")
+arm = model.part("arm")
+
+model.articulation(
+    "base_to_arm",
+    ArticulationType.REVOLUTE,
+    parent=base,
+    child=arm,
+    origin=Origin(xyz=(0.0, 0.0, 0.08)),
+    axis=(0.0, 1.0, 0.0),
+    motion_limits=MotionLimits(effort=5.0, velocity=2.0, lower=-0.8, upper=0.8),
+)
+```
+
+## See Also
+
+- `20_core_types.md` for `Part`, `Articulation`, `MotionLimits`, and materials
+- `80_testing.md` for geometry and articulation QC

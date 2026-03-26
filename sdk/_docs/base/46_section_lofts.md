@@ -1,42 +1,146 @@
 # Section Lofts (`sdk.mesh`)
 
-Use section lofts when you want to build a shell or exterior form from a small
-number of authored cross-sections.
+## Purpose
 
-Import:
+Use `section_loft(...)` when a shell or exterior form can be described by a
+small number of ordered cross-sections, with an optional path and symmetry.
 
-```python
-from sdk import SectionLoftSpec, section_loft, repair_loft
-```
+## Import
 
 ```python
-section_loft(spec, /, **overrides) -> MeshGeometry
-repair_loft(geometry_or_spec, /, *, repair="auto") -> MeshGeometry
+from sdk import LoftTessellation, LoftSection, SectionLoftSpec, section_loft, repair_loft
 ```
 
-This is the recommended general loft API in the base `sdk`. It is not exposed
-from `sdk_hybrid`.
+## Recommended APIs
 
-## Intended usage
+- `section_loft(...)`
+- `SectionLoftSpec`
+- `repair_loft(...)`
 
-Use `section_loft(...)` when you can describe the shape with:
+## Core Entry Point
 
-- 2 or more ordered section loops
-- an optional centerline path
-- an optional symmetry hint
+### `section_loft(...)`
 
-This is a good fit for:
+```python
+section_loft(
+    spec: SectionLoftSpec | Sequence[LoftSection | Sequence[Sequence[float]]],
+    **overrides,
+) -> MeshGeometry
+```
 
-- outer shells
-- tapered housings
-- consumer-product casings
-- simple bent lofts driven by a path
+Accepted input forms:
 
-Prefer this over direct `LoftGeometry(...)` authoring for new lofted shapes.
+- raw sequence of section loops
+- `SectionLoftSpec(...)`
 
-## `section_loft(...)`
+Each section loop must be an ordered closed loop of 3D points. At least two
+sections are required.
 
-The simplest form is a list of section loops:
+## Spec Types
+
+### `LoftTessellation`
+
+```python
+LoftTessellation(
+    tolerance: float = 0.001,
+    angular_tolerance: float = 0.1,
+)
+```
+
+- `tolerance`: linear tessellation tolerance.
+- `angular_tolerance`: angular tessellation tolerance.
+
+### `LoftSection`
+
+```python
+LoftSection(points: tuple[tuple[float, float, float], ...])
+```
+
+- `points`: one ordered section loop.
+
+### `SectionLoftSpec`
+
+```python
+SectionLoftSpec(
+    sections: tuple[LoftSection, ...],
+    path: tuple[tuple[float, float, float], ...] | None = None,
+    guide_curves: Mapping[str, tuple[tuple[float, float, float], ...]] | None = None,
+    cap: bool = True,
+    solid: bool = True,
+    symmetry: str | None = None,
+    ruled: bool = False,
+    continuity: str = "C2",
+    parametrization: str = "uniform",
+    degree: int = 3,
+    compat: bool = True,
+    smoothing: bool = False,
+    weights: tuple[float, float, float] = (1.0, 1.0, 1.0),
+    repair: str = "auto",
+    tessellation: LoftTessellation = LoftTessellation(),
+)
+```
+
+Common fields:
+
+- `sections`: required ordered cross-sections
+- `path`: optional path for a path-driven multisection sweep
+- `cap`: request end caps
+- `solid`: request a solid result when supported
+- `symmetry`: optional symmetry mode. Supported value: `mirror_yz`
+- `repair`: one of `auto`, `mesh`, `kernel`, or `off`
+- `tessellation`: tessellation settings for the mesh result
+
+Advanced backend tuning fields:
+
+- `guide_curves`
+- `ruled`
+- `continuity`
+- `parametrization`
+- `degree`
+- `compat`
+- `smoothing`
+- `weights`
+
+These fields are available, but the normal authoring path is to leave them at
+their defaults unless a difficult loft specifically requires tuning.
+
+## Repair
+
+### `repair_loft(...)`
+
+```python
+repair_loft(
+    geometry_or_spec: MeshGeometry | SectionLoftSpec | Sequence[LoftSection | Sequence[Sequence[float]]],
+    *,
+    repair: str = "auto",
+) -> MeshGeometry
+```
+
+- If the input is already `MeshGeometry`, performs mesh-side repair.
+- If the input is a loft spec or raw sections, rebuilds the loft with the
+  requested repair mode.
+
+## Advice
+
+### Section correspondence
+
+- Keep section order consistent from start to end.
+- Keep each section as one clean loop.
+- Use roughly corresponding perimeter points where possible.
+
+### When to add `path`
+
+- Omit `path` for a regular loft through the sections.
+- Add `path` only when the overall form needs to bend or follow a centerline.
+
+### When to use `repair_loft(...)`
+
+- Use it when sparse or rough section input produces a visibly broken mesh.
+- Prefer it over immediately reaching for advanced backend controls.
+
+## Examples
+
+Raw sections:
 
 ```python
 geom = section_loft(
@@ -47,7 +151,7 @@ geom = section_loft(
 )
 ```
 
-You can also pass a `SectionLoftSpec` when you need named options:
+Structured spec:
 
 ```python
 geom = section_loft(
@@ -59,116 +163,12 @@ geom = section_loft(
 )
 ```
 
-### Parameters
-
-`section_loft(...)` accepts either:
-
-- `spec`: a `SectionLoftSpec`
-- `spec`: a raw sequence of section loops
-
-`SectionLoftSpec` fields:
-
-- `sections`: required ordered cross-sections. Each section is a closed loop of
-  3D points. At least two sections are required.
-- `path`: optional 3D path used to drive a multisection sweep instead of a
-  straight loft.
-- `guide_curves`: optional advanced rails. In practice, the most useful key is
-  `spine` as a path alias, plus `aux_spine` for extra orientation control.
-- `cap`: request end caps.
-- `solid`: request a solid result when the backend can produce one.
-- `symmetry`: optional symmetry mode. The supported value is `mirror_yz`.
-- `repair`: repair mode. Use `auto` unless you have a specific reason to turn
-  repair off or force one stage.
-
-Advanced backend controls also exist on `SectionLoftSpec`, but they are not the
-normal authoring path and should usually be left at their defaults.
-
-Advanced backend controls on `SectionLoftSpec`:
-
-- `ruled`: request a ruled surface between sections instead of a smoother loft.
-  This is mainly useful when you want flatter, more faceted transitions.
-- `continuity`: backend continuity target for lofted surfaces. Supported values
-  are `C1`, `C2`, and `C3`.
-- `parametrization`: backend section matching strategy. Supported values are
-  `uniform`, `chordal`, and `centripetal`.
-- `degree`: requested surface degree. Higher values can allow smoother lofts,
-  but they also make the result more backend-sensitive.
-- `compat`: backend compatibility toggle for matching section topology during
-  loft construction.
-- `smoothing`: request additional backend smoothing during loft construction.
-- `weights`: backend weight tuple used with smoothing behavior.
-- `tessellation`: `LoftTessellation(...)` settings used when converting the
-  backend result back into `MeshGeometry`.
-
-`LoftTessellation` fields:
-
-- `tolerance`: linear tessellation tolerance. Smaller values usually create a
-  denser mesh.
-- `angular_tolerance`: angular tessellation tolerance. Smaller values usually
-  preserve curved regions more closely.
-
-These controls are primarily for tuning or debugging difficult lofts. They are
-not a good default authoring surface for LLM-generated geometry.
-
-### Input expectations
-
-For reliable results:
-
-- keep section order consistent from start to end
-- keep each section as one simple loop
-- use roughly corresponding points around each loop when possible
-- use a small number of plausible sections rather than many noisy ones
-
-The implementation normalizes obvious issues such as repeated closing points and
-simple winding inconsistencies, but it is still better to author clean loops.
-
-### Path behavior
-
-If `path` is omitted, `section_loft(...)` builds a regular loft through the
-provided section loops.
-
-If `path` is provided, `section_loft(...)` switches to a path-driven
-multisection sweep. This is useful when the overall form bends or follows a
-centerline.
-
-## `repair_loft(...)`
-
-Use `repair_loft(...)` in two cases:
-
-- you already have a `MeshGeometry` loft that needs cleanup
-- you want to regenerate a loft spec with a specific repair mode
-
-Examples:
-
-```python
-clean = repair_loft(dirty_mesh)
-```
+Repair:
 
 ```python
 clean = repair_loft(spec, repair="mesh")
 ```
 
-### Parameters
+## See Also
 
-- `geometry_or_spec`: either a `MeshGeometry`, a `SectionLoftSpec`, or raw
-  section loops
-- `repair`: one of `auto`, `mesh`, `kernel`, or `off`
-
-### Repair modes
-
-- `auto`: run the default repair path
-- `mesh`: run mesh-side cleanup
-- `kernel`: prefer kernel-side healing before tessellation
-- `off`: skip repair
-
-When the input is already a `MeshGeometry`, `repair_loft(...)` performs mesh
-repair only. When the input is a loft spec, it rebuilds the loft using the
-requested repair mode.
-
-## Practical guidance
-
-- Start with raw sections and `section_loft(...)`.
-- Add `path` only when the shape needs to bend.
-- Use `symmetry="mirror_yz"` when you only want to author one side.
-- Use `repair_loft(...)` when sparse or rough inputs produce a messy mesh.
-- Keep `LoftGeometry(...)` for low-level or legacy cases, not new authoring.
+- `40_mesh_geometry.md` for lower-level mesh loft helpers

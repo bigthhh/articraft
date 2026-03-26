@@ -21,7 +21,7 @@ PHASE 3 — BUILD INCREMENTALLY
 - Work in this order: dominant silhouette → major openings/cavities → nested layers → secondary detail → articulation refinement.
 
 PHASE 4 — VERIFY AND REFINE
-- Explicitly check the three hard requirements:
+- Explicitly check the four hard requirements:
   - Floating parts: use `find_floating_parts(...)`, `mount_report(...)`, `nearest_neighbors(...)`.
   - Overlaps: use `overlap_report(...)`, `pair_report(...)`, `find_clearance_risks(...)`.
   - Proportions: use `summary(...)`, `dims(...)`, `projection(...)`, `layout_report(...)`.

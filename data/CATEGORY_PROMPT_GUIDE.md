@@ -84,40 +84,38 @@ over-specifying. Split into two objects or simplify.
 
 > A heavy-duty door hinge. Two rectangular leaf plates connected by a
 > barrel-and-pin hinge with alternating knuckles. One revolute joint along the
-> barrel axis, range 0 to 180 degrees.
+> barrel axis.
 
 **Yaw-pitch module:**
 
 > A two-axis gimbal mount. A yaw turntable base carries a U-shaped fork, which
 > supports a pitch cradle between its arms. Yaw is continuous rotation about
-> vertical; pitch is revolute +/-60 degrees about the horizontal fork axis.
+> vertical; pitch is revolute about the horizontal fork axis.
 
 **Telescoping boom:**
 
 > A three-stage telescoping boom. Three nested rectangular tube sections that
 > extend from a fixed root mount. Each stage slides prismatically along the boom
-> axis with ~0.4m travel per stage.
+> axis.
 
 **Orthogonal XY stage:**
 
 > A two-axis positioning stage. A base carries an X-axis rail with sliding
 > carriage; on top of that carriage sits a Y-axis rail with its own carriage,
-> oriented 90 degrees to the first. Both axes are prismatic with +/-100mm
-> travel.
+> oriented 90 degrees to the first. Both axes are prismatic.
 
 **TV wall mount:**
 
 > An articulated TV wall mount (no screen attached). A wall plate connects to a
 > folding two-link arm via revolute joints, ending in a tilt-and-swivel head
-> plate. Arm folds flat against the wall. Joints: two arm-fold revolute joints
-> (+/-90 deg), one head tilt revolute (+/-15 deg), one head swivel revolute
-> (+/-30 deg).
+> plate. Arm folds flat against the wall. Joints: two arm-fold revolute joints,
+> one head tilt revolute, one head swivel revolute.
 
 **Shoulder-elbow-wrist arm:**
 
 > A three-joint robotic arm. A base pedestal supports a shoulder revolute
-> joint (vertical axis, +/-150 deg), an upper arm link to an elbow revolute
-> (+/-120 deg), and a forearm link to a wrist revolute (+/-90 deg, roll axis).
+> joint (vertical axis), an upper arm link to an elbow revolute, and a forearm
+> link to a wrist revolute (roll axis).
 
 ### Bad — too verbose
 
@@ -169,7 +167,7 @@ Across prompts for one category, vary:
 - the chosen real-world variant or subtype
 - proportions and silhouette
 - number and arrangement of sub-parts
-- specific articulation ranges or axis orientations
+- axis orientations or joint layout
 
 Keep the category boundary stable. Avoid rows that are the same prompt with
 adjectives swapped.
@@ -194,7 +192,7 @@ Before submitting a batch prompt:
 - [ ] Does it name the object clearly?
 - [ ] Does it list the key parts and how they connect?
 - [ ] Does it specify every joint type and axis?
-- [ ] Does it include motion ranges?
+- [ ] Does it avoid specifying numeric range-of-motion values?
 - [ ] Is it 6 sentences or fewer?
 - [ ] Does it avoid repeating system-prompt concerns?
 - [ ] Would a mechanical engineer understand what to build from this alone?

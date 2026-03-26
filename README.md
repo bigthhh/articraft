@@ -107,6 +107,28 @@ just model=gpt-5.4 sdk=hybrid wb "Create a compact desk fan with adjustable tilt
 
 For `wb` and `wb-init`, leaving `sdk` blank uses the standard pipeline. Use `sdk=sdk` for an explicit standard override and `sdk=hybrid` for the hybrid rendering path. Record-based commands like `compile`, `compile-strict`, `compile-unsafe`, and `rerun` use the record's saved `sdk_package` unless you override them with `sdk=...`.
 
+To run a single prompt directly into a dataset category instead of the workbench, use:
+
+```bash
+just category=grill_with_hinged_lid wb-category "Create a backyard gas grill with a wheeled lower cart, a rectangular cookbox, side shelves, a front control panel, and a domed lid hinged along the rear edge of the cookbox."
+```
+
+`wb-category` accepts the same `model=...`, `thinking=...`, `sdk=...`, `image=...`, and `design_audit=...` overrides as `wb`. It auto-allocates the next canonical `ds_<category>_<NNNN>` dataset ID for the target category unless you also pass `dataset_id=...`.
+
+The underlying CLI command is:
+
+```bash
+uv run articraft-dataset --repo-root . run-single \
+  "Create a backyard gas grill with a wheeled lower cart, a rectangular cookbox, side shelves, a front control panel, and a domed lid hinged along the rear edge of the cookbox." \
+  --category-slug grill_with_hinged_lid \
+  --provider openai \
+  --model-id gpt-5.4 \
+  --thinking-level high \
+  --sdk-package sdk
+```
+
+If the target category slug already exists, the new record is appended under that category. If it does not exist yet, the command creates the category metadata automatically using a slug-derived title.
+
 ## 6. Run And Resume Dataset Batches
 
 Dataset batches are driven by CSV specs under `data/batch_specs/`. The CSV filename stem becomes the batch's `batch_spec_id`.

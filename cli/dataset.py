@@ -8,6 +8,10 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from agent.defaults import DEFAULT_MAX_TURNS
+from agent.prompts import normalize_sdk_package
+from agent.runner import run_from_input
+from agent.tools import build_initial_user_content, resolve_image_path
 from cli.common import add_data_root_argument
 from storage.categories import CategoryStore
 from storage.collections import CollectionStore
@@ -258,6 +262,81 @@ def _promote_record_workflow(
         dataset_id=dataset_id,
         promoted_at=promoted_at,
     )
+
+
+def _run_single_category_workflow(
+    repo: StorageRepo,
+    datasets: DatasetStore,
+    *,
+    prompt: str,
+    category_slug: str,
+    provider: str,
+    model_id: str | None,
+    image: str | None,
+    thinking_level: str,
+    max_turns: int,
+    system_prompt_path: str,
+    sdk_package: str,
+    design_audit: bool,
+    dataset_id: str | None,
+    record_id: str | None,
+) -> tuple[str, str, dict, object]:
+    normalized_prompt = prompt.strip()
+    if not normalized_prompt:
+        raise ValueError("Prompt is required.")
+
+    normalized_category_slug = _normalize_required_slug(category_slug, "Category slug")
+    normalized_record_id = str(record_id or "").strip() or None
+    if normalized_record_id is not None and repo.layout.record_dir(normalized_record_id).exists():
+        raise ValueError(f"Record already exists: {normalized_record_id}")
+    if dataset_id:
+        resolved_dataset_id = dataset_id.strip()
+        if not resolved_dataset_id:
+            raise ValueError("Dataset ID cannot be blank.")
+    else:
+        category = CategoryStore(repo).load(normalized_category_slug)
+        resolved_dataset_id, _ = _next_dataset_id(
+            datasets,
+            category_slug=normalized_category_slug,
+            category=category if isinstance(category, dict) else None,
+        )
+    if datasets.find_record_id_by_dataset_id(resolved_dataset_id) is not None:
+        raise ValueError(f"Dataset ID already exists: {resolved_dataset_id}")
+
+    image_path = resolve_image_path(image, provider=provider)
+    user_content = build_initial_user_content(normalized_prompt, image_path=image_path)
+    exit_code = asyncio.run(
+        run_from_input(
+            user_content,
+            prompt_text=normalized_prompt,
+            display_prompt=normalized_prompt,
+            repo_root=repo.root,
+            image_path=image_path,
+            provider=provider,
+            model_id=model_id,
+            thinking_level=thinking_level,
+            max_turns=max_turns,
+            system_prompt_path=system_prompt_path,
+            sdk_package=sdk_package,
+            sdk_docs_mode="full",
+            post_success_design_audit=design_audit,
+            collection="dataset",
+            category_slug=normalized_category_slug,
+            dataset_id=resolved_dataset_id,
+            record_id=normalized_record_id,
+        )
+    )
+    if exit_code != 0:
+        raise ValueError("Single-run dataset generation failed.")
+
+    resolved_record_id = datasets.find_record_id_by_dataset_id(resolved_dataset_id)
+    if resolved_record_id is None:
+        raise ValueError(f"Generated dataset entry missing for {resolved_dataset_id}")
+    category = CategoryStore(repo).load(normalized_category_slug)
+    if not isinstance(category, dict):
+        raise ValueError(f"Generated category missing for {normalized_category_slug}")
+    search_stats = SearchIndex(repo).rebuild()
+    return resolved_record_id, resolved_dataset_id, category, search_stats
 
 
 def _build_delete_record_preview(
@@ -563,6 +642,70 @@ def _build_parser() -> argparse.ArgumentParser:
         "--promoted-at",
         help="UTC timestamp for promotion. Defaults to the current time.",
     )
+    run_single = subparsers.add_parser(
+        "run-single",
+        help="Generate a single dataset record directly into a category.",
+    )
+    run_single.add_argument("prompt", help="Prompt text for the object.")
+    run_single.add_argument(
+        "--category-slug",
+        required=True,
+        help="Dataset category slug to assign to the generated record.",
+    )
+    run_single.add_argument(
+        "--image",
+        default=None,
+        help="Optional reference image to augment the prompt.",
+    )
+    run_single.add_argument(
+        "--provider",
+        default="openai",
+        choices=("openai", "gemini"),
+        help="LLM provider to use for the generation run.",
+    )
+    run_single.add_argument(
+        "--model-id",
+        default=None,
+        help="Optional model override. Defaults to the provider's current default.",
+    )
+    run_single.add_argument(
+        "--thinking-level",
+        default="high",
+        choices=("low", "med", "high"),
+        help="Thinking budget level for the generation run.",
+    )
+    run_single.add_argument(
+        "--max-turns",
+        type=int,
+        default=DEFAULT_MAX_TURNS,
+        help="Max-turns cap for the generation run.",
+    )
+    run_single.add_argument(
+        "--system-prompt-path",
+        default="designer_system_prompt.txt",
+        help="System prompt file to use for the generation run.",
+    )
+    run_single.add_argument(
+        "--sdk-package",
+        default="sdk",
+        help="SDK package to use for prompt selection, scaffolding, and compilation.",
+    )
+    run_single.add_argument(
+        "--design-audit",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable or disable post-success design-audit injection.",
+    )
+    run_single.add_argument(
+        "--dataset-id",
+        default=None,
+        help="Optional dataset ID override. Defaults to the next canonical ds_<slug>_<NNNN> ID.",
+    )
+    run_single.add_argument(
+        "--record-id",
+        default=None,
+        help="Optional explicit record ID override.",
+    )
     delete_category = subparsers.add_parser(
         "delete-category",
         help="Preview or delete an entire category and all records assigned to it.",
@@ -796,7 +939,7 @@ def main(argv: list[str] | None = None) -> int:
                 category_slug=args.category_slug,
                 promoted_at=args.promoted_at or _utc_now(),
             )
-        except ValueError as exc:
+        except Exception as exc:
             print(str(exc))
             return 1
         record = repo.read_json(repo.layout.record_metadata_path(entry["record_id"]))
@@ -847,6 +990,45 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"Wrote dataset manifest to {repo.layout.dataset_manifest_path()} "
             f"entries={len(manifest['generated'])}"
+        )
+        print(
+            f"Rebuilt search index at {search_stats.path} "
+            f"records={search_stats.record_count} "
+            f"categories={search_stats.category_count}"
+        )
+        return 0
+
+    if args.command == "run-single":
+        repo.ensure_layout()
+        try:
+            sdk_package = normalize_sdk_package(args.sdk_package)
+            record_id, dataset_id, category, search_stats = _run_single_category_workflow(
+                repo,
+                datasets,
+                prompt=args.prompt,
+                category_slug=args.category_slug,
+                provider=args.provider,
+                model_id=args.model_id,
+                image=args.image,
+                thinking_level=args.thinking_level,
+                max_turns=args.max_turns,
+                system_prompt_path=args.system_prompt_path,
+                sdk_package=sdk_package,
+                design_audit=args.design_audit,
+                dataset_id=args.dataset_id,
+                record_id=args.record_id,
+            )
+        except ValueError as exc:
+            print(str(exc))
+            return 1
+        print(
+            f"Generated record_id={record_id} "
+            f"category_slug={args.category_slug} "
+            f"dataset_id={dataset_id}"
+        )
+        print(
+            f"Category title={category.get('title') or '(untitled)'} "
+            f"path={repo.layout.category_metadata_path(args.category_slug)}"
         )
         print(
             f"Rebuilt search index at {search_stats.path} "

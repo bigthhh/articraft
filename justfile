@@ -8,6 +8,7 @@ thinking := ""
 sdk := ""
 image := ""
 dataset_id := ""
+category := ""
 mode := "prod"
 api_host := host
 api_port := port
@@ -62,6 +63,7 @@ wb prompt:
     thinking={{ quote(thinking) }}
     sdk={{ quote(sdk) }}
     image={{ quote(image) }}
+    design_audit={{ quote(design_audit) }}
     if [ -z "$model" ]; then
       model="gpt-5.4"
     fi
@@ -118,6 +120,7 @@ wb-init prompt:
     thinking={{ quote(thinking) }}
     sdk={{ quote(sdk) }}
     image={{ quote(image) }}
+    design_audit={{ quote(design_audit) }}
     if [ -z "$model" ]; then
       model="gpt-5.4"
     fi
@@ -158,6 +161,74 @@ wb-init prompt:
       --thinking-level "$thinking"
       --sdk-package "$sdk_package"
     )
+    if [ -n "$image" ]; then
+      cmd+=(--image "$image")
+    fi
+    if [ "$design_audit" = "false" ]; then
+      cmd+=(--no-design-audit)
+    elif [ "$design_audit" = "true" ]; then
+      cmd+=(--design-audit)
+    fi
+    exec "${cmd[@]}"
+
+wb-category prompt:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    model={{ quote(model) }}
+    thinking={{ quote(thinking) }}
+    sdk={{ quote(sdk) }}
+    image={{ quote(image) }}
+    design_audit={{ quote(design_audit) }}
+    category={{ quote(category) }}
+    dataset_id={{ quote(dataset_id) }}
+    if [ -z "$category" ]; then
+      echo "Set category=<category-slug>" >&2
+      exit 1
+    fi
+    if [ -z "$model" ]; then
+      model="gpt-5.4"
+    fi
+    if [ -z "$thinking" ]; then
+      thinking="high"
+    fi
+    case "$sdk" in
+      ""|sdk|base)
+        sdk_package="sdk"
+        ;;
+      hybrid|sdk_hybrid)
+        sdk_package="sdk_hybrid"
+        ;;
+      *)
+        echo "Unsupported sdk '$sdk'. Supported values: sdk or hybrid. Aliases: base, sdk_hybrid." >&2
+        exit 1
+        ;;
+    esac
+    case "$model" in
+      gpt-*|o1*|o3*|o4*)
+        provider="openai"
+        ;;
+      gemini-*)
+        provider="gemini"
+        ;;
+      *)
+        echo "Unable to infer provider for model '$model'. Supported model prefixes: gpt-, o1, o3, o4, gemini-." >&2
+        exit 1
+        ;;
+    esac
+    cmd=(
+      uv run articraft-dataset
+      --repo-root .
+      run-single
+      {{ quote(prompt) }}
+      --category-slug "$category"
+      --provider "$provider"
+      --model-id "$model"
+      --thinking-level "$thinking"
+      --sdk-package "$sdk_package"
+    )
+    if [ -n "$dataset_id" ]; then
+      cmd+=(--dataset-id "$dataset_id")
+    fi
     if [ -n "$image" ]; then
       cmd+=(--image "$image")
     fi

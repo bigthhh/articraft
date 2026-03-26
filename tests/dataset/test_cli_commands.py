@@ -5,6 +5,9 @@ import json
 from contextlib import redirect_stdout
 from pathlib import Path
 
+import pytest
+
+from agent import runner
 from cli.dataset import main as dataset_main
 from storage.categories import CategoryStore
 from storage.collections import CollectionStore
@@ -20,6 +23,12 @@ from storage.models import (
 from storage.records import RecordStore
 from storage.repo import StorageRepo
 from storage.runs import RunStore
+from tests.helpers import FakeAgent
+
+
+@pytest.fixture
+def fake_agent(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(runner, "ArticraftAgent", FakeAgent)
 
 
 def _create_workbench_record(
@@ -508,6 +517,184 @@ def test_promote_record_reuses_existing_category_and_allocates_next_dataset_id(
     workbench_entries = (CollectionStore(repo).load_workbench() or {}).get("entries", [])
     assert workbench_entries == []
     assert "dataset_id=ds_internet_router_0002" in output.getvalue()
+
+
+def test_run_single_generates_dataset_record_and_creates_category(
+    fake_agent: None,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = StorageRepo(tmp_path)
+    repo.ensure_layout()
+
+    assert (
+        dataset_main(
+            [
+                "--repo-root",
+                str(tmp_path),
+                "run-single",
+                "Create a compact home router with a vented body and two hinged antennas.",
+                "--category-slug",
+                "internet_router",
+                "--provider",
+                "openai",
+                "--model-id",
+                "gpt-5.4",
+                "--thinking-level",
+                "high",
+                "--sdk-package",
+                "sdk",
+                "--record-id",
+                "rec_router_single",
+            ]
+        )
+        == 0
+    )
+
+    record = json.loads(
+        repo.layout.record_metadata_path("rec_router_single").read_text(encoding="utf-8")
+    )
+    assert record["collections"] == ["dataset"]
+    assert record["category_slug"] == "internet_router"
+
+    dataset_entry = json.loads(
+        repo.layout.record_dataset_entry_path("rec_router_single").read_text(encoding="utf-8")
+    )
+    assert dataset_entry["dataset_id"] == "ds_internet_router_0001"
+    assert dataset_entry["category_slug"] == "internet_router"
+
+    category = json.loads(
+        repo.layout.category_metadata_path("internet_router").read_text(encoding="utf-8")
+    )
+    assert category["title"] == "Internet Router"
+    assert category["current_count"] == 1
+    assert category["last_item_index"] == 1
+    assert category["run_count"] == 1
+
+    manifest = json.loads(repo.layout.dataset_manifest_path().read_text(encoding="utf-8"))
+    assert manifest == {
+        "generated": [{"name": "ds_internet_router_0001", "record_id": "rec_router_single"}]
+    }
+    assert repo.layout.search_index_path().exists()
+    assert (CollectionStore(repo).load_workbench() or {}).get("entries", []) == []
+
+    captured = capsys.readouterr().out
+    assert "Generated record_id=rec_router_single" in captured
+    assert "dataset_id=ds_internet_router_0001" in captured
+
+
+def test_run_single_reuses_existing_category_and_allocates_next_dataset_id(
+    fake_agent: None,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = StorageRepo(tmp_path)
+    repo.ensure_layout()
+
+    CategoryStore(repo).save(
+        CategoryRecord(
+            schema_version=1,
+            slug="internet_router",
+            title="Internet Router",
+            description="existing",
+            prompt_batch_ids=["seed_batch"],
+            target_sdk_version="base",
+            current_count=1,
+            last_item_index=1,
+            created_at="2026-03-18T00:00:00Z",
+            updated_at="2026-03-18T00:00:00Z",
+            run_count=1,
+        )
+    )
+    RecordStore(repo).write_record(
+        Record(
+            schema_version=1,
+            record_id="rec_existing_router",
+            created_at="2026-03-18T00:00:00Z",
+            updated_at="2026-03-18T00:00:00Z",
+            rating=None,
+            kind="generated_model",
+            prompt_kind="single_prompt",
+            category_slug="internet_router",
+            source=SourceRef(run_id="run_existing_router"),
+            sdk_package="sdk",
+            provider="openai",
+            model_id="gpt-5.4",
+            display=DisplayMetadata(title="Existing router", prompt_preview="existing"),
+            artifacts=RecordArtifacts(
+                prompt_txt="prompt.txt",
+                prompt_series_json=None,
+                model_py="model.py",
+                provenance_json="provenance.json",
+                cost_json=None,
+            ),
+            collections=["dataset"],
+        )
+    )
+    DatasetStore(repo).promote_record(
+        record_id="rec_existing_router",
+        dataset_id="ds_internet_router_0001",
+        category_slug="internet_router",
+        promoted_at="2026-03-18T00:01:00Z",
+    )
+    RunStore(repo).write_run(
+        RunRecord(
+            schema_version=1,
+            run_id="run_existing_router",
+            run_mode="dataset_single",
+            collection="dataset",
+            created_at="2026-03-18T00:00:00Z",
+            updated_at="2026-03-18T00:00:01Z",
+            provider="openai",
+            model_id="gpt-5.4",
+            sdk_package="sdk",
+            status="success",
+            category_slug="internet_router",
+            prompt_count=1,
+        )
+    )
+
+    assert (
+        dataset_main(
+            [
+                "--repo-root",
+                str(tmp_path),
+                "run-single",
+                "Create a rackmount internet router with swing-up antennas.",
+                "--category-slug",
+                "internet_router",
+                "--provider",
+                "openai",
+                "--model-id",
+                "gpt-5.4",
+                "--thinking-level",
+                "high",
+                "--sdk-package",
+                "sdk",
+                "--record-id",
+                "rec_router_single_2",
+            ]
+        )
+        == 0
+    )
+
+    dataset_entry = json.loads(
+        repo.layout.record_dataset_entry_path("rec_router_single_2").read_text(encoding="utf-8")
+    )
+    assert dataset_entry["dataset_id"] == "ds_internet_router_0002"
+
+    category = json.loads(
+        repo.layout.category_metadata_path("internet_router").read_text(encoding="utf-8")
+    )
+    assert category["title"] == "Internet Router"
+    assert category["description"] == "existing"
+    assert category["prompt_batch_ids"] == ["seed_batch"]
+    assert category["current_count"] == 2
+    assert category["last_item_index"] == 2
+    assert category["run_count"] == 2
+
+    captured = capsys.readouterr().out
+    assert "dataset_id=ds_internet_router_0002" in captured
 
 
 def test_supercategory_cli_commands_cover_list_mutation_and_delete(tmp_path: Path) -> None:

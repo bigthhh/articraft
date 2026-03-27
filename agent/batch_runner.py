@@ -33,7 +33,7 @@ from storage.batch_specs import BatchSpecStore
 from storage.categories import CategoryStore
 from storage.collections import CollectionStore
 from storage.dataset_workflow import (
-    next_dataset_id,
+    allocate_dataset_id,
     parse_canonical_dataset_sequence,
     reconcile_category_metadata,
 )
@@ -335,8 +335,8 @@ def _build_batch_run_id(batch_id: str) -> str:
 def _record_id_for_dataset_id(category_slug: str, dataset_id: str) -> str:
     prefix = f"ds_{category_slug}_"
     if dataset_id.startswith(prefix):
-        suffix = dataset_id[len(prefix) :]
-        if suffix.isdigit():
+        suffix = dataset_id[len(prefix) :].lower()
+        if suffix and len(suffix) <= 64 and suffix.replace("_", "").isalnum():
             return f"rec_{category_slug}_{suffix}"
     digest = hashlib.sha1(dataset_id.encode("utf-8")).hexdigest()[:8]
     return f"rec_{category_slug}_{digest}"
@@ -727,15 +727,17 @@ def _build_allocations(
     repo: StorageRepo,
 ) -> dict[str, BatchRowAllocation]:
     datasets = DatasetStore(repo)
-    categories = CategoryStore(repo)
     rows_by_category = _group_rows_by_category(rows)
     allocations: dict[str, BatchRowAllocation] = {}
     for category_slug, group_rows in rows_by_category.items():
-        category = categories.load(category_slug)
-        _, sequence = next_dataset_id(datasets, category_slug=category_slug, category=category)
-        next_sequence = sequence
+        allocated_ids_for_category: set[str] = set()
         for row in sorted(group_rows, key=lambda item: item.prompt_index):
-            dataset_id = f"ds_{category_slug}_{next_sequence:04d}"
+            dataset_id = allocate_dataset_id(
+                datasets,
+                category_slug=category_slug,
+                reserved_dataset_ids=allocated_ids_for_category,
+            )
+            allocated_ids_for_category.add(dataset_id)
             allocations[row.row_id] = BatchRowAllocation(
                 row_id=row.row_id,
                 category_slug=category_slug,
@@ -743,7 +745,6 @@ def _build_allocations(
                 record_id=_record_id_for_dataset_id(category_slug, dataset_id),
                 prompt_index=row.prompt_index,
             )
-            next_sequence += 1
     return allocations
 
 

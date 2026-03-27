@@ -9,6 +9,7 @@ import pytest
 
 from agent import runner
 from cli.dataset import main as dataset_main
+from storage import dataset_workflow
 from storage.categories import CategoryStore
 from storage.collections import CollectionStore
 from storage.datasets import DatasetStore
@@ -84,6 +85,11 @@ def _create_workbench_record(
             prompt_count=1,
         )
     )
+
+
+def _patch_dataset_tokens(monkeypatch: pytest.MonkeyPatch, *tokens: str) -> None:
+    iterator = iter(tokens)
+    monkeypatch.setattr(dataset_workflow, "new_dataset_token", lambda: next(iterator))
 
 
 def test_dataset_cli_commands_cover_promote_delete_and_prune(tmp_path: Path) -> None:
@@ -168,7 +174,7 @@ def test_dataset_cli_commands_cover_promote_delete_and_prune(tmp_path: Path) -> 
         category = json.loads(
             repo.layout.category_metadata_path("hinges").read_text(encoding="utf-8")
         )
-        assert category["current_count"] == 1
+        assert category["prompt_batch_ids"] == ["seed_batch"]
         assert dataset_main(["--repo-root", str(repo_root), "validate"]) == 0
         assert dataset_main(["--repo-root", str(repo_root), "build-manifest"]) == 0
         assert dataset_main(["--repo-root", str(repo_root), "status"]) == 0
@@ -221,7 +227,6 @@ def test_dataset_cli_commands_cover_promote_delete_and_prune(tmp_path: Path) -> 
             repo.layout.category_metadata_path("hinges").read_text(encoding="utf-8")
         )
         assert category["prompt_batch_ids"] == ["seed_batch"]
-        assert category["current_count"] == 0
         assert repo.layout.run_metadata_path("run_cli").exists()
         assert repo.layout.search_index_path().exists()
         assert (CollectionStore(repo).load_workbench() or {}).get("entries", []) == []
@@ -335,7 +340,9 @@ def test_dataset_cli_commands_cover_promote_delete_and_prune(tmp_path: Path) -> 
 
 def test_promote_record_creates_category_and_moves_record_out_of_workbench(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _patch_dataset_tokens(monkeypatch, "0001")
     repo = StorageRepo(tmp_path)
     repo.ensure_layout()
     _create_workbench_record(
@@ -381,12 +388,12 @@ def test_promote_record_creates_category_and_moves_record_out_of_workbench(
     category = json.loads(
         repo.layout.category_metadata_path("internet_router").read_text(encoding="utf-8")
     )
-    assert category["title"] == "Internet Router"
-    assert category["slug"] == "internet_router"
-    assert category["target_sdk_version"] == "base"
-    assert category["current_count"] == 1
-    assert category["last_item_index"] == 1
-    assert category["run_count"] == 1
+    assert category == {
+        "schema_version": 1,
+        "slug": "internet_router",
+        "title": "Internet Router",
+        "description": "",
+    }
 
     run_metadata = json.loads(
         repo.layout.run_metadata_path("run_router").read_text(encoding="utf-8")
@@ -408,7 +415,9 @@ def test_promote_record_creates_category_and_moves_record_out_of_workbench(
 
 def test_promote_record_reuses_existing_category_and_allocates_next_dataset_id(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _patch_dataset_tokens(monkeypatch, "0002")
     repo = StorageRepo(tmp_path)
     repo.ensure_layout()
 
@@ -507,12 +516,14 @@ def test_promote_record_reuses_existing_category_and_allocates_next_dataset_id(
     category = json.loads(
         repo.layout.category_metadata_path("internet_router").read_text(encoding="utf-8")
     )
-    assert category["title"] == "Internet Router"
-    assert category["description"] == "existing"
-    assert category["prompt_batch_ids"] == ["seed_batch"]
-    assert category["current_count"] == 2
-    assert category["last_item_index"] == 2
-    assert category["run_count"] == 2
+    assert category == {
+        "schema_version": 1,
+        "slug": "internet_router",
+        "title": "Internet Router",
+        "description": "existing",
+        "prompt_batch_ids": ["seed_batch"],
+        "target_sdk_version": "base",
+    }
 
     workbench_entries = (CollectionStore(repo).load_workbench() or {}).get("entries", [])
     assert workbench_entries == []
@@ -523,7 +534,9 @@ def test_run_single_generates_dataset_record_and_creates_category(
     fake_agent: None,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _patch_dataset_tokens(monkeypatch, "0001")
     repo = StorageRepo(tmp_path)
     repo.ensure_layout()
 
@@ -566,10 +579,12 @@ def test_run_single_generates_dataset_record_and_creates_category(
     category = json.loads(
         repo.layout.category_metadata_path("internet_router").read_text(encoding="utf-8")
     )
-    assert category["title"] == "Internet Router"
-    assert category["current_count"] == 1
-    assert category["last_item_index"] == 1
-    assert category["run_count"] == 1
+    assert category == {
+        "schema_version": 1,
+        "slug": "internet_router",
+        "title": "Internet Router",
+        "description": "",
+    }
 
     manifest = json.loads(repo.layout.dataset_manifest_path().read_text(encoding="utf-8"))
     assert manifest == {
@@ -587,7 +602,9 @@ def test_run_single_reuses_existing_category_and_allocates_next_dataset_id(
     fake_agent: None,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _patch_dataset_tokens(monkeypatch, "0002")
     repo = StorageRepo(tmp_path)
     repo.ensure_layout()
 
@@ -686,12 +703,14 @@ def test_run_single_reuses_existing_category_and_allocates_next_dataset_id(
     category = json.loads(
         repo.layout.category_metadata_path("internet_router").read_text(encoding="utf-8")
     )
-    assert category["title"] == "Internet Router"
-    assert category["description"] == "existing"
-    assert category["prompt_batch_ids"] == ["seed_batch"]
-    assert category["current_count"] == 2
-    assert category["last_item_index"] == 2
-    assert category["run_count"] == 2
+    assert category == {
+        "schema_version": 1,
+        "slug": "internet_router",
+        "title": "Internet Router",
+        "description": "existing",
+        "prompt_batch_ids": ["seed_batch"],
+        "target_sdk_version": "base",
+    }
 
     captured = capsys.readouterr().out
     assert "dataset_id=ds_internet_router_0002" in captured

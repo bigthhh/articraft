@@ -11,6 +11,7 @@ import pytest
 from agent import batch_runner, runner
 from agent.models import AgentResult, TerminateReason
 from cli.dataset import main as dataset_main
+from storage import dataset_workflow
 from storage.categories import CategoryStore
 from storage.datasets import DatasetStore
 from storage.models import CategoryRecord
@@ -30,6 +31,11 @@ def _write_csv(path: Path, rows: list[dict[str, str]]) -> None:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
+
+
+def _patch_dataset_tokens(monkeypatch: pytest.MonkeyPatch, *tokens: str) -> None:
+    iterator = iter(tokens)
+    monkeypatch.setattr(dataset_workflow, "new_dataset_token", lambda: next(iterator))
 
 
 class SuccessBatchAgent:
@@ -550,6 +556,7 @@ def test_run_batch_persists_records_and_batch_metadata(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(runner, "ArticraftAgent", SuccessBatchAgent)
+    _patch_dataset_tokens(monkeypatch, "0001", "0001")
 
     thread_ids: list[int] = []
     manifest_write_calls: list[int] = []
@@ -675,12 +682,18 @@ def test_run_batch_persists_records_and_batch_metadata(
 
     hinge_category = CategoryStore(repo).load("hinge")
     fan_category = CategoryStore(repo).load("fan")
-    assert hinge_category["current_count"] == 1
-    assert hinge_category["last_item_index"] == 1
-    assert hinge_category["run_count"] == 1
-    assert fan_category["current_count"] == 1
-    assert fan_category["last_item_index"] == 1
-    assert fan_category["run_count"] == 1
+    assert hinge_category == {
+        "schema_version": 1,
+        "slug": "hinge",
+        "title": "Hinge",
+        "description": "",
+    }
+    assert fan_category == {
+        "schema_version": 1,
+        "slug": "fan",
+        "title": "Fan",
+        "description": "",
+    }
 
     viewer_store = ViewerStore(tmp_path)
     run_detail = viewer_store.load_run_detail(run_id)
@@ -695,6 +708,7 @@ def test_run_batch_resume_reuses_allocations_and_only_reruns_failed_rows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(runner, "ArticraftAgent", FlakyBatchAgent)
+    _patch_dataset_tokens(monkeypatch, "0001", "0002", "0001")
 
     spec_path = tmp_path / "source_specs" / "resume_batch.csv"
     _write_csv(
@@ -791,10 +805,18 @@ def test_run_batch_resume_reuses_allocations_and_only_reruns_failed_rows(
     }
     hinge_category = CategoryStore(repo).load("hinge")
     fan_category = CategoryStore(repo).load("fan")
-    assert hinge_category["current_count"] == 1
-    assert hinge_category["last_item_index"] == 1
-    assert fan_category["current_count"] == 1
-    assert fan_category["last_item_index"] == 1
+    assert hinge_category == {
+        "schema_version": 1,
+        "slug": "hinge",
+        "title": "Hinge",
+        "description": "",
+    }
+    assert fan_category == {
+        "schema_version": 1,
+        "slug": "fan",
+        "title": "Fan",
+        "description": "",
+    }
 
     second_exit_code = dataset_main(
         [
@@ -848,8 +870,12 @@ def test_run_batch_resume_reuses_allocations_and_only_reruns_failed_rows(
         ]
     }
     hinge_category = CategoryStore(repo).load("hinge")
-    assert hinge_category["current_count"] == 2
-    assert hinge_category["last_item_index"] == 2
+    assert hinge_category == {
+        "schema_version": 1,
+        "slug": "hinge",
+        "title": "Hinge",
+        "description": "",
+    }
 
 
 def test_run_batch_resume_reconciles_durable_success_without_rerunning(
@@ -857,6 +883,7 @@ def test_run_batch_resume_reconciles_durable_success_without_rerunning(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(runner, "ArticraftAgent", SuccessBatchAgent)
+    _patch_dataset_tokens(monkeypatch, "0001")
 
     spec_path = tmp_path / "source_specs" / "resume_reconcile.csv"
     _write_csv(
@@ -943,6 +970,7 @@ def test_run_batch_resume_reruns_interrupted_running_rows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(runner, "ArticraftAgent", FlakyBatchAgent)
+    _patch_dataset_tokens(monkeypatch, "0001")
 
     spec_path = tmp_path / "source_specs" / "resume_running.csv"
     _write_csv(
@@ -1025,6 +1053,7 @@ def test_run_batch_display_stops_after_finalization(
 ) -> None:
     monkeypatch.setattr(runner, "ArticraftAgent", SuccessBatchAgent)
     monkeypatch.setattr(batch_runner, "BatchRunDisplay", RecordingBatchDisplay)
+    _patch_dataset_tokens(monkeypatch, "0001")
 
     spec_path = tmp_path / "source_specs" / "display_order.csv"
     _write_csv(

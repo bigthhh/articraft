@@ -846,11 +846,6 @@ def _import_categories(dataset: LegacyDataset, *, repo: StorageRepo) -> None:
                 title=category.title,
                 prompt_batch_ids=sorted(batch.batch_id for batch in category.prompt_batches),
                 target_sdk_version=category.target_sdk_version,
-                current_count=category.current_count,
-                last_item_index=category.last_item_index,
-                created_at=category.created_at,
-                updated_at=category.updated_at,
-                run_count=category.run_count,
             )
         )
         for batch in category.prompt_batches:

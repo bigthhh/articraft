@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import uuid
 
 from storage.categories import CategoryStore
 from storage.collections import CollectionStore
@@ -46,35 +47,61 @@ def parse_canonical_dataset_sequence(dataset_id: str, category_slug: str) -> int
     return int(suffix)
 
 
-def next_dataset_id(
+def new_dataset_token() -> str:
+    return uuid.uuid4().hex
+
+
+def allocate_dataset_id(
     datasets: DatasetStore,
     *,
     category_slug: str,
-    category: dict | None,
-) -> tuple[str, int]:
+    reserved_dataset_ids: set[str] | None = None,
+) -> str:
     seen_dataset_ids = {
         str(entry.get("dataset_id") or "")
         for entry in datasets.list_entries()
         if isinstance(entry, dict)
     }
-    highest_sequence = 0
-    for dataset_id in seen_dataset_ids:
-        sequence = parse_canonical_dataset_sequence(dataset_id, category_slug)
-        if sequence is not None:
-            highest_sequence = max(highest_sequence, sequence)
+    if reserved_dataset_ids:
+        seen_dataset_ids.update(reserved_dataset_ids)
 
-    if isinstance(category, dict):
-        for key in ("last_item_index", "current_count"):
-            value = category.get(key)
-            if isinstance(value, int):
-                highest_sequence = max(highest_sequence, value)
+    while True:
+        dataset_id = f"ds_{category_slug}_{new_dataset_token()}"
+        if dataset_id not in seen_dataset_ids:
+            return dataset_id
 
-    sequence = highest_sequence + 1
-    dataset_id = f"ds_{category_slug}_{sequence:04d}"
-    while dataset_id in seen_dataset_ids:
-        sequence += 1
-        dataset_id = f"ds_{category_slug}_{sequence:04d}"
-    return dataset_id, sequence
+
+def next_dataset_id(
+    datasets: DatasetStore,
+    *,
+    category_slug: str,
+    category: dict | None,
+) -> tuple[str, int | None]:
+    del category
+    return allocate_dataset_id(datasets, category_slug=category_slug), None
+
+
+def _list_prompt_batch_ids(
+    repo: StorageRepo,
+    category_slug: str,
+    *,
+    category_payload: dict | None = None,
+) -> list[str]:
+    prompt_batches_dir = repo.layout.prompt_batches_dir(category_slug)
+    batch_ids: set[str] = set()
+    if prompt_batches_dir.exists():
+        batch_ids.update(
+            path.stem
+            for path in prompt_batches_dir.iterdir()
+            if path.is_file() and path.suffix == ".txt"
+        )
+    if isinstance(category_payload, dict):
+        batch_ids.update(
+            str(batch_id)
+            for batch_id in category_payload.get("prompt_batch_ids", [])
+            if str(batch_id).strip()
+        )
+    return sorted(batch_ids)
 
 
 def reconcile_category_metadata(
@@ -87,18 +114,14 @@ def reconcile_category_metadata(
     category_title: str | None = None,
     record: dict | None = None,
 ) -> dict | None:
+    del now, sequence, record
     categories = CategoryStore(repo)
     existing = categories.load(category_slug)
     record_category_count = len(queries.list_record_ids_for_category(category_slug))
-    run_count = len(queries.list_run_ids_for_category(category_slug))
-    existing_prompt_batch_ids = (
-        [
-            str(batch_id)
-            for batch_id in existing.get("prompt_batch_ids", [])
-            if str(batch_id).strip()
-        ]
-        if isinstance(existing, dict)
-        else []
+    existing_prompt_batch_ids = _list_prompt_batch_ids(
+        repo,
+        category_slug,
+        category_payload=existing if isinstance(existing, dict) else None,
     )
 
     # Empty ad hoc categories are taxonomy drift. Seeded categories remain in place.
@@ -108,55 +131,33 @@ def reconcile_category_metadata(
         return None
 
     if isinstance(existing, dict):
+        if str(existing.get("title") or "").strip():
+            return existing
+
         category = CategoryRecord(
             schema_version=int(existing.get("schema_version", 1)),
             slug=category_slug,
-            title=str(
-                existing.get("title") or category_title or category_title_from_slug(category_slug)
-            ),
+            title=category_title or category_title_from_slug(category_slug),
             description=str(existing.get("description") or ""),
-            prompt_batch_ids=existing_prompt_batch_ids,
             target_sdk_version=(
                 str(existing.get("target_sdk_version"))
                 if existing.get("target_sdk_version") is not None
-                else sdk_package_to_target_sdk_version(str((record or {}).get("sdk_package") or ""))
+                else None
             ),
-            current_count=record_category_count,
-            last_item_index=max(
-                [
-                    value
-                    for value in (
-                        sequence,
-                        existing.get("last_item_index")
-                        if isinstance(existing.get("last_item_index"), int)
-                        else None,
-                    )
-                    if isinstance(value, int)
-                ],
-                default=None,
-            ),
-            created_at=str(existing.get("created_at") or now),
-            updated_at=now,
-            run_count=run_count,
         )
-    else:
-        category = CategoryRecord(
-            schema_version=1,
-            slug=category_slug,
-            title=category_title or category_title_from_slug(category_slug),
-            description="",
-            prompt_batch_ids=[],
-            target_sdk_version=sdk_package_to_target_sdk_version(
-                str((record or {}).get("sdk_package") or "")
-            ),
-            current_count=record_category_count,
-            last_item_index=sequence,
-            created_at=now,
-            updated_at=now,
-            run_count=run_count,
-        )
+        categories.save(category)
+        refreshed = categories.load(category_slug)
+        return refreshed if isinstance(refreshed, dict) else category.to_dict()
+
+    category = CategoryRecord(
+        schema_version=1,
+        slug=category_slug,
+        title=category_title or category_title_from_slug(category_slug),
+        description="",
+    )
     categories.save(category)
-    return category.to_dict()
+    refreshed = categories.load(category_slug)
+    return refreshed if isinstance(refreshed, dict) else category.to_dict()
 
 
 def upsert_category_metadata(
@@ -219,7 +220,6 @@ def promote_record_workflow(
     category_title = normalized_category_title
 
     existing_entry = datasets.load_entry(record_id)
-    used_sequence: int | None = None
     resolved_dataset_id = dataset_id
 
     if isinstance(existing_entry, dict):
@@ -229,21 +229,17 @@ def promote_record_workflow(
                 f"Record already promoted under category {existing_category_slug}: {record_id}"
             )
         resolved_dataset_id = str(existing_entry.get("dataset_id") or "")
-        used_sequence = parse_canonical_dataset_sequence(resolved_dataset_id, category_slug)
         if not resolved_dataset_id:
             raise ValueError(f"Existing dataset entry missing dataset_id for {record_id}")
     else:
         if not resolved_dataset_id:
-            category = CategoryStore(repo).load(category_slug)
-            resolved_dataset_id, used_sequence = next_dataset_id(
+            resolved_dataset_id = allocate_dataset_id(
                 datasets,
                 category_slug=category_slug,
-                category=category,
             )
         else:
             if datasets.find_record_id_by_dataset_id(resolved_dataset_id) is not None:
                 raise ValueError(f"Dataset ID already exists: {resolved_dataset_id}")
-            used_sequence = parse_canonical_dataset_sequence(resolved_dataset_id, category_slug)
 
     record["category_slug"] = category_slug
     record["collections"] = ["dataset"]
@@ -276,7 +272,7 @@ def promote_record_workflow(
         category_title=category_title,
         category_slug=category_slug,
         now=promoted_at,
-        sequence=used_sequence,
+        sequence=None,
     )
     manifest = datasets.write_dataset_manifest()
     search_stats = SearchIndex(repo).rebuild()

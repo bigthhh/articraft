@@ -419,8 +419,12 @@ def test_migrate_final_10k_import_and_replace(tmp_path: Path) -> None:
     assert category_payload is not None
     assert "target_count" not in category_payload
     assert "remaining_count" not in category_payload
+    assert "current_count" not in category_payload
+    assert "last_item_index" not in category_payload
+    assert "run_count" not in category_payload
+    assert category_payload["title"] == "Category 000"
     assert category_payload["target_sdk_version"] == "base"
-    assert category_payload["current_count"] == 2
+    assert category_payload["prompt_batch_ids"] == ["realism_articulation_v1"]
     assert repo.layout.prompt_batch_path("category_000", "realism_articulation_v1").exists()
 
     missing_mesh_record = repo.read_json(repo.layout.record_metadata_path("rec_category_000_0001"))

@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
+from storage import dataset_workflow
 from storage.categories import CategoryStore
 from storage.collections import CollectionStore
 from storage.datasets import DatasetStore
@@ -25,6 +26,11 @@ from storage.runs import RunStore
 from storage.trajectories import compress_trajectory_file
 from viewer.api.app import create_app
 from viewer.api.store import ViewerStore
+
+
+def _patch_dataset_tokens(monkeypatch: pytest.MonkeyPatch, *tokens: str) -> None:
+    iterator = iter(tokens)
+    monkeypatch.setattr(dataset_workflow, "new_dataset_token", lambda: next(iterator))
 
 
 def test_viewer_store_staging_listing_avoids_recursive_tree_scan(
@@ -209,7 +215,8 @@ def test_record_trace_system_prompt_requires_canonical_prompt_when_sha_is_record
     assert "refusing trace-local fallback" in caplog.text
 
 
-def test_viewer_api_end_to_end(tmp_path: Path) -> None:
+def test_viewer_api_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_dataset_tokens(monkeypatch, "0001")
     repo_root = tmp_path
     repo = StorageRepo(repo_root)
     repo.ensure_layout()
@@ -527,8 +534,8 @@ def test_viewer_api_end_to_end(tmp_path: Path) -> None:
 
     categories = client.get("/api/categories").json()
     assert categories == [
-        {"slug": "dj_equipment", "title": "Dj Equipment"},
-        {"slug": "hinges", "title": "Hinges"},
+        {"slug": "dj_equipment", "title": "Dj Equipment", "supercategory_slug": None},
+        {"slug": "hinges", "title": "Hinges", "supercategory_slug": None},
     ]
 
     staging = client.get("/api/staging").json()
@@ -633,13 +640,13 @@ def test_viewer_api_end_to_end(tmp_path: Path) -> None:
     }
     assert stats_payload["category_stats"]["hinges"] == {
         "count": 1,
-        "sdk_package": None,
+        "sdk_package": "sdk",
         "average_rating": 4.0,
         "average_cost_usd": 0.05,
     }
     assert stats_payload["category_stats"]["dj_equipment"] == {
         "count": 1,
-        "sdk_package": None,
+        "sdk_package": "sdk",
         "average_rating": None,
         "average_cost_usd": None,
     }
@@ -817,7 +824,11 @@ def test_search_rebuilds_stale_index_when_new_workbench_record_is_added(tmp_path
     ]
 
 
-def test_viewer_api_promote_uses_category_slug_not_display_title(tmp_path: Path) -> None:
+def test_viewer_api_promote_uses_category_slug_not_display_title(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_dataset_tokens(monkeypatch, "0001")
     repo = StorageRepo(tmp_path)
     repo.ensure_layout()
 

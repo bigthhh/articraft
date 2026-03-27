@@ -113,7 +113,7 @@ To run a single prompt directly into a dataset category instead of the workbench
 just category=grill_with_hinged_lid wb-category "Create a backyard gas grill with a wheeled lower cart, a rectangular cookbox, side shelves, a front control panel, and a domed lid hinged along the rear edge of the cookbox."
 ```
 
-`wb-category` accepts the same `model=...`, `thinking=...`, `sdk=...`, `image=...`, and `design_audit=...` overrides as `wb`. It auto-allocates the next canonical `ds_<category>_<NNNN>` dataset ID for the target category unless you also pass `dataset_id=...`.
+`wb-category` accepts the same `model=...`, `thinking=...`, `sdk=...`, `image=...`, and `design_audit=...` overrides as `wb`. It auto-allocates a collision-resistant `ds_<category>_<token>` dataset ID for the target category unless you also pass `dataset_id=...`.
 
 The underlying CLI command is:
 

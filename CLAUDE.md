@@ -57,7 +57,7 @@ npm --prefix viewer/web run typecheck   # tsc
 ### Package layout
 
 - **`agent/`** — Generation runtime. `runner.py` is the main entrypoint; `harness.py` contains `ArticraftAgent` which orchestrates the multi-turn LLM loop; `compiler.py` executes generated scripts and produces URDF; `providers/` has OpenAI and Gemini LLM adapters; `tools/` defines the tool-use registry; `prompts/` has system prompt templates; `tui/` has the terminal display.
-- **`agent/batch_runner.py`** — Dataset batch orchestration for tracked CSV specs. Validates per-row settings, preallocates dataset IDs, runs rows concurrently with the batch TUI, and resumes prior runs in place.
+- **`agent/batch_runner.py`** — Dataset batch orchestration for tracked CSV specs. Validates per-row settings, preallocates collision-resistant dataset IDs, runs rows concurrently with the batch TUI, and resumes prior runs in place.
 - **`sdk/`** — The articulated-object SDK that generated code imports. `sdk/v0/` is the main implementation. Exports geometry primitives (Box, Cylinder, Sphere, etc.), boolean ops, spline helpers, loft/sweep/extrude, placement utilities, and validation (overlap/collision checking). Models are `ArticulatedObject` composed of `Part`s with `Articulation`s.
 - **`sdk_hybrid/`** — Alternate SDK variant (same interface, different internals).
 - **`storage/`** — On-disk data layer. `layout.py` defines the canonical `data/` directory structure; `repo.py` is `StorageRepo`; `records.py`, `collections.py`, `datasets.py`, `runs.py`, `manifests.py` handle CRUD. `batch_specs.py` manages tracked CSV specs and `dataset_workflow.py` holds shared dataset promotion helpers. `search.py` manages a SQLite search index.
@@ -76,7 +76,7 @@ npm --prefix viewer/web run typecheck   # tsc
 Dataset batch flow:
 
 1. Tracked CSV spec in `data/batch_specs/<batch-id>.csv`
-2. `articraft-dataset run-batch ... --concurrency N` validates rows, preallocates dataset IDs, and creates one batch run record
+2. `articraft-dataset run-batch ... --concurrency N` validates rows, preallocates collision-resistant dataset IDs, and creates one batch run record
 3. Rows execute concurrently with per-row `provider`, `model_id`, `thinking_level`, `max_turns`, and `sdk_package`
 4. Successful rows are promoted into canonical `data/records/<record_id>/` storage; resumable row state and latest row results stay under `data/cache/runs/<run_id>/`
 

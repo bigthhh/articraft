@@ -1190,6 +1190,7 @@ class ViewerStore:
         category_rating_counts: dict[str, int] = {}
         category_cost_totals: dict[str, float] = {}
         category_cost_counts: dict[str, int] = {}
+        category_record_sdk_packages: dict[str, set[str]] = {}
         model_counts: dict[str, int] = {}
         provider_counts: dict[str, int] = {}
         rating_distribution: dict[str, int] = {}
@@ -1201,6 +1202,9 @@ class ViewerStore:
             category = dataset_categories.get(s.record_id) or s.category_slug
             if category:
                 category_counts[category] = category_counts.get(category, 0) + 1
+                sdk_package = _coerce_string(s.sdk_package)
+                if sdk_package:
+                    category_record_sdk_packages.setdefault(category, set()).add(sdk_package)
                 if s.rating is not None:
                     category_rating_totals[category] = (
                         category_rating_totals.get(category, 0.0) + s.rating
@@ -1235,7 +1239,10 @@ class ViewerStore:
             elif target_sdk_version == "base":
                 category_sdk_packages[category] = "sdk"
             else:
-                category_sdk_packages[category] = None
+                record_sdk_packages = category_record_sdk_packages.get(category) or set()
+                category_sdk_packages[category] = (
+                    next(iter(record_sdk_packages)) if len(record_sdk_packages) == 1 else None
+                )
         category_stats = {
             category: CategoryStatsResponse(
                 count=count,

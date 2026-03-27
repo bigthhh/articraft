@@ -636,7 +636,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     promote_record.add_argument(
         "--dataset-id",
-        help="Optional dataset ID override. Defaults to the next canonical ds_<slug>_<NNNN> ID.",
+        help="Optional dataset ID override. Defaults to an auto-generated ds_<slug>_<token> ID.",
     )
     promote_record.add_argument(
         "--promoted-at",
@@ -699,7 +699,7 @@ def _build_parser() -> argparse.ArgumentParser:
     run_single.add_argument(
         "--dataset-id",
         default=None,
-        help="Optional dataset ID override. Defaults to the next canonical ds_<slug>_<NNNN> ID.",
+        help="Optional dataset ID override. Defaults to an auto-generated ds_<slug>_<token> ID.",
     )
     run_single.add_argument(
         "--record-id",

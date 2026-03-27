@@ -338,10 +338,12 @@ def test_dataset_run_and_rerun_preserve_dataset_metadata(
             encoding="utf-8"
         )
     )
-    assert category["title"] == "Crane Tower"
-    assert category["current_count"] == 1
-    assert category["last_item_index"] == 1
-    assert category["run_count"] == 1
+    assert category == {
+        "schema_version": 1,
+        "slug": "crane_tower",
+        "title": "Crane Tower",
+        "description": "",
+    }
 
     manifest = json.loads(
         (repo_root / "data" / "cache" / "manifests" / "dataset.json").read_text(encoding="utf-8")
@@ -391,9 +393,12 @@ def test_dataset_run_and_rerun_preserve_dataset_metadata(
             encoding="utf-8"
         )
     )
-    assert category["current_count"] == 1
-    assert category["last_item_index"] == 1
-    assert category["run_count"] == 2
+    assert category == {
+        "schema_version": 1,
+        "slug": "crane_tower",
+        "title": "Crane Tower",
+        "description": "",
+    }
 
     manifest = json.loads(
         (repo_root / "data" / "cache" / "manifests" / "dataset.json").read_text(encoding="utf-8")

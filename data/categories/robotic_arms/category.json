@@ -3,11 +3,5 @@
   "slug": "robotic_arms",
   "title": "Robotic Arms",
   "description": "",
-  "prompt_batch_ids": [],
-  "target_sdk_version": "base",
-  "current_count": 2,
-  "last_item_index": 2,
-  "created_at": "2026-03-15T19:36:22Z",
-  "updated_at": "2026-03-20T22:05:11Z",
-  "run_count": 2
+  "target_sdk_version": "base"
 }

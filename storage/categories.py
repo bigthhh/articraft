@@ -13,7 +13,20 @@ class CategoryStore:
 
     def save(self, category: CategoryRecord) -> None:
         path = self.repo.layout.category_metadata_path(category.slug)
-        self.repo.write_json(path, category.to_dict())
+        raw_payload = category.to_dict()
+        payload = {
+            "schema_version": raw_payload["schema_version"],
+            "slug": raw_payload["slug"],
+            "title": raw_payload["title"],
+            "description": raw_payload.get("description", ""),
+        }
+        prompt_batch_ids = raw_payload.get("prompt_batch_ids")
+        if isinstance(prompt_batch_ids, list) and prompt_batch_ids:
+            payload["prompt_batch_ids"] = prompt_batch_ids
+        target_sdk_version = raw_payload.get("target_sdk_version")
+        if target_sdk_version is not None:
+            payload["target_sdk_version"] = target_sdk_version
+        self.repo.write_json(path, payload)
 
     def load(self, category_slug: str) -> dict | None:
         return self.repo.read_json(self.repo.layout.category_metadata_path(category_slug))

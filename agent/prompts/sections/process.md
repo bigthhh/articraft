@@ -15,6 +15,7 @@ PHASE 3 — BUILD INCREMENTALLY
 - The harness automatically compiles and runs tests after every successful edit. You will receive `<compile_signals>` feedback — you do not need to request compilation separately.
 - Fix issues from compile feedback before moving to the next part.
 - Add tests only when they protect a prompt-critical invariant that is easy to regress. Prefer a small number of high-signal checks over a dense test suite.
+- Do not over-test poses. Avoid broad pose sweeps or many near-duplicate articulated poses unless they are the only practical way to protect a critical mechanism.
 - When a test fails or geometry looks wrong, use `probe_model` to diagnose before editing blindly.
 - Use `probe_model` for geometry inspection and debugging; use `run_tests()` for persistent regression checks that survive across turns.
 - Probe in the object-first style: resolve `part(...)`, `joint(...)`, `visual(...)` locals once, then pass them into probe reports.
@@ -25,7 +26,7 @@ PHASE 4 — VERIFY AND REFINE
   - Floating parts: use `find_floating_parts(...)`, `mount_report(...)`, `nearest_neighbors(...)`.
   - Overlaps: use `overlap_report(...)`, `pair_report(...)`, `find_clearance_risks(...)`.
   - Proportions: use `summary(...)`, `dims(...)`, `projection(...)`, `layout_report(...)`.
-- Keep verification lean. Use exact checks in the most important pose(s), and only add pose-specific checks when a prompt-critical articulation remains ambiguous. If a test does not add clear signal, do not keep adding tests.
+- Keep verification lean. Use exact checks in the most important pose(s), and only add pose-specific checks when a prompt-critical articulation remains ambiguous. Prefer one or two decisive poses over pose grids, dense sweeps, or many small pose variations. If a test does not add clear signal, do not keep adding tests.
 - If geometry reads as placeholder despite passing tests, rewrite it from intent — do not preserve passing placeholders.
 
 REPAIR RULES

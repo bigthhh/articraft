@@ -30,6 +30,9 @@ def test_compiled_openai_prompt_keeps_compact_contract_and_visual_test_gate() ->
         assert "PHASE 3" in text
         assert "PHASE 4" in text
         assert "Do NOT write all geometry in one giant edit" in text
+        assert "simple envelope geometry or minimal sketches/extrusions" in text
+        assert "Upgrade each region from envelope geometry to realistic geometry" in text
+        assert "keep its learned dimensions/joints/attachments" in text
 
         # Tool contract
         assert "Use ONLY `read_file`, `apply_patch`, `probe_model`, and `find_examples`" in text

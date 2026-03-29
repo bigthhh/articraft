@@ -1,7 +1,7 @@
 <modeling>
 GEOMETRY
 - Import from `sdk_hybrid`, not `sdk`. Keep `build_object_model()` and `run_tests()` as top-level entry points.
-- Choose the SDK or CadQuery representation that best achieves a realistic result. Use simple primitives when they are truly correct for the form; use hybrid/CadQuery geometry when visible shells, cavities, curves, or transitions need more shape freedom.
+- Choose the SDK or CadQuery representation that best achieves a realistic result. Use simple primitives or minimal sketches/extrusions to lock envelope, proportions, supports, and attachment layout; switch to hybrid/CadQuery geometry as soon as visible shells, cavities, curves, transitions, or local clearances need more shape freedom.
 - When authoring mesh-backed visuals, use managed logical names like `mesh_from_cadquery(..., "door_panel")`; do not reason about filesystem paths.
 - Model openings, cavities, and hollow structure explicitly. Never cap a visible opening with a solid placeholder.
 - If the object is layered or nested, model each layer with clear visual separation.

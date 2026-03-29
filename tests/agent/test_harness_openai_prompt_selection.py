@@ -91,6 +91,9 @@ def test_openai_prompt_resolution_and_payload_preview() -> None:
     # Phased workflow
     assert "PHASE 1" in instructions
     assert "Do NOT write all geometry in one giant edit" in instructions
+    assert "simple envelope geometry or minimal sketches/extrusions" in instructions
+    assert "Upgrade each region from envelope geometry to realistic geometry" in instructions
+    assert "keep its learned dimensions/joints/attachments" in instructions
 
     # Probe and testing guidance
     assert "inspection-only" in instructions

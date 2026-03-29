@@ -166,7 +166,16 @@ with ctx.pose(hinge=0.5):
 
 - `joint_positions`: mapping of articulation object or joint name to position.
 - `**kwargs`: joint-name shorthand.
+- Revolute and continuous positions are radians; prismatic positions are meters.
+- Positive values follow the configured joint convention: right-hand rule for
+  revolute/continuous, translation along `+axis` for prismatic.
 - Restores the previous pose on exit.
+
+When debugging a reversed hinge or slider, compare the closed pose and an
+opened/extended pose with `part_world_position(...)`, `part_world_aabb(...)`,
+or prompt-specific `expect_*` checks. A good default is to confirm that the
+upper-limit pose moves outward/upward in the intended direction, not just that
+it avoids overlap.
 
 ### `part_world_position(part) -> tuple[float, float, float] | None`
 

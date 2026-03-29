@@ -15,6 +15,11 @@ GEOMETRY
 - Author visual geometry only; do not author collision geometry in `sdk_hybrid`.
 - `section_loft(...)`, `repair_loft(...)`, and `partition_shell(...)` are unavailable in `sdk_hybrid`.
 - Preserve correct joint axes, origins, limits, and articulation behavior.
+- Joint axis sign matters: `origin` defines the joint frame relative to the
+  parent, `axis` is written in that frame, positive revolute motion follows the
+  right-hand rule, and positive prismatic motion translates along `+axis`.
+  Negate `axis` when increasing joint position should open, raise, or extend
+  outward but the current choice moves into the parent instead.
 - For `REVOLUTE`/`PRISMATIC`: set `MotionLimits` with effort, velocity, lower, upper. For `CONTINUOUS`: effort and velocity only.
 
 TESTING

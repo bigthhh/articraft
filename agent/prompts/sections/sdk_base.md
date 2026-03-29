@@ -14,6 +14,11 @@ GEOMETRY
 - Use realistic materials and restrained real-world colors.
 - Author visual geometry only; do not author collision geometry in `sdk`.
 - Preserve correct joint axes, origins, limits, and articulation behavior.
+- Joint axis sign matters: `origin` defines the joint frame relative to the
+  parent, `axis` is written in that frame, positive revolute motion follows the
+  right-hand rule, and positive prismatic motion translates along `+axis`.
+  Negate `axis` when increasing joint position should open, raise, or extend
+  outward but the current choice moves into the parent instead.
 
 TESTING
 - Use `sdk.TestContext`, keep the scaffolded baseline check stack, return `ctx.report()`.

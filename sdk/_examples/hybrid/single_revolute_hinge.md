@@ -13,6 +13,10 @@ tags:
 
 This excerpt keeps the actual part split and hinge placement from the 5-star cabinet example. Helper mesh builders and dimensional constants are omitted here, but the object logic is unchanged.
 
+The important sign choice is that the closed door extends along local `+X`
+from the hinge line, so `axis=(0, 0, 1)` makes positive joint values swing the
+free edge toward local/front `+Y` instead of into the carcass.
+
 ```python
 from sdk_hybrid import (
     ArticulatedObject,
@@ -59,6 +63,8 @@ def build_object_model() -> ArticulatedObject:
                 0.0,
             )
         ),
+        # Closed door geometry extends along +X from the hinge line.
+        # Positive q around +Z swings the free edge outward toward +Y.
         axis=(0.0, 0.0, 1.0),
         motion_limits=MotionLimits(lower=0.0, upper=1.85, effort=10.0, velocity=1.5),
     )

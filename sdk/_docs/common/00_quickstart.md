@@ -74,13 +74,14 @@ def build_object_model() -> ArticulatedObject:
     lid = model.part("lid")
     lid.visual(
         Box((0.18, 0.18, 0.02)),
-        origin=Origin(xyz=(0.0, 0.0, 0.01)),
+        # The lid part frame sits on the hinge line; the panel extends along +X.
+        origin=Origin(xyz=(0.09, 0.0, 0.01)),
         name="lid_shell",
     )
     lid.inertial = Inertial.from_geometry(
         Box((0.18, 0.18, 0.02)),
         mass=0.3,
-        origin=Origin(xyz=(0.0, 0.0, 0.01)),
+        origin=Origin(xyz=(0.09, 0.0, 0.01)),
     )
 
     model.articulation(
@@ -88,8 +89,11 @@ def build_object_model() -> ArticulatedObject:
         ArticulationType.REVOLUTE,
         parent=base,
         child=lid,
-        origin=Origin(xyz=(0.0, 0.0, 0.05)),
-        axis=(0.0, 1.0, 0.0),
+        # Positive q should open the lid upward, not into the base.
+        # Because the closed lid extends along local +X from the hinge,
+        # choose -Y so positive rotation lifts the free edge toward +Z.
+        origin=Origin(xyz=(-0.09, 0.0, 0.05)),
+        axis=(0.0, -1.0, 0.0),
         motion_limits=MotionLimits(effort=5.0, velocity=3.0, lower=0.0, upper=1.2),
     )
 
@@ -117,6 +121,11 @@ def run_tests() -> TestReport:
 
 object_model = build_object_model()
 ```
+
+This example uses a hinge-line part frame for the lid. At `q=0`, the child
+frame coincides with the articulation frame at the left edge of the lid. Since
+the closed lid panel extends along local `+X` from that hinge, `axis=(0, -1, 0)`
+makes positive angles open upward.
 
 `ctx.fail_if_isolated_parts()` also catches floating multi-part groups that are
 internally connected to each other but disconnected from the rooted body.

@@ -13,6 +13,9 @@ tags:
 
 This excerpt keeps the real reading-lamp decomposition from the 5-star record instead of reducing the chain to anonymous blocks.
 
+Both arm links extend along local `+X` from their pivots, so the pitch joints
+use `axis=(0, -1, 0)` to make positive joint values raise the arms upward.
+
 ```python
 from sdk_hybrid import (
     ArticulatedObject,
@@ -63,6 +66,8 @@ def build_object_model() -> ArticulatedObject:
         parent="base",
         child="lower_arm",
         origin=Origin(xyz=(0.0, 0.0, SHOULDER_Z)),
+        # Closed arm geometry extends along +X from the shoulder.
+        # -Y makes positive q pitch the arm upward.
         axis=(0.0, -1.0, 0.0),
         motion_limits=MotionLimits(
             lower=SHOULDER_LIMITS[0],
@@ -77,6 +82,7 @@ def build_object_model() -> ArticulatedObject:
         parent="lower_arm",
         child="upper_assembly",
         origin=Origin(xyz=(LOWER_ARM_LENGTH, 0.0, 0.0)),
+        # Same sign convention: positive q raises the upper assembly.
         axis=(0.0, -1.0, 0.0),
         motion_limits=MotionLimits(
             lower=ELBOW_LIMITS[0],

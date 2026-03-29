@@ -34,6 +34,10 @@ The modeling patterns worth copying are:
 - `place_on_surface(...)` for mounting controls onto the actual shell geometry rather than an approximate AABB face.
 - mixed articulation types in one appliance: revolute head tilt and lock lever, continuous hub spin, and prismatic speed control travel.
 
+For the tilt-head joint, the head shell extends forward along local `+X` from
+the rear pivot, so `axis=(0, -1, 0)` is chosen specifically so positive joint
+values raise the head instead of pitching it down into the bowl.
+
 ```python
 from __future__ import annotations
 
@@ -181,6 +185,8 @@ def build_object_model() -> ArticulatedObject:
         parent=base_unit,
         child=head,
         origin=Origin(xyz=(-0.06, 0.0, 0.39)),
+        # Closed head geometry extends along +X from the rear pivot.
+        # -Y makes positive q tilt the head upward.
         axis=(0.0, -1.0, 0.0),
         motion_limits=MotionLimits(
             effort=15.0,

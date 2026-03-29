@@ -35,6 +35,9 @@ Execution rules:
 Temporarily apply articulation positions.
 
 - Inputs: articulation names and numeric positions.
+- Revolute and continuous positions are radians; prismatic positions are
+  meters.
+- Positive values follow the joint convention encoded by `axis`.
 - Return: context manager for `with pose(...):`.
 
 ### `part(name: str) -> object`

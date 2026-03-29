@@ -472,3 +472,43 @@ def test_harness_does_not_inject_only_low_risk_coplanar_notes() -> None:
 
     assert injected is False
     assert conversation == []
+
+
+def test_harness_reinjects_sticky_disconnected_geometry_warning_until_cleared() -> None:
+    agent = ArticraftAgent.__new__(ArticraftAgent)
+    agent._seen_compile_signal_sigs = set()
+    agent._post_success_design_audit_sent = False
+    agent._post_success_design_audit_enabled = True
+    agent.trace_writer = None
+
+    sticky_bundle = build_compile_signal_bundle(
+        status="success",
+        test_report=SDKTestReport(
+            passed=True,
+            checks_run=1,
+            checks=("warn_if_part_contains_disconnected_geometry_islands",),
+            failures=(),
+            warnings=(
+                "warn_if_part_contains_disconnected_geometry_islands(tol=1e-06): "
+                "Disconnected geometry islands detected:\n"
+                "part='frame' connected=1/2 disconnected=[frame_body__component_002:Mesh]",
+            ),
+            allowances=(),
+        ),
+    )
+
+    conversation: list[dict] = []
+    first = agent._maybe_inject_compile_signals(conversation, bundle=sticky_bundle)
+    second = agent._maybe_inject_compile_signals(conversation, bundle=sticky_bundle)
+
+    assert first is True
+    assert second is True
+    assert len(conversation) == 2
+    assert all("Disconnected geometry islands detected" in item["content"] for item in conversation)
+
+    clean_bundle = build_compile_signal_bundle(status="success")
+    injected_clean = agent._maybe_inject_compile_signals(conversation, bundle=clean_bundle)
+    audit_injected = agent._maybe_inject_post_success_design_audit(conversation)
+
+    assert injected_clean is False
+    assert audit_injected is True

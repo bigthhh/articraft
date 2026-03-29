@@ -102,6 +102,29 @@ class ContextResetAgent(FakeAgent):
         return result
 
 
+class OverBudgetAgent(FakeAgent):
+    async def run(self, user_content: object):  # type: ignore[override]
+        self.file_path.parent.mkdir(parents=True, exist_ok=True)
+        self.file_path.write_text("# over budget\n", encoding="utf-8")
+        (self.file_path.parent / "cost.json").write_text(
+            json.dumps({"total": {"costs_usd": {"total": 0.75}}}, indent=2),
+            encoding="utf-8",
+        )
+        return AgentResult(
+            success=False,
+            reason=TerminateReason.COST_LIMIT,
+            message="Cost limit exceeded after turn 2: cumulative $0.750000 exceeded limit $0.500000",
+            conversation=[{"role": "user", "content": user_content}],
+            final_code=self.file_path.read_text(encoding="utf-8"),
+            urdf_xml=None,
+            compile_warnings=[],
+            turn_count=2,
+            tool_call_count=1,
+            compile_attempt_count=0,
+            usage={"prompt_tokens": 10, "candidates_tokens": 5, "total_tokens": 15},
+        )
+
+
 def test_workbench_run_and_rerun_persist_runtime_artifacts(
     fake_agent: None,
     tmp_path: Path,
@@ -240,6 +263,57 @@ def test_workbench_run_and_rerun_persist_runtime_artifacts(
     assert len(latest_results) == 1
     assert json.loads(latest_results[0])["record_id"] == record_dir.name
     assert not (run_dirs[-1] / "staging" / record_dir.name).exists()
+
+
+def test_over_budget_run_persists_failed_run_metadata_without_record(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(runner, "ArticraftAgent", OverBudgetAgent)
+
+    exit_code = asyncio.run(
+        runner.run_from_input(
+            "make an expensive model",
+            prompt_text="make an expensive model",
+            display_prompt="make an expensive model",
+            repo_root=tmp_path,
+            image_path=None,
+            provider="openai",
+            thinking_level="high",
+            max_turns=30,
+            max_cost_usd=0.5,
+            system_prompt_path=DESIGNER_PROMPT_NAME,
+            sdk_package="sdk",
+            sdk_docs_mode="full",
+        )
+    )
+
+    assert exit_code == 2
+    records_root = tmp_path / "data" / "records"
+    assert not records_root.exists() or list(records_root.iterdir()) == []
+
+    run_dir = next(
+        path for path in (tmp_path / "data" / "cache" / "runs").iterdir() if path.is_dir()
+    )
+    run_metadata = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+    assert run_metadata["status"] == "failed"
+    assert run_metadata["settings_summary"]["max_cost_usd"] == 0.5
+
+    result_rows = [
+        json.loads(line)
+        for line in (run_dir / "results.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert len(result_rows) == 1
+    assert "Cost limit exceeded" in result_rows[0]["message"]
+
+    staging_dirs = [path for path in (run_dir / "staging").iterdir() if path.is_dir()]
+    assert len(staging_dirs) == 1
+    assert (
+        json.loads((staging_dirs[0] / "cost.json").read_text(encoding="utf-8"))["total"][
+            "costs_usd"
+        ]["total"]
+        == 0.75
+    )
 
 
 def test_successful_run_rewrites_visual_meshes_to_glb(

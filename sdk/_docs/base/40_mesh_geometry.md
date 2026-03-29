@@ -313,8 +313,10 @@ mesh_from_geometry(
 
 - Prefer `section_loft(...)` over raw `LoftGeometry(...)` for new shell/exterior
   loft authoring.
-- Prefer the wire/tube helpers in `45_wires.md` over manual sweeps for rails,
-  loops, and frames.
+- Prefer the spline-first wire/tube guidance in `45_wires.md` over manual
+  sweeps for rails, loops, and frames. In practice, start with
+  `tube_from_spline_points(...)` or `sweep_profile_along_spline(...)` unless
+  the geometry is intentionally hard-cornered.
 
 ### Exporting mesh-backed visuals
 

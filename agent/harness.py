@@ -195,6 +195,7 @@ class ArticraftAgent:
         sdk_docs_mode: str = "full",
         openai_reasoning_summary: Optional[str] = "auto",
         post_success_design_audit: bool = True,
+        max_cost_usd: float | None = None,
         runtime_limits: BatchRuntimeLimits | None = None,
     ):
         self.file_path = file_path
@@ -244,6 +245,7 @@ class ArticraftAgent:
 
         actual_model_id = self.llm.model_id
         self.cost_tracker: Optional[CostTracker] = None
+        self.max_cost_usd = max_cost_usd
         pricing = pricing_for_provider_model(provider_norm, actual_model_id)
         if pricing:
             self.cost_tracker = CostTracker(model_id=actual_model_id, pricing=pricing)
@@ -305,11 +307,13 @@ class ArticraftAgent:
         *,
         bundle: CompileSignalBundle,
     ) -> bool:
-        if not any(signal.severity == "warning" for signal in bundle.signals):
+        warning_signals = [signal for signal in bundle.signals if signal.severity == "warning"]
+        if not warning_signals:
             return False
 
+        sticky_warning = any(signal.kind == "disconnected_geometry" for signal in warning_signals)
         sig = self._compile_signal_signature(bundle)
-        if sig in self._seen_compile_signal_sigs:
+        if not sticky_warning and sig in self._seen_compile_signal_sigs:
             return False
         self._seen_compile_signal_sigs.add(sig)
 
@@ -433,6 +437,16 @@ class ArticraftAgent:
             provider=self.provider,
             sdk_package=self.sdk_package,
         )
+
+    def _persist_cost_tracking(self) -> None:
+        if not self.cost_tracker:
+            return
+        try:
+            cost_path = Path(self.file_path).parent / "cost.json"
+            self.cost_tracker.save_json(cost_path)
+            logger.info("Saved cost tracking to %s", cost_path)
+        except Exception as exc:
+            logger.warning("Failed to save cost tracking: %s", exc)
 
     def _extract_tool_calls(self, message: dict) -> list[dict]:
         return message.get("tool_calls", []) if isinstance(message, dict) else []
@@ -887,6 +901,27 @@ class ArticraftAgent:
                 turn_cost = self.cost_tracker.add_turn(usage)
                 llm_duration = time.monotonic() - llm_start
                 self.display.add_llm_call(usage, turn_cost.total_cost, llm_duration)
+                if (
+                    self.max_cost_usd is not None
+                    and self.cost_tracker.total_breakdown.total_cost > self.max_cost_usd
+                ):
+                    total_cost = self.cost_tracker.total_breakdown.total_cost
+                    self._persist_cost_tracking()
+                    self.display.end_turn(success=False)
+                    return AgentResult(
+                        success=False,
+                        reason=TerminateReason.COST_LIMIT,
+                        message=(
+                            f"Cost limit exceeded after turn {completed_turns + 1}: "
+                            f"cumulative ${total_cost:.6f} exceeded limit ${self.max_cost_usd:.6f}"
+                        ),
+                        conversation=conversation,
+                        compile_warnings=list(last_compile_warnings),
+                        turn_count=completed_turns + 1,
+                        tool_call_count=tool_call_count,
+                        compile_attempt_count=compile_attempt_count,
+                        usage=usage_totals or None,
+                    )
 
             logger.info(
                 "Turn %s: %s tool calls, text_length=%s",
@@ -910,13 +945,7 @@ class ArticraftAgent:
                     except Exception:
                         pass
 
-                    if self.cost_tracker:
-                        try:
-                            cost_path = Path(self.file_path).parent / "cost.json"
-                            self.cost_tracker.save_json(cost_path)
-                            logger.info("Saved cost tracking to %s", cost_path)
-                        except Exception as exc:
-                            logger.warning("Failed to save cost tracking: %s", exc)
+                    self._persist_cost_tracking()
 
                     self.display.current_turn = completed_turns
                     self.display.end_turn(success=True)
@@ -1023,13 +1052,7 @@ class ArticraftAgent:
                 except Exception:
                     pass
 
-                if self.cost_tracker:
-                    try:
-                        cost_path = Path(self.file_path).parent / "cost.json"
-                        self.cost_tracker.save_json(cost_path)
-                        logger.info("Saved cost tracking to %s", cost_path)
-                    except Exception as exc:
-                        logger.warning("Failed to save cost tracking: %s", exc)
+                self._persist_cost_tracking()
 
                 self.display.end_turn(success=True)
                 return AgentResult(
@@ -1149,13 +1172,7 @@ class ArticraftAgent:
         except Exception:
             pass
 
-        if self.cost_tracker:
-            try:
-                cost_path = Path(self.file_path).parent / "cost.json"
-                self.cost_tracker.save_json(cost_path)
-                logger.info("Saved cost tracking to %s", cost_path)
-            except Exception as exc:
-                logger.warning("Failed to save cost tracking: %s", exc)
+        self._persist_cost_tracking()
 
         return AgentResult(
             success=False,

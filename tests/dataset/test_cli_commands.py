@@ -555,6 +555,8 @@ def test_run_single_generates_dataset_record_and_creates_category(
                 "gpt-5.4",
                 "--thinking-level",
                 "high",
+                "--max-cost-usd",
+                "1.5",
                 "--sdk-package",
                 "sdk",
                 "--record-id",
@@ -575,6 +577,7 @@ def test_run_single_generates_dataset_record_and_creates_category(
         )
     )
     assert provenance["prompting"]["scaffold_mode"] == "lite"
+    assert provenance["generation"]["max_cost_usd"] == 1.5
 
     dataset_entry = json.loads(
         repo.layout.record_dataset_entry_path("rec_router_single").read_text(encoding="utf-8")
@@ -596,6 +599,9 @@ def test_run_single_generates_dataset_record_and_creates_category(
     assert manifest == {
         "generated": [{"name": "ds_internet_router_0001", "record_id": "rec_router_single"}]
     }
+    run_dir = next(path for path in repo.layout.runs_root.iterdir() if path.is_dir())
+    run_metadata = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+    assert run_metadata["settings_summary"]["max_cost_usd"] == 1.5
     assert repo.layout.search_index_path().exists()
     assert (CollectionStore(repo).load_workbench() or {}).get("entries", []) == []
 

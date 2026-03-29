@@ -18,6 +18,7 @@ from typing import Any, Callable, Iterator, Literal
 
 from rich.console import Console
 
+from agent.cost import max_cost_usd_from_env, parse_max_cost_usd
 from agent.open_file_limits import open_file_worker_cap
 from agent.runner import (
     _build_prompt_with_qc,
@@ -72,6 +73,7 @@ _SUPPORTED_HEADERS = {
     "scaffold_mode",
     "label",
     "design_audit",
+    "max_cost_usd",
 }
 _REQUIRED_HEADERS = {
     "category_slug",
@@ -91,6 +93,7 @@ class BatchAttemptRecord:
     model_id: str
     thinking_level: str
     max_turns: int
+    max_cost_usd: float | None
     sdk_package: str
     post_success_design_audit: bool
     success: bool
@@ -535,13 +538,16 @@ class BatchRowSpec:
     model_id: str
     thinking_level: str
     max_turns: int
+    max_cost_usd: float | None
     sdk_package: str
     scaffold_mode: str = DEFAULT_SCAFFOLD_MODE
     scaffold_mode_explicit: bool = False
     post_success_design_audit: bool = True
     label: str | None = None
 
-    def resume_signature(self) -> tuple[str, str, str, str, str, int, str, str, bool]:
+    def resume_signature(
+        self,
+    ) -> tuple[str, str, str, str, str, int, float | None, str, str, bool]:
         return (
             self.category_slug,
             self.prompt,
@@ -549,6 +555,7 @@ class BatchRowSpec:
             self.model_id,
             self.thinking_level,
             self.max_turns,
+            self.max_cost_usd,
             self.sdk_package,
             self.scaffold_mode,
             self.post_success_design_audit,
@@ -577,6 +584,7 @@ class BatchRunConfig:
     system_prompt_path: str
     scaffold_mode: str
     sdk_docs_mode: str
+    max_cost_usd: float | None
     resume: bool
     resume_policy: str
     keep_awake: bool
@@ -622,6 +630,13 @@ def _parse_max_turns(max_turns_text: str, *, row_index: int) -> int:
     return max_turns
 
 
+def _parse_optional_max_cost_usd(value: Any, *, row_index: int) -> float | None:
+    try:
+        return parse_max_cost_usd(value, label=f"Row {row_index} max_cost_usd")
+    except ValueError as exc:
+        raise ValueError(str(exc)) from exc
+
+
 def _resolve_category_title(
     categories: CategoryStore,
     *,
@@ -655,6 +670,7 @@ def _parse_batch_row(
     categories: CategoryStore,
     default_scaffold_mode: str,
     default_post_success_design_audit: bool,
+    default_max_cost_usd: float | None,
 ) -> BatchRowSpec:
     row_id = raw_row.get("row_id") or f"row_{row_index:04d}"
     category_slug = raw_row.get("category_slug", "")
@@ -663,6 +679,7 @@ def _parse_batch_row(
     model_id = raw_row.get("model_id", "")
     thinking_level = raw_row.get("thinking_level", "").lower()
     max_turns_text = raw_row.get("max_turns", "")
+    max_cost_usd = _parse_optional_max_cost_usd(raw_row.get("max_cost_usd"), row_index=row_index)
     sdk_package = raw_row.get("sdk_package", "")
     scaffold_mode = _parse_optional_scaffold_mode(raw_row.get("scaffold_mode"), row_index=row_index)
     scaffold_mode_explicit = scaffold_mode is not None
@@ -692,6 +709,8 @@ def _parse_batch_row(
     sdk_package = runner_normalize_sdk_package(sdk_package, row_index=row_index)
     if scaffold_mode is None:
         scaffold_mode = default_scaffold_mode
+    if max_cost_usd is None:
+        max_cost_usd = default_max_cost_usd
     post_success_design_audit = _parse_optional_bool(
         raw_row.get("design_audit"),
         row_index=row_index,
@@ -717,6 +736,7 @@ def _parse_batch_row(
         model_id=model_id,
         thinking_level=thinking_level,
         max_turns=max_turns,
+        max_cost_usd=max_cost_usd,
         sdk_package=sdk_package,
         scaffold_mode=scaffold_mode,
         scaffold_mode_explicit=scaffold_mode_explicit,
@@ -731,6 +751,7 @@ def _load_batch_rows(
     *,
     default_scaffold_mode: str,
     default_post_success_design_audit: bool,
+    default_max_cost_usd: float | None,
 ) -> list[BatchRowSpec]:
     raw_rows = _read_csv_rows(spec_path)
     categories = CategoryStore(repo)
@@ -743,6 +764,7 @@ def _load_batch_rows(
             categories=categories,
             default_scaffold_mode=default_scaffold_mode,
             default_post_success_design_audit=default_post_success_design_audit,
+            default_max_cost_usd=default_max_cost_usd,
         )
         row_id = row.row_id
         if row_id in seen_row_ids:
@@ -825,6 +847,12 @@ def _settings_summary(
         "model_ids": sorted(model_ids),
         "thinking_levels": sorted({row.thinking_level for row in rows}),
         "max_turns": sorted({row.max_turns for row in rows}),
+        "max_cost_usd": _summary_value(
+            {"" if row.max_cost_usd is None else f"{row.max_cost_usd:g}" for row in rows}
+        ),
+        "max_cost_usd_values": sorted(
+            {row.max_cost_usd for row in rows if row.max_cost_usd is not None}
+        ),
         "sdk_packages": sorted(sdk_packages),
         "scaffold_mode": scaffold_mode,
         "scaffold_modes": sorted(scaffold_modes),
@@ -914,6 +942,11 @@ def _resume_signature_mismatch_field(existing: dict[str, Any], row: BatchRowSpec
             "sdk_package",
             _resume_signature_text(existing.get("sdk_package")),
             _resume_signature_text(row.sdk_package),
+        ),
+        (
+            "max_cost_usd",
+            _resume_signature_text(existing.get("max_cost_usd")),
+            _resume_signature_text(row.max_cost_usd),
         ),
         (
             "scaffold_mode",
@@ -1222,6 +1255,7 @@ def _build_batch_attempt_record(row: BatchRowSpec, outcome: BatchRowOutcome) -> 
         model_id=outcome.model_id,
         thinking_level=row.thinking_level,
         max_turns=row.max_turns,
+        max_cost_usd=row.max_cost_usd,
         sdk_package=row.sdk_package,
         scaffold_mode=row.scaffold_mode,
         post_success_design_audit=row.post_success_design_audit,
@@ -1365,6 +1399,7 @@ async def _run_batch_row(
         dataset_id=allocation.dataset_id,
         run_mode=BATCH_RUN_MODE,
         post_success_design_audit=row.post_success_design_audit,
+        max_cost_usd=row.max_cost_usd,
         context=context,
         persist_run_metadata=False,
         persist_run_result=False,
@@ -1743,6 +1778,7 @@ def build_batch_config(
     system_prompt_path: str,
     scaffold_mode: str = DEFAULT_SCAFFOLD_MODE,
     sdk_docs_mode: str = "full",
+    max_cost_usd: float | None = None,
     qc_blurb_path: str | None,
     post_success_design_audit: bool = True,
     resume: bool,
@@ -1757,11 +1793,17 @@ def build_batch_config(
     repo.ensure_layout()
     spec_path, batch_spec_id = _resolve_spec_path(repo, spec_arg)
     resolved_scaffold_mode = normalize_scaffold_mode(scaffold_mode)
+    resolved_max_cost_usd = (
+        parse_max_cost_usd(max_cost_usd, label="--max-cost-usd")
+        if max_cost_usd is not None
+        else max_cost_usd_from_env()
+    )
     rows = _load_batch_rows(
         spec_path,
         repo,
         default_scaffold_mode=resolved_scaffold_mode,
         default_post_success_design_audit=post_success_design_audit,
+        default_max_cost_usd=resolved_max_cost_usd,
     )
     resolved_concurrency = _resolve_batch_concurrency(concurrency, candidate_count=len(rows))
     resolved_local_work_concurrency = _resolve_local_work_concurrency(
@@ -1813,6 +1855,7 @@ def build_batch_config(
         system_prompt_path=system_prompt_path,
         scaffold_mode=resolved_scaffold_mode,
         sdk_docs_mode=sdk_docs_mode,
+        max_cost_usd=resolved_max_cost_usd,
         qc_blurb_text=qc_blurb_text,
         resume=resume,
         resume_policy=resume_policy,

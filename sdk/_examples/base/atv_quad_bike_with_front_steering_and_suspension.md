@@ -34,7 +34,6 @@ tags:
   - rounded rect profile
   - extrude with holes
   - tube from spline points
-  - wire from points
   - motion limits
   - revolute articulation
   - continuous articulation
@@ -43,13 +42,14 @@ tags:
 ---
 # ATV Quad Bike with Front Steering and Suspension
 
-This base-SDK example is a strong reference for an articulated ATV or quad bike with mechanically plausible proportions, four wheels, front steering, handlebars, seat, footrests, suspension, frame rails, fenders, and wheel subassemblies. It is useful for queries such as `atv`, `quad bike`, `four wheeler`, `front steering`, `handlebars`, `seat`, `footrests`, `suspension`, `swingarm`, `tube frame`, `fenders`, `wheel assembly`, `superellipse_side_loft`, `tube_from_spline_points`, `wire_from_points`, `MotionLimits`, `revolute articulation`, and `continuous wheel spin`.
+This base-SDK example is a strong reference for an articulated ATV or quad bike with mechanically plausible proportions, four wheels, front steering, handlebars, seat, footrests, suspension, frame rails, fenders, and wheel subassemblies. It is useful for queries such as `atv`, `quad bike`, `four wheeler`, `front steering`, `handlebars`, `seat`, `footrests`, `suspension`, `swingarm`, `tube frame`, `fenders`, `wheel assembly`, `superellipse_side_loft`, `tube_from_spline_points`, `MotionLimits`, `revolute articulation`, and `continuous wheel spin`.
 
 The modeling patterns worth copying are:
 
 - repeated wheel construction through a helper that builds tire, rim, hub, and optional steering knuckle visuals.
 - `superellipse_side_loft(...)` for body shell, seat, and fender volumes.
-- `tube_from_spline_points(...)` and `wire_from_points(...)` for rails, shocks, swingarms, and control-arm-like members.
+- `tube_from_spline_points(...)` for the continuously bent rails, shocks, swingarms, and most frame members.
+- `wire_from_points(...)` only for the front control-arm-like members, where the straight runs and elbow layout are intentionally explicit.
 - explicit steering and wheel-spin articulations with `MotionLimits`.
 - paired front steering articulations plus continuous rear wheel spin articulations with realistic `MotionLimits`.
 

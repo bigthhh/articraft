@@ -101,6 +101,7 @@ class GenerationSettings:
     openai_transport: str | None = None
     openai_reasoning_summary: str | None = None
     max_turns: int | None = None
+    max_cost_usd: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

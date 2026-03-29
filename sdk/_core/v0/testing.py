@@ -469,6 +469,19 @@ class TestContext:
         if text:
             self._warnings.append(str(text))
 
+    @staticmethod
+    def _overlap_name_aliases(name: Optional[str]) -> set[str]:
+        if not isinstance(name, str):
+            return set()
+        cleaned = name.strip()
+        if not cleaned:
+            return set()
+        aliases = {cleaned}
+        prefix, sep, suffix = cleaned.rpartition("__component_")
+        if sep and suffix.isdigit() and prefix:
+            aliases.add(prefix)
+        return aliases
+
     def _overlap_is_allowed(self, overlap: GeometryOverlap) -> bool:
         key = _pair_key(overlap.link_a, overlap.link_b)
         for allowed_key, elem_a, elem_b, _reason in self._allow_elems:
@@ -476,8 +489,11 @@ class TestContext:
                 continue
             if elem_a is None and elem_b is None:
                 return True
-            names = (overlap.elem_a_name, overlap.elem_b_name)
-            if (elem_a in names) and (elem_b in names):
+            aliases_a = self._overlap_name_aliases(overlap.elem_a_name)
+            aliases_b = self._overlap_name_aliases(overlap.elem_b_name)
+            if (elem_a in aliases_a and elem_b in aliases_b) or (
+                elem_a in aliases_b and elem_b in aliases_a
+            ):
                 return True
         return False
 

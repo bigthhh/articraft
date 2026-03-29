@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from agent.cost import max_cost_usd_from_env, parse_max_cost_usd
 from agent.defaults import DEFAULT_MAX_TURNS
 from agent.prompts import normalize_sdk_package
 from agent.runner import run_from_input
@@ -276,6 +277,7 @@ def _run_single_category_workflow(
     image: str | None,
     thinking_level: str,
     max_turns: int,
+    max_cost_usd: float | None,
     system_prompt_path: str,
     sdk_package: str,
     scaffold_mode: str,
@@ -318,6 +320,7 @@ def _run_single_category_workflow(
             model_id=model_id,
             thinking_level=thinking_level,
             max_turns=max_turns,
+            max_cost_usd=max_cost_usd,
             system_prompt_path=system_prompt_path,
             sdk_package=sdk_package,
             scaffold_mode=scaffold_mode,
@@ -684,6 +687,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Max-turns cap for the generation run.",
     )
     run_single.add_argument(
+        "--max-cost-usd",
+        type=float,
+        default=None,
+        help="Optional per-run USD budget. Stops after the first response that pushes cumulative spend above this threshold.",
+    )
+    run_single.add_argument(
         "--system-prompt-path",
         default="designer_system_prompt.txt",
         help="System prompt file to use for the generation run.",
@@ -866,6 +875,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="System prompt file to use for all rows in the batch.",
     )
     run_batch.add_argument(
+        "--max-cost-usd",
+        type=float,
+        default=None,
+        help="Default per-row USD budget for rows whose CSV max_cost_usd cell is blank.",
+    )
+    run_batch.add_argument(
         "--qc-blurb",
         default=None,
         help="Optional QC checklist file to append to every prompt.",
@@ -1018,6 +1033,11 @@ def main(argv: list[str] | None = None) -> int:
         try:
             sdk_package = normalize_sdk_package(args.sdk_package)
             scaffold_mode = normalize_scaffold_mode(args.scaffold_mode)
+            max_cost_usd = (
+                parse_max_cost_usd(args.max_cost_usd, label="--max-cost-usd")
+                if args.max_cost_usd is not None
+                else max_cost_usd_from_env()
+            )
             record_id, dataset_id, category, search_stats = _run_single_category_workflow(
                 repo,
                 datasets,
@@ -1028,6 +1048,7 @@ def main(argv: list[str] | None = None) -> int:
                 image=args.image,
                 thinking_level=args.thinking_level,
                 max_turns=args.max_turns,
+                max_cost_usd=max_cost_usd,
                 system_prompt_path=args.system_prompt_path,
                 sdk_package=sdk_package,
                 scaffold_mode=scaffold_mode,
@@ -1322,6 +1343,7 @@ def main(argv: list[str] | None = None) -> int:
                 concurrency=args.row_concurrency,
                 local_work_concurrency=args.subprocess_concurrency,
                 system_prompt_path=args.system_prompt_path,
+                max_cost_usd=args.max_cost_usd,
                 scaffold_mode=args.scaffold_mode,
                 qc_blurb_path=args.qc_blurb,
                 post_success_design_audit=args.design_audit,

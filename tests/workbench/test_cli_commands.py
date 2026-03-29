@@ -363,6 +363,8 @@ def test_workbench_init_record_command(
                 "gpt-5.4",
                 "--thinking-level",
                 "high",
+                "--max-cost-usd",
+                "2.5",
                 "--label",
                 "reading lamp draft",
                 "--tag",
@@ -426,6 +428,7 @@ def test_workbench_init_record_command(
     assert provenance["generation"]["provider"] == "openai"
     assert provenance["generation"]["model_id"] == "gpt-5.4"
     assert provenance["generation"]["max_turns"] == DEFAULT_MAX_TURNS
+    assert provenance["generation"]["max_cost_usd"] == 2.5
     assert provenance["prompting"]["scaffold_mode"] == "lite"
     assert provenance["run_summary"]["final_status"] == "draft"
 
@@ -487,6 +490,66 @@ def test_workbench_rerun_record_command_accepts_design_audit_override(
     output = capsys.readouterr().out
     assert f"reran record_id={record_dir.name}" in output
     assert "search_index=" in output
+
+
+def test_workbench_rerun_record_command_reuses_stored_max_cost_usd_and_accepts_override(
+    fake_agent: None,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo_root = tmp_path
+    exit_code = asyncio.run(
+        runner.run_from_input(
+            "make a coffee machine",
+            prompt_text="make a coffee machine",
+            display_prompt="make a coffee machine",
+            repo_root=repo_root,
+            image_path=None,
+            provider="openai",
+            thinking_level="high",
+            max_turns=30,
+            max_cost_usd=2.5,
+            system_prompt_path="designer_system_prompt.txt",
+            sdk_package="sdk",
+            sdk_docs_mode="full",
+            label="coffee rerun",
+            tags=["coffee"],
+        )
+    )
+    assert exit_code == 0
+    capsys.readouterr()
+
+    record_dir = next((repo_root / "data" / "records").iterdir())
+    assert (
+        workbench_main(
+            [
+                "--repo-root",
+                str(repo_root),
+                "rerun-record",
+                str(record_dir),
+            ]
+        )
+        == 0
+    )
+    provenance = json.loads((record_dir / "provenance.json").read_text(encoding="utf-8"))
+    assert provenance["generation"]["max_cost_usd"] == 2.5
+    capsys.readouterr()
+
+    assert (
+        workbench_main(
+            [
+                "--repo-root",
+                str(repo_root),
+                "rerun-record",
+                str(record_dir),
+                "--max-cost-usd",
+                "1.0",
+            ]
+        )
+        == 0
+    )
+    provenance = json.loads((record_dir / "provenance.json").read_text(encoding="utf-8"))
+    assert provenance["generation"]["max_cost_usd"] == 1.0
 
 
 def test_workbench_init_record_command_accepts_design_audit_override(

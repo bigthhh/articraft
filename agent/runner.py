@@ -31,6 +31,7 @@ from agent.compiler import (
 from agent.compiler import (
     compile_urdf_report_maybe_timeout as _compile_urdf_report_maybe_timeout,
 )
+from agent.cost import max_cost_usd_from_env, parse_max_cost_usd
 from agent.defaults import DEFAULT_MAX_TURNS
 from agent.harness import ArticraftAgent, build_openai_prompt_cache_settings
 from agent.models import CompileReport as AgentCompileReport
@@ -405,12 +406,14 @@ def _single_run_settings_summary(
     openai_transport: str,
     openai_reasoning_summary: str | None,
     post_success_design_audit: bool,
+    max_cost_usd: float | None,
 ) -> dict[str, Any]:
     summary: dict[str, Any] = {
         "provider": provider,
         "model_id": model_id,
         "thinking_level": thinking_level,
         "max_turns": max_turns,
+        "max_cost_usd": max_cost_usd,
         "system_prompt_path": system_prompt_path,
         "sdk_package": sdk_package,
         "scaffold_mode": scaffold_mode,
@@ -629,6 +632,13 @@ def _optional_bool(value: Any) -> bool | None:
     return None
 
 
+def _optional_max_cost_usd(value: Any, *, label: str) -> float | None:
+    try:
+        return parse_max_cost_usd(value, label=label)
+    except ValueError as exc:
+        raise ValueError(str(exc)) from exc
+
+
 def _normalize_prompt_kind(value: Any) -> str:
     prompt_kind = str(value or "single_prompt")
     if prompt_kind not in {"single_prompt", "prompt_series"}:
@@ -734,6 +744,7 @@ def create_workbench_draft_record(
     sdk_docs_mode: str = "full",
     openai_reasoning_summary: str | None = "auto",
     post_success_design_audit: bool = True,
+    max_cost_usd: float | None = None,
     label: str | None = None,
     tags: Optional[list[str]] = None,
     record_id: str | None = None,
@@ -799,6 +810,7 @@ def create_workbench_draft_record(
             openai_transport=openai_transport if provider == "openai" else None,
             openai_reasoning_summary=openai_reasoning_summary if provider == "openai" else None,
             max_turns=max_turns,
+            max_cost_usd=max_cost_usd,
         ),
         prompting=PromptingSettings(
             system_prompt_file=loaded_system_prompt_path.name,
@@ -890,6 +902,7 @@ def _write_success_record(
     sdk_docs_mode: str,
     openai_reasoning_summary: str | None,
     post_success_design_audit: bool,
+    max_cost_usd: float | None,
     final_code: str,
     urdf_xml: str,
     compile_warnings: list[str],
@@ -993,6 +1006,7 @@ def _write_success_record(
             openai_transport=openai_transport if provider == "openai" else None,
             openai_reasoning_summary=openai_reasoning_summary if provider == "openai" else None,
             max_turns=max_turns,
+            max_cost_usd=max_cost_usd,
         ),
         prompting=PromptingSettings(
             system_prompt_file=system_prompt_path.name,
@@ -1209,6 +1223,7 @@ async def run_from_input(
     sdk_docs_mode: str = "full",
     openai_reasoning_summary: Optional[str] = "auto",
     post_success_design_audit: bool = True,
+    max_cost_usd: float | None = None,
     label: str | None = None,
     tags: Optional[list[str]] = None,
     collection: str = "workbench",
@@ -1238,6 +1253,7 @@ async def run_from_input(
         sdk_docs_mode=sdk_docs_mode,
         openai_reasoning_summary=openai_reasoning_summary,
         post_success_design_audit=post_success_design_audit,
+        max_cost_usd=max_cost_usd,
         label=label,
         tags=tags,
         collection=collection,
@@ -1276,6 +1292,7 @@ async def _execute_single_run(
     sdk_docs_mode: str = "full",
     openai_reasoning_summary: Optional[str] = "auto",
     post_success_design_audit: bool = True,
+    max_cost_usd: float | None = None,
     label: str | None = None,
     tags: Optional[list[str]] = None,
     collection: str = "workbench",
@@ -1365,6 +1382,7 @@ async def _execute_single_run(
                         openai_transport=openai_transport,
                         openai_reasoning_summary=openai_reasoning_summary,
                         post_success_design_audit=post_success_design_audit,
+                        max_cost_usd=max_cost_usd,
                     ),
                 ),
             )
@@ -1413,6 +1431,7 @@ async def _execute_single_run(
                     openai_transport=openai_transport,
                     openai_reasoning_summary=openai_reasoning_summary,
                     post_success_design_audit=post_success_design_audit,
+                    max_cost_usd=max_cost_usd,
                 ),
             ),
         )
@@ -1445,6 +1464,7 @@ async def _execute_single_run(
             sdk_docs_mode=sdk_docs_mode,
             openai_reasoning_summary=openai_reasoning_summary,
             post_success_design_audit=post_success_design_audit,
+            max_cost_usd=max_cost_usd,
             runtime_limits=runtime_limits,
         ) as agent:
             logger.info("Using system prompt: %s", agent.loaded_system_prompt_path)
@@ -1558,6 +1578,7 @@ async def _execute_single_run(
             sdk_docs_mode=sdk_docs_mode,
             openai_reasoning_summary=openai_reasoning_summary,
             post_success_design_audit=post_success_design_audit,
+            max_cost_usd=max_cost_usd,
             final_code=final_code,
             urdf_xml=urdf_xml,
             compile_warnings=compile_warnings,
@@ -1648,6 +1669,7 @@ async def _execute_single_run(
                     openai_transport=openai_transport,
                     openai_reasoning_summary=openai_reasoning_summary,
                     post_success_design_audit=post_success_design_audit,
+                    max_cost_usd=max_cost_usd,
                 ),
             ),
         )
@@ -1692,6 +1714,7 @@ async def _run_from_input_impl(
     sdk_docs_mode: str = "full",
     openai_reasoning_summary: Optional[str] = "auto",
     post_success_design_audit: bool = True,
+    max_cost_usd: float | None = None,
     label: str | None = None,
     tags: Optional[list[str]] = None,
     collection: str = "workbench",
@@ -1760,6 +1783,7 @@ async def _run_from_input_impl(
         sdk_docs_mode=sdk_docs_mode,
         openai_reasoning_summary=openai_reasoning_summary,
         post_success_design_audit=post_success_design_audit,
+        max_cost_usd=max_cost_usd,
         label=label,
         tags=tags,
         collection=collection,
@@ -1782,6 +1806,7 @@ async def rerun_record_in_place(
     sdk_package: str | None = None,
     scaffold_mode: str | None = None,
     post_success_design_audit: bool | None = None,
+    max_cost_usd: float | None = None,
     display_enabled: Optional[bool] = None,
 ) -> int:
     resolved_repo_root = repo_root.resolve()
@@ -1864,9 +1889,24 @@ async def rerun_record_in_place(
             else True
         )
     )
+    try:
+        stored_max_cost_usd = _optional_max_cost_usd(
+            generation.get("max_cost_usd"),
+            label=f"generation.max_cost_usd for {record_id}",
+        )
+        env_max_cost_usd = max_cost_usd_from_env()
+    except ValueError as exc:
+        logger.error("%s", exc)
+        return 1
     model_id = _optional_string(model_id) or stored_model_id
     thinking_level = _optional_string(thinking_level) or stored_thinking_level
     provider = _infer_provider_from_model_id(model_id) or provider
+    if max_cost_usd is not None:
+        resolved_max_cost_usd = max_cost_usd
+    elif stored_max_cost_usd is not None:
+        resolved_max_cost_usd = stored_max_cost_usd
+    else:
+        resolved_max_cost_usd = env_max_cost_usd
 
     try:
         image_path = _resolve_input_image_for_record(
@@ -1930,6 +1970,7 @@ async def rerun_record_in_place(
         sdk_docs_mode=sdk_docs_mode,
         openai_reasoning_summary=openai_reasoning_summary,
         post_success_design_audit=post_success_design_audit,
+        max_cost_usd=resolved_max_cost_usd,
         label=(
             _optional_string(workbench_entry.get("label"))
             if isinstance(workbench_entry, dict)
@@ -2046,6 +2087,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--max-turns", type=int, default=DEFAULT_MAX_TURNS)
     parser.add_argument(
+        "--max-cost-usd",
+        type=float,
+        default=None,
+        help="Optional per-run USD budget. Stops after the first response that pushes cumulative spend above this threshold.",
+    )
+    parser.add_argument(
         "--system-prompt",
         default="designer_system_prompt.txt",
         help=(
@@ -2103,6 +2150,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         sdk_package = normalize_sdk_package(args.sdk_package)
         scaffold_mode = normalize_scaffold_mode(args.scaffold_mode)
+        max_cost_usd = (
+            parse_max_cost_usd(args.max_cost_usd, label="--max-cost-usd")
+            if args.max_cost_usd is not None
+            else max_cost_usd_from_env()
+        )
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 1
@@ -2194,6 +2246,7 @@ def main(argv: list[str] | None = None) -> int:
             sdk_docs_mode=SDK_DOCS_MODE_FULL,
             openai_reasoning_summary=openai_reasoning_summary,
             post_success_design_audit=args.design_audit,
+            max_cost_usd=max_cost_usd,
             label=args.label,
             tags=list(args.tag or []),
             collection=args.collection,

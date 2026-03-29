@@ -5,8 +5,12 @@ from pathlib import Path
 import pytest
 
 from sdk._core.v0.assets import AssetContext
-from sdk_hybrid import cadquery_local_aabb
-from sdk_hybrid.v0.cadquery import export_cadquery_components, mesh_components_from_cadquery
+from sdk_hybrid import ArticulatedObject, TestContext, cadquery_local_aabb
+from sdk_hybrid.v0.cadquery import (
+    export_cadquery_components,
+    mesh_components_from_cadquery,
+    mesh_from_cadquery,
+)
 
 cq = pytest.importorskip("cadquery")
 
@@ -54,3 +58,25 @@ def test_mesh_components_from_cadquery_preserves_assembly_locations(tmp_path) ->
     assert len(meshes) == 2
     assert meshes[0].filename == "assets/meshes/assembly__component_001.obj"
     assert meshes[1].filename == "assets/meshes/assembly__component_002.obj"
+
+
+def test_mesh_from_cadquery_still_triggers_disconnected_geometry_warning_for_multi_solid_shape(
+    tmp_path,
+) -> None:
+    assets = AssetContext(tmp_path)
+    box1 = cq.Workplane("XY").box(1.0, 1.0, 1.0).val()
+    box2 = cq.Workplane("XY").center(3.0, 0.0).box(1.0, 1.0, 1.0).val()
+    workplane = cq.Workplane("XY").newObject([box1, box2])
+
+    model = ArticulatedObject(name="cadquery_connectivity", assets=assets)
+    frame = model.part("frame")
+    frame.visual(mesh_from_cadquery(workplane, "frame.obj", assets=assets), name="frame_body")
+
+    ctx = TestContext(model)
+
+    assert not ctx.warn_if_part_contains_disconnected_geometry_islands()
+
+    report = ctx.report()
+    assert report.passed
+    assert len(report.warnings) == 1
+    assert "frame_body__component_002:Mesh" in report.warnings[0]

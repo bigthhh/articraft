@@ -5,6 +5,7 @@ import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 
+from agent.cost import max_cost_usd_from_env, parse_max_cost_usd
 from agent.defaults import DEFAULT_MAX_TURNS
 from agent.prompts import normalize_sdk_package
 from agent.runner import create_workbench_draft_record, rerun_record_in_place
@@ -92,6 +93,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Max-turns metadata to attach to the draft provenance.",
     )
     init_record.add_argument(
+        "--max-cost-usd",
+        type=float,
+        default=None,
+        help="Optional per-run USD budget metadata to attach to the draft provenance.",
+    )
+    init_record.add_argument(
         "--system-prompt-path",
         default="designer_system_prompt.txt",
         help="System prompt file metadata to attach to the draft provenance.",
@@ -150,6 +157,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Optional thinking level override for this rerun.",
     )
     rerun.add_argument(
+        "--max-cost-usd",
+        type=float,
+        default=None,
+        help="Optional per-run USD budget override for this rerun.",
+    )
+    rerun.add_argument(
         "--sdk-package",
         default=None,
         help="Optional SDK package override for this rerun.",
@@ -205,6 +218,15 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Failed to load image: {exc}")
             return 1
         try:
+            max_cost_usd = (
+                parse_max_cost_usd(args.max_cost_usd, label="--max-cost-usd")
+                if args.max_cost_usd is not None
+                else max_cost_usd_from_env()
+            )
+        except ValueError as exc:
+            print(str(exc))
+            return 1
+        try:
             record_dir = create_workbench_draft_record(
                 repo_root=args.repo_root,
                 prompt_text=args.prompt,
@@ -214,6 +236,7 @@ def main(argv: list[str] | None = None) -> int:
                 openai_transport=args.openai_transport,
                 thinking_level=args.thinking_level,
                 max_turns=args.max_turns,
+                max_cost_usd=max_cost_usd,
                 system_prompt_path=args.system_prompt_path,
                 sdk_package=args.sdk_package,
                 scaffold_mode=args.scaffold_mode,
@@ -260,6 +283,11 @@ def main(argv: list[str] | None = None) -> int:
                 if args.scaffold_mode is not None
                 else None
             )
+            max_cost_usd = (
+                parse_max_cost_usd(args.max_cost_usd, label="--max-cost-usd")
+                if args.max_cost_usd is not None
+                else None
+            )
         except ValueError as exc:
             print(str(exc))
             return 1
@@ -270,6 +298,7 @@ def main(argv: list[str] | None = None) -> int:
                 record_id=record_id,
                 model_id=args.model_id,
                 thinking_level=args.thinking_level,
+                max_cost_usd=max_cost_usd,
                 sdk_package=sdk_package,
                 scaffold_mode=scaffold_mode,
                 post_success_design_audit=args.design_audit,

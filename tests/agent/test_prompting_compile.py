@@ -40,6 +40,10 @@ def _assert_shared_contract(text: str, *, budget: int) -> None:
     assert "PHASE 4" in text
     assert "Do NOT write all geometry in one giant edit" in text
     assert "one part or subassembly at a time" in text
+    assert "simple envelope geometry or minimal sketches/extrusions" in text
+    assert "lock overall dimensions, attachment relationships, major clearances" in text
+    assert "Upgrade each region from envelope geometry to realistic geometry" in text
+    assert "keep its learned dimensions/joints/attachments" in text
 
     # Core tool references
     assert "probe_model" in text

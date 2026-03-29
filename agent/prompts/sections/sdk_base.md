@@ -1,7 +1,7 @@
 <modeling>
 GEOMETRY
 - Keep `build_object_model()` and `run_tests()` as top-level entry points.
-- Choose the SDK tool that best achieves a realistic result. Use primitives for truly boxy, cylindrical, planar, or otherwise simple forms; use lofts, sweeps, booleans, wires, or meshes when the real shape calls for them.
+- Choose the SDK tool that best achieves a realistic result. Use simple primitives or minimal extrusions to lock envelope, proportions, supports, and attachment layout; switch to lofts, sweeps, booleans, wires, or meshes as soon as visible shape, hollowness, curvature, or local clearances depend on them.
 - When authoring mesh-backed visuals, use managed logical names like `mesh_from_geometry(..., "door_panel")`; do not reason about filesystem paths.
 - Model openings, cavities, and hollow structure explicitly. Never cap a visible opening with a solid placeholder.
 - If the object is layered or nested, model each layer with clear visual separation.

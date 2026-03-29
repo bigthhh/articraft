@@ -40,10 +40,11 @@ def test_base_strict_scaffold_matches_harness_fallback() -> None:
     assert "Investigate all three. Warning-tier signals are not free passes." in scaffold_text
     assert "Use `ctx.allow_overlap(...)` only for true intended penetration." in scaffold_text
     assert "If parts are nested but should remain clear, prove that with exact" in scaffold_text
-    assert "Keep pose-specific checks lean." in scaffold_text
-    assert "Do not add blanket lower/upper pose sweeps" in scaffold_text
-    assert "fail_if_parts_overlap_in_sampled_poses(...)" in scaffold_text
-    assert "ctx.warn_if_articulation_overlaps(...)" in scaffold_text
+    assert "For bounded REVOLUTE/PRISMATIC joints" in scaffold_text
+    assert "limits = hinge.motion_limits" in scaffold_text
+    assert 'ctx.fail_if_isolated_parts(name="lid_hinge_upper_no_floating")' in scaffold_text
+    assert "Keep pose-specific checks lean." not in scaffold_text
+    assert "Do not add blanket lower/upper pose sweeps" not in scaffold_text
     assert "expect_aabb_" not in scaffold_text
 
 
@@ -86,10 +87,11 @@ def test_hybrid_strict_scaffold_matches_harness_fallback() -> None:
     assert "Investigate all three. Warning-tier signals are not free passes." in scaffold_text
     assert "Use `ctx.allow_overlap(...)` only for true intended penetration." in scaffold_text
     assert "If parts are nested but should remain clear, prove that with exact" in scaffold_text
-    assert "Keep pose-specific checks lean." in scaffold_text
-    assert "Do not add blanket lower/upper pose sweeps" in scaffold_text
-    assert "fail_if_parts_overlap_in_sampled_poses(...)" in scaffold_text
-    assert "ctx.warn_if_articulation_overlaps(...)" in scaffold_text
+    assert "For bounded REVOLUTE/PRISMATIC joints" in scaffold_text
+    assert "limits = hinge.motion_limits" in scaffold_text
+    assert 'ctx.fail_if_isolated_parts(name="lid_hinge_upper_no_floating")' in scaffold_text
+    assert "Keep pose-specific checks lean." not in scaffold_text
+    assert "Do not add blanket lower/upper pose sweeps" not in scaffold_text
     assert "expect_aabb_" not in scaffold_text
 
 

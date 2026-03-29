@@ -30,11 +30,17 @@ def run_tests() -> TestReport:
     # `expect_within(...)` checks instead.
     ctx.fail_if_parts_overlap_in_current_pose()
 
-    # Keep pose-specific checks lean.
-    # Do not add blanket lower/upper pose sweeps or
-    # `fail_if_parts_overlap_in_sampled_poses(...)` by default.
-    # Add `ctx.warn_if_articulation_overlaps(...)` only when joint clearance is
-    # genuinely uncertain or mechanically important.
+    # For bounded REVOLUTE/PRISMATIC joints, also check at least the lower/upper
+    # motion-limit poses for both no overlap and no floating. Example:
+    # hinge = object_model.get_articulation("lid_hinge")
+    # limits = hinge.motion_limits
+    # if limits is not None and limits.lower is not None and limits.upper is not None:
+    #     with ctx.pose({hinge: limits.lower}):
+    #         ctx.fail_if_parts_overlap_in_current_pose(name="lid_hinge_lower_no_overlap")
+    #         ctx.fail_if_isolated_parts(name="lid_hinge_lower_no_floating")
+    #     with ctx.pose({hinge: limits.upper}):
+    #         ctx.fail_if_parts_overlap_in_current_pose(name="lid_hinge_upper_no_overlap")
+    #         ctx.fail_if_isolated_parts(name="lid_hinge_upper_no_floating")
 
     return ctx.report()
 

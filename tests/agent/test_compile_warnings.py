@@ -122,7 +122,8 @@ def test_compile_signal_bundle_parses_common_broad_qc_warning_families() -> None
     assert disconnected_signal.blocking is False
     assert (
         disconnected_signal.summary
-        == "Exact visual connectivity check found disconnected geometry within a part."
+        == "Exact visual connectivity check found disconnected geometry within a part; "
+        "this may be a real issue and should be investigated."
     )
 
     articulation_signal = next(
@@ -162,7 +163,8 @@ def test_compile_signal_bundle_accepts_part_geometry_warning_name() -> None:
     assert disconnected_signal.severity == "warning"
     assert (
         disconnected_signal.summary
-        == "Exact visual connectivity check found disconnected geometry within a part."
+        == "Exact visual connectivity check found disconnected geometry within a part; "
+        "this may be a real issue and should be investigated."
     )
 
 

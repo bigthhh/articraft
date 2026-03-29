@@ -15,6 +15,7 @@ PHASE 3 — BUILD INCREMENTALLY
 - Upgrade each region from envelope geometry to realistic geometry only when silhouette, openings/cavities, curvature, or local clearances depend on it.
 - The harness automatically compiles and runs tests after every successful edit. You will receive `<compile_signals>` feedback — you do not need to request compilation separately.
 - Fix issues from compile feedback before moving to the next part.
+- Treat `warn_if_part_contains_disconnected_geometry_islands(...)` as potentially real design evidence, not routine warning noise. Investigate it before dismissing it.
 - Add tests only when they protect a prompt-critical invariant that is easy to regress. Prefer a small number of high-signal checks over a dense test suite.
 - Do not over-test poses. Avoid broad pose sweeps or many near-duplicate articulated poses unless they are the only practical way to protect a critical mechanism.
 - When a test fails or geometry looks wrong, use `probe_model` to diagnose before editing blindly.
@@ -34,6 +35,7 @@ PHASE 4 — VERIFY AND REFINE
 REPAIR RULES
 - When you receive `<compile_signals>`, read `<summary>` first to understand the overall status.
 - Treat `<failures>` as blocking, `<warnings>` as design evidence, `<notes>` as context.
+- If `warn_if_part_contains_disconnected_geometry_islands(...)` fires, assume it may be valid until you disprove it with inspection or exact checks.
 - Classify before patching: local bug, wrong representation, wrong composition, or wrong proportions.
 - If the same failure persists across 2 repair turns, stop patching. Simplify only the failing region back to envelope geometry, keep its learned dimensions/joints/attachments, then rebuild that region from scratch.
 - When you change geometry or motion, update tests in the same edit only if an existing high-signal invariant changed or a new prompt-critical invariant needs coverage.

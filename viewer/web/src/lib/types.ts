@@ -3,6 +3,8 @@ export type RecordSummary = {
   title: string;
   prompt_preview: string;
   rating: number | null;
+  author: string | null;
+  rated_by: string | null;
   created_at: string | null;
   updated_at: string | null;
   sdk_package: string | null;
@@ -219,6 +221,7 @@ export type ViewerState = {
   timeFilter: TimeFilter;
   modelFilter: string | null;
   sdkFilter: string | null;
+  authorFilters: string[];
   categoryFilters: string[];
   costFilter: CostFilter;
   ratingFilter: RatingFilter;
@@ -240,6 +243,7 @@ export type ViewerAction =
         timeFilter: TimeFilter;
         modelFilter: string | null;
         sdkFilter: string | null;
+        authorFilters: string[];
         categoryFilters: string[];
         costFilter: CostFilter;
         ratingFilter: RatingFilter;
@@ -261,6 +265,7 @@ export type ViewerAction =
   | { type: "SET_TIME_FILTER"; payload: TimeFilter }
   | { type: "SET_MODEL_FILTER"; payload: string | null }
   | { type: "SET_SDK_FILTER"; payload: string | null }
+  | { type: "SET_AUTHOR_FILTERS"; payload: string[] }
   | { type: "SET_CATEGORY_FILTERS"; payload: string[] }
   | { type: "SET_COST_FILTER"; payload: CostFilter }
   | { type: "SET_RATING_FILTER"; payload: RatingFilter }

@@ -589,6 +589,14 @@ export function InspectPanel({
           )}
         </section>
 
+        {/* Author */}
+        <section>
+          <SectionLabel>Author</SectionLabel>
+          <p className="text-[12px] leading-[1.6] text-[var(--text-secondary)]">
+            {record.author || "Not set"}
+          </p>
+        </section>
+
         {/* Rating */}
         <section>
           <SectionLabel>Rating</SectionLabel>
@@ -620,11 +628,18 @@ export function InspectPanel({
               })}
             </div>
             <span className="text-[10px] text-[var(--text-tertiary)]">
-              {savingRating
-                ? "Saving…"
-                : record.rating
-                  ? `${record.rating} / 5`
-                  : "Unrated"}
+              {savingRating ? (
+                "Saving…"
+              ) : (
+                <>
+                  {record.rating ? `${record.rating} / 5` : "Unrated"}
+                  {record.rated_by ? (
+                    <>
+                      {" "}by <span className="font-semibold text-[var(--text-secondary)]">{record.rated_by}</span>
+                    </>
+                  ) : null}
+                </>
+              )}
             </span>
           </div>
           {ratingError ? <p className="mt-1.5 text-[10px] text-[var(--destructive)]">{ratingError}</p> : null}

@@ -21,6 +21,7 @@ from storage.models import (
     RunRecord,
     SourceRef,
 )
+from storage.record_authors import RecordAuthorSyncSummary, RecordRatedBySyncSummary
 from storage.records import RecordStore
 from storage.repo import StorageRepo
 from storage.runs import RunStore
@@ -732,6 +733,60 @@ def test_run_single_reuses_existing_category_and_allocates_next_dataset_id(
 
     captured = capsys.readouterr().out
     assert "dataset_id=ds_internet_router_0002" in captured
+
+
+def test_sync_authors_cli_reports_summary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = StorageRepo(tmp_path)
+    repo.ensure_layout()
+
+    monkeypatch.setattr(
+        "cli.dataset.sync_record_authors",
+        lambda repo: RecordAuthorSyncSummary(
+            scanned=3,
+            updated_record_ids=["rec_001", "rec_002"],
+            already_set_record_ids=["rec_003"],
+            missing_git_author_record_ids=["rec_004"],
+        ),
+    )
+
+    output = io.StringIO()
+    with redirect_stdout(output):
+        assert dataset_main(["--repo-root", str(tmp_path), "sync-authors"]) == 0
+
+    captured = output.getvalue()
+    assert "Synced record authors scanned=3 updated=2 already_set=1" in captured
+    assert "sample_updated_record_ids=rec_001, rec_002" in captured
+    assert "sample_missing_git_author_record_ids=rec_004" in captured
+
+
+def test_sync_rated_by_cli_reports_summary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = StorageRepo(tmp_path)
+    repo.ensure_layout()
+
+    monkeypatch.setattr(
+        "cli.dataset.sync_record_rated_by",
+        lambda repo: RecordRatedBySyncSummary(
+            scanned=3,
+            updated_record_ids=["rec_010", "rec_011"],
+            unchanged_record_ids=["rec_012"],
+            missing_git_author_record_ids=["rec_013"],
+        ),
+    )
+
+    output = io.StringIO()
+    with redirect_stdout(output):
+        assert dataset_main(["--repo-root", str(tmp_path), "sync-rated-by"]) == 0
+
+    captured = output.getvalue()
+    assert "Synced record rated_by scanned=3 updated=2 unchanged=1" in captured
+    assert "sample_updated_record_ids=rec_010, rec_011" in captured
+    assert "sample_missing_git_author_record_ids=rec_013" in captured
 
 
 def test_supercategory_cli_commands_cover_list_mutation_and_delete(tmp_path: Path) -> None:

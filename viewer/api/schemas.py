@@ -38,6 +38,8 @@ class RecordSummaryResponse(BaseModel):
     title: str
     prompt_preview: str
     rating: int | None = None
+    author: str | None = None
+    rated_by: str | None = None
     created_at: str | None = None
     updated_at: str | None = None
     sdk_package: str | None = None

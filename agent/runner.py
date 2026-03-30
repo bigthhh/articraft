@@ -1084,6 +1084,14 @@ def _write_success_record(
             if isinstance(existing_record, dict)
             else [collection]
         ),
+        author=_optional_string(existing_record.get("author"))
+        if isinstance(existing_record, dict)
+        else None,
+        rated_by=(
+            _optional_string(existing_record.get("rated_by"))
+            if isinstance(existing_record, dict)
+            else None
+        ),
     )
     record_store.write_record(record)
     ensure_record_artifacts_exist(

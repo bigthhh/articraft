@@ -31,6 +31,7 @@ setup:
     uv run python scripts/bootstrap_env.py .
     uv sync --group dev
     uv run pre-commit install --hook-type pre-commit --hook-type pre-push
+    uv run python scripts/git_hooks.py install-post-commit
     @if command -v npm >/dev/null 2>&1; then \
         npm --prefix viewer/web ci; \
         npm --prefix viewer/web run typecheck; \
@@ -45,6 +46,7 @@ setup:
 
 hooks-install:
     uv run pre-commit install --hook-type pre-commit --hook-type pre-push
+    uv run python scripts/git_hooks.py install-post-commit
 
 format:
     uv run ruff format .

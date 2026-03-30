@@ -73,6 +73,7 @@ export async function searchRecords(params: {
   runId: string | null;
   timeFilter: TimeFilter;
   modelFilter: string | null;
+  authorFilters: string[];
   categoryFilters: string[];
   costFilter: CostFilter;
   ratingFilter: RatingFilter;
@@ -89,6 +90,9 @@ export async function searchRecords(params: {
   }
   if (params.modelFilter) {
     searchParams.set("model", params.modelFilter);
+  }
+  for (const authorFilter of params.authorFilters) {
+    searchParams.append("author", authorFilter);
   }
   for (const categoryFilter of params.categoryFilters) {
     searchParams.append("category", categoryFilter);

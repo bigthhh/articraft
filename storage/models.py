@@ -71,6 +71,10 @@ class Record:
     artifacts: RecordArtifacts
     hashes: RecordHashes = field(default_factory=RecordHashes)
     collections: list[CollectionName] = field(default_factory=list)
+    author: str | None = None
+    rated_by: str | None = None
+    secondary_rating: int | None = None
+    secondary_rated_by: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -79,6 +83,10 @@ class Record:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "rating": self.rating,
+            "secondary_rating": self.secondary_rating,
+            "author": self.author,
+            "rated_by": self.rated_by,
+            "secondary_rated_by": self.secondary_rated_by,
             "kind": self.kind,
             "prompt_kind": self.prompt_kind,
             "category_slug": self.category_slug,

@@ -44,6 +44,7 @@ from storage.dataset_workflow import (
 from storage.datasets import DatasetStore
 from storage.models import SupercategoryEntry
 from storage.queries import StorageQueries
+from storage.record_authors import sync_record_authors, sync_record_rated_by
 from storage.records import RecordStore
 from storage.repo import StorageRepo
 from storage.search import SearchIndex
@@ -828,6 +829,14 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     subparsers.add_parser("validate", help="Validate record-local dataset entries.")
     subparsers.add_parser(
+        "sync-authors",
+        help="Populate record.json author fields from the git author that added each record's model.py.",
+    )
+    subparsers.add_parser(
+        "sync-rated-by",
+        help="Populate record.json rated_by fields from the git author that last edited the rating line.",
+    )
+    subparsers.add_parser(
         "build-manifest", help="Build the derived dataset manifest under data/cache/manifests/."
     )
     prune_cache = subparsers.add_parser(
@@ -1311,6 +1320,64 @@ def main(argv: list[str] | None = None) -> int:
                 print(error)
             return 1
         print(f"Dataset valid: entries={len(datasets.list_entries())}")
+        return 0
+
+    if args.command == "sync-authors":
+        repo.ensure_layout()
+        try:
+            summary = sync_record_authors(repo)
+        except RuntimeError as exc:
+            print(f"Failed to sync record authors: {exc}")
+            return 1
+        print(
+            "Synced record authors "
+            f"scanned={summary.scanned} "
+            f"updated={len(summary.updated_record_ids)} "
+            f"already_set={len(summary.already_set_record_ids)} "
+            f"missing_record={len(summary.missing_record_ids)} "
+            f"missing_model={len(summary.missing_model_record_ids)} "
+            f"missing_git_author={len(summary.missing_git_author_record_ids)}"
+        )
+        if summary.updated_record_ids:
+            print(f"sample_updated_record_ids={', '.join(summary.updated_record_ids[:10])}")
+        else:
+            print("sample_updated_record_ids=(none)")
+        if summary.missing_git_author_record_ids:
+            print(
+                "sample_missing_git_author_record_ids="
+                f"{', '.join(summary.missing_git_author_record_ids[:10])}"
+            )
+        else:
+            print("sample_missing_git_author_record_ids=(none)")
+        return 0
+
+    if args.command == "sync-rated-by":
+        repo.ensure_layout()
+        try:
+            summary = sync_record_rated_by(repo)
+        except RuntimeError as exc:
+            print(f"Failed to sync record rated_by fields: {exc}")
+            return 1
+        print(
+            "Synced record rated_by "
+            f"scanned={summary.scanned} "
+            f"updated={len(summary.updated_record_ids)} "
+            f"unchanged={len(summary.unchanged_record_ids)} "
+            f"missing_record={len(summary.missing_record_ids)} "
+            f"missing_rating_line={len(summary.missing_rating_line_record_ids)} "
+            f"missing_git_author={len(summary.missing_git_author_record_ids)}"
+        )
+        if summary.updated_record_ids:
+            print(f"sample_updated_record_ids={', '.join(summary.updated_record_ids[:10])}")
+        else:
+            print("sample_updated_record_ids=(none)")
+        if summary.missing_git_author_record_ids:
+            print(
+                "sample_missing_git_author_record_ids="
+                f"{', '.join(summary.missing_git_author_record_ids[:10])}"
+            )
+        else:
+            print("sample_missing_git_author_record_ids=(none)")
         return 0
 
     if args.command == "build-manifest":

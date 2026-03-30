@@ -72,6 +72,7 @@ export function RecordList({ onVisibleIdsChange, onCountsChange }: RecordListPro
     timeFilter,
     modelFilter,
     sdkFilter,
+    authorFilters,
     categoryFilters,
     costFilter,
     ratingFilter,
@@ -130,6 +131,7 @@ export function RecordList({ onVisibleIdsChange, onCountsChange }: RecordListPro
       runId: selectedRunId,
       timeFilter,
       modelFilter,
+      authorFilters: sourceFilter === "dataset" ? authorFilters : [],
       categoryFilters: sourceFilter === "dataset" ? categoryFilters : [],
       costFilter,
       ratingFilter,
@@ -151,7 +153,7 @@ export function RecordList({ onVisibleIdsChange, onCountsChange }: RecordListPro
     return () => {
       cancelled = true;
     };
-  }, [categoryFilters, costFilter, deferredSearchQuery, modelFilter, ratingFilter, selectedRunId, sourceFilter, timeFilter]);
+  }, [authorFilters, categoryFilters, costFilter, deferredSearchQuery, modelFilter, ratingFilter, selectedRunId, sourceFilter, timeFilter]);
 
   const records = useMemo(() => {
     if (!bootstrap) return [];
@@ -165,6 +167,11 @@ export function RecordList({ onVisibleIdsChange, onCountsChange }: RecordListPro
     if (sourceFilter === "dataset" && categoryFilters.length > 0) {
       const selectedCategories = new Set(categoryFilters);
       list = list.filter((record) => record.category_slug && selectedCategories.has(record.category_slug));
+    }
+
+    if (sourceFilter === "dataset" && authorFilters.length > 0) {
+      const selectedAuthors = new Set(authorFilters);
+      list = list.filter((record) => record.author && selectedAuthors.has(record.author));
     }
 
     if (!deferredSearchQuery) {
@@ -190,6 +197,7 @@ export function RecordList({ onVisibleIdsChange, onCountsChange }: RecordListPro
     return list;
   }, [
     bootstrap,
+    authorFilters,
     categoryFilters,
     costFilter,
     deferredSearchQuery,

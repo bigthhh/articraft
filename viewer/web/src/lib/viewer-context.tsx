@@ -38,6 +38,7 @@ const URL_QUERY_PARAMS = {
   timeTo: "time_to",
   model: "model",
   sdk: "sdk",
+  author: "author",
   category: "category",
   costMin: "cost_min",
   costMax: "cost_max",
@@ -64,6 +65,7 @@ type ViewerUrlState = Pick<
   | "timeFilter"
   | "modelFilter"
   | "sdkFilter"
+  | "authorFilters"
   | "categoryFilters"
   | "costFilter"
   | "ratingFilter"
@@ -80,6 +82,7 @@ const defaultViewerUrlState: ViewerUrlState = {
   timeFilter: { oldest: null, newest: null },
   modelFilter: null,
   sdkFilter: null,
+  authorFilters: [],
   categoryFilters: [],
   costFilter: { min: null, max: null },
   ratingFilter: [],
@@ -202,6 +205,14 @@ function readViewerUrlState(): ViewerUrlState {
     };
     const modelFilter = normalizeOptionalQueryParam(params.get(URL_QUERY_PARAMS.model));
     const sdkFilter = normalizeOptionalQueryParam(params.get(URL_QUERY_PARAMS.sdk));
+    const authorFilters = Array.from(
+      new Set(
+        params
+          .getAll(URL_QUERY_PARAMS.author)
+          .map((value) => value.trim())
+          .filter((value) => value.length > 0),
+      ),
+    );
     const categoryFilters = Array.from(
       new Set(
         params
@@ -227,6 +238,7 @@ function readViewerUrlState(): ViewerUrlState {
       timeFilter,
       modelFilter,
       sdkFilter,
+      authorFilters,
       categoryFilters,
       costFilter,
       ratingFilter,
@@ -297,6 +309,13 @@ function syncViewerStateToUrl(state: ViewerUrlState): void {
     url.searchParams.set(URL_QUERY_PARAMS.sdk, state.sdkFilter);
   } else {
     url.searchParams.delete(URL_QUERY_PARAMS.sdk);
+  }
+
+  url.searchParams.delete(URL_QUERY_PARAMS.author);
+  if (state.browserTab !== "staging" && state.sourceFilter === "dataset") {
+    for (const authorFilter of [...state.authorFilters].sort((left, right) => left.localeCompare(right))) {
+      url.searchParams.append(URL_QUERY_PARAMS.author, authorFilter);
+    }
   }
 
   url.searchParams.delete(URL_QUERY_PARAMS.category);
@@ -395,27 +414,28 @@ function getNextSelection(
   return firstRecord ? { kind: "record", recordId: firstRecord.record_id } : null;
 }
 
-function updateRecordSummaryRating(
+function updateRecordSummaryFields(
   summary: RecordSummary | null,
   recordId: string,
-  rating: number,
-  updatedAt: string | null,
+  updates: Partial<
+    Pick<RecordSummary, "rating" | "secondary_rating" | "rated_by" | "secondary_rated_by" | "updated_at">
+  >,
 ): RecordSummary | null {
   if (!summary || summary.record_id !== recordId) {
     return summary;
   }
   return {
     ...summary,
-    rating,
-    updated_at: updatedAt,
+    ...updates,
   };
 }
 
-function updateBootstrapRecordRating(
+function updateBootstrapRecordFields(
   bootstrap: ViewerBootstrap | null,
   recordId: string,
-  rating: number,
-  updatedAt: string | null,
+  updates: Partial<
+    Pick<RecordSummary, "rating" | "secondary_rating" | "rated_by" | "secondary_rated_by" | "updated_at">
+  >,
 ): ViewerBootstrap | null {
   if (!bootstrap) {
     return bootstrap;
@@ -425,11 +445,11 @@ function updateBootstrapRecordRating(
     ...bootstrap,
     workbench_entries: bootstrap.workbench_entries.map((entry) => ({
       ...entry,
-      record: updateRecordSummaryRating(entry.record, recordId, rating, updatedAt),
+      record: updateRecordSummaryFields(entry.record, recordId, updates),
     })),
     dataset_entries: bootstrap.dataset_entries.map((entry) => ({
       ...entry,
-      record: updateRecordSummaryRating(entry.record, recordId, rating, updatedAt),
+      record: updateRecordSummaryFields(entry.record, recordId, updates),
     })),
   };
 }
@@ -533,11 +553,27 @@ function viewerReducer(state: ViewerState, action: ViewerAction): ViewerState {
     case "UPDATE_RECORD_RATING":
       return {
         ...state,
-        bootstrap: updateBootstrapRecordRating(
+        bootstrap: updateBootstrapRecordFields(
           state.bootstrap,
           action.payload.recordId,
-          action.payload.rating,
-          action.payload.updatedAt,
+          {
+            rating: action.payload.rating,
+            rated_by: null,
+            updated_at: action.payload.updatedAt,
+          },
+        ),
+      };
+    case "UPDATE_RECORD_SECONDARY_RATING":
+      return {
+        ...state,
+        bootstrap: updateBootstrapRecordFields(
+          state.bootstrap,
+          action.payload.recordId,
+          {
+            secondary_rating: action.payload.secondaryRating,
+            secondary_rated_by: null,
+            updated_at: action.payload.updatedAt,
+          },
         ),
       };
     case "TOGGLE_INSPECTOR":
@@ -577,6 +613,8 @@ function viewerReducer(state: ViewerState, action: ViewerAction): ViewerState {
       return { ...state, modelFilter: action.payload };
     case "SET_SDK_FILTER":
       return { ...state, sdkFilter: action.payload };
+    case "SET_AUTHOR_FILTERS":
+      return { ...state, authorFilters: Array.from(new Set(action.payload.filter((value) => value.trim().length > 0))) };
     case "SET_CATEGORY_FILTERS":
       return { ...state, categoryFilters: Array.from(new Set(action.payload.filter((value) => value.trim().length > 0))) };
     case "SET_COST_FILTER":
@@ -709,6 +747,7 @@ export function ViewerProvider({ children }: { children: ReactNode }): JSX.Eleme
       timeFilter: state.timeFilter,
       modelFilter: state.modelFilter,
       sdkFilter: state.sdkFilter,
+      authorFilters: state.authorFilters,
       categoryFilters: state.categoryFilters,
       costFilter: state.costFilter,
       ratingFilter: state.ratingFilter,
@@ -719,6 +758,7 @@ export function ViewerProvider({ children }: { children: ReactNode }): JSX.Eleme
     state.costFilter,
     state.modelFilter,
     state.sdkFilter,
+    state.authorFilters,
     state.ratingFilter,
     state.browserTab,
     state.searchQuery,

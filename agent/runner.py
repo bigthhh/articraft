@@ -1045,6 +1045,9 @@ def _write_success_record(
         ),
         updated_at=_utc_now(),
         rating=(existing_record.get("rating") if isinstance(existing_record, dict) else None),
+        secondary_rating=(
+            existing_record.get("secondary_rating") if isinstance(existing_record, dict) else None
+        ),
         kind=(
             _first_string(existing_record.get("kind"), "generated_model")
             if isinstance(existing_record, dict)
@@ -1083,6 +1086,19 @@ def _write_success_record(
             _normalize_collection_names(existing_record.get("collections"), collection)
             if isinstance(existing_record, dict)
             else [collection]
+        ),
+        author=_optional_string(existing_record.get("author"))
+        if isinstance(existing_record, dict)
+        else None,
+        rated_by=(
+            _optional_string(existing_record.get("rated_by"))
+            if isinstance(existing_record, dict)
+            else None
+        ),
+        secondary_rated_by=(
+            _optional_string(existing_record.get("secondary_rated_by"))
+            if isinstance(existing_record, dict)
+            else None
         ),
     )
     record_store.write_record(record)

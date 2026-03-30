@@ -7,6 +7,7 @@ import type {
   OpenRecordFolderResult,
   OpenStagingFolderResult,
   RecordRatingResponse,
+  RecordSecondaryRatingResponse,
   RecordSummary,
   RepoStats,
   RatingFilter,
@@ -73,6 +74,7 @@ export async function searchRecords(params: {
   runId: string | null;
   timeFilter: TimeFilter;
   modelFilter: string | null;
+  authorFilters: string[];
   categoryFilters: string[];
   costFilter: CostFilter;
   ratingFilter: RatingFilter;
@@ -89,6 +91,9 @@ export async function searchRecords(params: {
   }
   if (params.modelFilter) {
     searchParams.set("model", params.modelFilter);
+  }
+  for (const authorFilter of params.authorFilters) {
+    searchParams.append("author", authorFilter);
   }
   for (const categoryFilter of params.categoryFilters) {
     searchParams.append("category", categoryFilter);
@@ -279,4 +284,21 @@ export async function saveRecordRating(recordId: string, rating: number): Promis
     throw new Error(await readErrorMessage(response));
   }
   return (await response.json()) as RecordRatingResponse;
+}
+
+export async function saveRecordSecondaryRating(
+  recordId: string,
+  secondaryRating: number,
+): Promise<RecordSecondaryRatingResponse> {
+  const response = await fetch(`/api/records/${encodeURIComponent(recordId)}/secondary-rating`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ secondary_rating: secondaryRating }),
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+  return (await response.json()) as RecordSecondaryRatingResponse;
 }

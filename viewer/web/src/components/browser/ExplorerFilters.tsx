@@ -357,6 +357,16 @@ function ratingTriggerLabel(options: CategoryOption[], selectedValues: string[])
   return `${selectedValues.length} ratings`;
 }
 
+function authorTriggerLabel(options: CategoryOption[], selectedValues: string[]): string {
+  if (selectedValues.length === 0) {
+    return "All authors";
+  }
+  if (selectedValues.length === 1) {
+    return options.find((option) => option.value === selectedValues[0])?.label ?? selectedValues[0];
+  }
+  return `${selectedValues.length} authors`;
+}
+
 function formatCostValue(value: number): string {
   return costFormatter.format(value);
 }
@@ -744,7 +754,7 @@ function CostRangeFilter({
 }
 
 export function ExplorerFilters(): JSX.Element | null {
-  const { bootstrap, sourceFilter, timeFilter, modelFilter, sdkFilter, categoryFilters, costFilter, ratingFilter, selectedRunId } =
+  const { bootstrap, sourceFilter, timeFilter, modelFilter, sdkFilter, authorFilters, categoryFilters, costFilter, ratingFilter, selectedRunId } =
     useViewer();
   const dispatch = useViewerDispatch();
 
@@ -770,6 +780,12 @@ export function ExplorerFilters(): JSX.Element | null {
     ).sort((left, right) => left.localeCompare(right));
   }, [sourceRecords]);
 
+  const availableAuthors = useMemo(() => {
+    return Array.from(
+      new Set(sourceRecords.map((record) => record.author).filter((value): value is string => Boolean(value))),
+    ).sort((left, right) => left.localeCompare(right));
+  }, [sourceRecords]);
+
   const availableCostBounds = useMemo(
     () => getCostBounds(sourceRecords, selectedRunId),
     [selectedRunId, sourceRecords],
@@ -780,6 +796,7 @@ export function ExplorerFilters(): JSX.Element | null {
   const ratingFilterActive = ratingFilter.length > 0;
   const modelFilterActive = modelFilter !== null;
   const sdkFilterActive = sdkFilter !== null;
+  const authorFilterActive = sourceFilter === "dataset" && authorFilters.length > 0;
   const categoryFilterActive = sourceFilter === "dataset" && categoryFilters.length > 0;
 
   const availableCategories = useMemo(() => {
@@ -852,6 +869,7 @@ export function ExplorerFilters(): JSX.Element | null {
     ratingFilterActive ||
     modelFilterActive ||
     sdkFilterActive ||
+    authorFilterActive ||
     categoryFilterActive;
 
   return (
@@ -869,6 +887,7 @@ export function ExplorerFilters(): JSX.Element | null {
               dispatch({ type: "SET_RATING_FILTER", payload: [] });
               dispatch({ type: "SET_MODEL_FILTER", payload: null });
               dispatch({ type: "SET_SDK_FILTER", payload: null });
+              dispatch({ type: "SET_AUTHOR_FILTERS", payload: [] });
               dispatch({ type: "SET_CATEGORY_FILTERS", payload: [] });
             }}
             className="h-5 px-1.5 text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
@@ -944,6 +963,18 @@ export function ExplorerFilters(): JSX.Element | null {
               ))}
             </SelectContent>
           </Select>
+        ) : null}
+
+        {sourceFilter === "dataset" && availableAuthors.length > 0 ? (
+          <MultiSelectFilter
+            options={availableAuthors.map((author) => ({ value: author, label: author }))}
+            selectedValues={authorFilters}
+            onChange={(nextValues) => dispatch({ type: "SET_AUTHOR_FILTERS", payload: nextValues })}
+            title="Authors"
+            searchPlaceholder="Search authors…"
+            noMatchLabel="No authors match"
+            triggerLabel={authorTriggerLabel}
+          />
         ) : null}
 
         {sourceFilter === "dataset" && availableCategories.length > 0 ? (

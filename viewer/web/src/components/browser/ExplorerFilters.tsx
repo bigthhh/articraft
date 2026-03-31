@@ -754,7 +754,7 @@ function CostRangeFilter({
 }
 
 export function ExplorerFilters(): JSX.Element | null {
-  const { bootstrap, sourceFilter, timeFilter, modelFilter, sdkFilter, authorFilters, categoryFilters, costFilter, ratingFilter, selectedRunId } =
+  const { bootstrap, sourceFilter, timeFilter, modelFilter, sdkFilter, authorFilters, categoryFilters, costFilter, ratingFilter, secondaryRatingFilter, selectedRunId } =
     useViewer();
   const dispatch = useViewerDispatch();
 
@@ -794,6 +794,7 @@ export function ExplorerFilters(): JSX.Element | null {
   const costFilterActive = costFilter.min != null || costFilter.max != null;
   const timeFilterActive = timeFilter.oldest != null || timeFilter.newest != null;
   const ratingFilterActive = ratingFilter.length > 0;
+  const secondaryRatingFilterActive = secondaryRatingFilter.length > 0;
   const modelFilterActive = modelFilter !== null;
   const sdkFilterActive = sdkFilter !== null;
   const authorFilterActive = sourceFilter === "dataset" && authorFilters.length > 0;
@@ -818,10 +819,10 @@ export function ExplorerFilters(): JSX.Element | null {
     }
 
     const catToSuper = new Map<string, string>();
-    const superOrder = new Map<string, number>();
+    const titleOrder = new Map<string, number>();
     for (let i = 0; i < supercategories.length; i++) {
       const sc = supercategories[i];
-      superOrder.set(sc.slug, i);
+      titleOrder.set(sc.title, i);
       for (const cat of sc.category_slugs) {
         catToSuper.set(cat, sc.title);
       }
@@ -837,10 +838,8 @@ export function ExplorerFilters(): JSX.Element | null {
         const leftGroup = left.group ?? "\uffff";
         const rightGroup = right.group ?? "\uffff";
         if (leftGroup !== rightGroup) {
-          const leftSuper = supercategories.find((sc) => sc.title === leftGroup);
-          const rightSuper = supercategories.find((sc) => sc.title === rightGroup);
-          const leftIdx = leftSuper ? (superOrder.get(leftSuper.slug) ?? Infinity) : Infinity;
-          const rightIdx = rightSuper ? (superOrder.get(rightSuper.slug) ?? Infinity) : Infinity;
+          const leftIdx = titleOrder.get(leftGroup) ?? Infinity;
+          const rightIdx = titleOrder.get(rightGroup) ?? Infinity;
           return leftIdx - rightIdx;
         }
         return left.label.localeCompare(right.label);
@@ -867,6 +866,7 @@ export function ExplorerFilters(): JSX.Element | null {
     timeFilterActive ||
     costFilterActive ||
     ratingFilterActive ||
+    secondaryRatingFilterActive ||
     modelFilterActive ||
     sdkFilterActive ||
     authorFilterActive ||
@@ -885,6 +885,7 @@ export function ExplorerFilters(): JSX.Element | null {
               dispatch({ type: "SET_TIME_FILTER", payload: { oldest: null, newest: null } });
               dispatch({ type: "SET_COST_FILTER", payload: { min: null, max: null } });
               dispatch({ type: "SET_RATING_FILTER", payload: [] });
+              dispatch({ type: "SET_SECONDARY_RATING_FILTER", payload: [] });
               dispatch({ type: "SET_MODEL_FILTER", payload: null });
               dispatch({ type: "SET_SDK_FILTER", payload: null });
               dispatch({ type: "SET_AUTHOR_FILTERS", payload: [] });
@@ -917,6 +918,20 @@ export function ExplorerFilters(): JSX.Element | null {
           searchPlaceholder="Search ratings…"
           noMatchLabel="No ratings match"
           triggerLabel={ratingTriggerLabel}
+        />
+
+        <MultiSelectFilter
+          options={ratingOptions}
+          selectedValues={secondaryRatingFilter}
+          onChange={(nextValues) => dispatch({ type: "SET_SECONDARY_RATING_FILTER", payload: nextValues as RatingFilter })}
+          title="Secondary Ratings"
+          searchPlaceholder="Search ratings…"
+          noMatchLabel="No ratings match"
+          triggerLabel={(options, selectedValues) =>
+            selectedValues.length === 0
+              ? "Any secondary rating"
+              : ratingTriggerLabel(options, selectedValues).replace("ratings", "secondary ratings")
+          }
         />
 
         <Select

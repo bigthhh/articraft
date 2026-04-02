@@ -56,11 +56,6 @@ const RATING_FILTERS = ["1", "2", "3", "4", "5", "unrated"] as const satisfies r
 
 const STAGING_POLL_INTERVAL_MS = 3000;
 
-function isStagingEntryActive(status: string | null | undefined): boolean {
-  const normalized = (status ?? "").toLowerCase();
-  return normalized !== "failed" && normalized !== "success";
-}
-
 function computeEffectiveRating(
   rating: number | null | undefined,
   secondaryRating: number | null | undefined,
@@ -802,16 +797,13 @@ function useStagingPolling(state: ViewerState, dispatch: Dispatch<ViewerAction>)
 
   const browserTab = state.browserTab;
   const hasActiveRuns = state.bootstrap?.runs.some((run) => isRunActive(run)) ?? false;
-  const hasActiveStagingEntries =
-    state.bootstrap?.staging_entries.some((entry) => isStagingEntryActive(entry.status)) ?? false;
 
   useEffect(() => {
     const shouldPoll = (): boolean => {
       const { bootstrap, browserTab: currentBrowserTab } = stateRef.current;
       if (!bootstrap) return false;
       if (currentBrowserTab === "staging") return true;
-      if (bootstrap.runs.some((run) => isRunActive(run))) return true;
-      return bootstrap.staging_entries.some((entry) => isStagingEntryActive(entry.status));
+      return bootstrap.runs.some((run) => isRunActive(run));
     };
 
     if (!shouldPoll()) return;
@@ -831,7 +823,7 @@ function useStagingPolling(state: ViewerState, dispatch: Dispatch<ViewerAction>)
     return () => {
       clearInterval(intervalId);
     };
-  }, [browserTab, dispatch, hasActiveRuns, hasActiveStagingEntries]);
+  }, [browserTab, dispatch, hasActiveRuns]);
 }
 
 export function ViewerProvider({ children }: { children: ReactNode }): JSX.Element {
@@ -908,7 +900,7 @@ export function ViewerProvider({ children }: { children: ReactNode }): JSX.Eleme
     return () => {
       cancelled = true;
     };
-  }, [dispatch, selectedCachedRecord, state.selectedRecordId, state.selection]);
+  }, [dispatch, state.selectedRecordId, state.selection?.kind]);
 
   useStagingPolling(state, dispatch);
 

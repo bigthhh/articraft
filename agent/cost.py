@@ -65,6 +65,32 @@ class CostBreakdown:
             self.uncached_prompt_tokens = self.prompt_tokens - self.cached_tokens
 
 
+def _breakdown_tokens_dict(breakdown: CostBreakdown) -> dict[str, int]:
+    return {
+        "prompt_tokens": breakdown.prompt_tokens,
+        "cached_tokens": breakdown.cached_tokens,
+        "uncached_prompt_tokens": breakdown.uncached_prompt_tokens,
+        "candidates_tokens": breakdown.candidates_tokens,
+        "total_tokens": breakdown.total_tokens,
+    }
+
+
+def _breakdown_costs_dict(breakdown: CostBreakdown) -> dict[str, float]:
+    return {
+        "input_uncached": round(breakdown.input_uncached_cost, 8),
+        "input_cached": round(breakdown.input_cached_cost, 8),
+        "output": round(breakdown.output_cost, 8),
+        "total": round(breakdown.total_cost, 8),
+    }
+
+
+def _breakdown_dict(breakdown: CostBreakdown) -> dict[str, object]:
+    return {
+        "tokens": _breakdown_tokens_dict(breakdown),
+        "costs_usd": _breakdown_costs_dict(breakdown),
+    }
+
+
 def calculate_cost(usage: dict[str, int], pricing: dict[str, float]) -> CostBreakdown:
     prompt_tokens = usage.get("prompt_tokens", 0)
     cached_tokens = usage.get("cached_tokens", 0)
@@ -116,7 +142,9 @@ class CostTracker:
     model_id: str
     pricing: dict[str, float]
     total_breakdown: CostBreakdown = field(default_factory=CostBreakdown)
+    maintenance_breakdown: CostBreakdown = field(default_factory=CostBreakdown)
     turn_breakdowns: list[CostBreakdown] = field(default_factory=list)
+    maintenance_events: list[dict[str, object]] = field(default_factory=list)
 
     def add_turn(self, usage: dict[str, int]) -> CostBreakdown:
         turn_cost = calculate_cost(usage, self.pricing)
@@ -142,43 +170,75 @@ class CostTracker:
             f"Cumulative: ${self.total_breakdown.total_cost:.6f}"
         )
 
+    def add_maintenance_event(self, event: dict[str, object]) -> CostBreakdown:
+        usage = event.get("usage")
+        usage_dict: dict[str, int] = {}
+        if isinstance(usage, dict):
+            for key in ("prompt_tokens", "cached_tokens", "candidates_tokens", "total_tokens"):
+                value = usage.get(key)
+                if isinstance(value, int):
+                    usage_dict[key] = value
+
+        maintenance_cost = calculate_cost(usage_dict, self.pricing)
+        self.maintenance_breakdown.prompt_tokens += maintenance_cost.prompt_tokens
+        self.maintenance_breakdown.cached_tokens += maintenance_cost.cached_tokens
+        self.maintenance_breakdown.uncached_prompt_tokens += maintenance_cost.uncached_prompt_tokens
+        self.maintenance_breakdown.candidates_tokens += maintenance_cost.candidates_tokens
+        self.maintenance_breakdown.total_tokens += maintenance_cost.total_tokens
+        self.maintenance_breakdown.input_uncached_cost += maintenance_cost.input_uncached_cost
+        self.maintenance_breakdown.input_cached_cost += maintenance_cost.input_cached_cost
+        self.maintenance_breakdown.output_cost += maintenance_cost.output_cost
+        self.maintenance_breakdown.total_cost += maintenance_cost.total_cost
+
+        event_record = dict(event)
+        event_record["tokens"] = _breakdown_tokens_dict(maintenance_cost)
+        event_record["costs_usd"] = _breakdown_costs_dict(maintenance_cost)
+        self.maintenance_events.append(event_record)
+        return maintenance_cost
+
+    def all_in_total_breakdown(self) -> CostBreakdown:
+        return CostBreakdown(
+            prompt_tokens=self.total_breakdown.prompt_tokens
+            + self.maintenance_breakdown.prompt_tokens,
+            cached_tokens=self.total_breakdown.cached_tokens
+            + self.maintenance_breakdown.cached_tokens,
+            uncached_prompt_tokens=(
+                self.total_breakdown.uncached_prompt_tokens
+                + self.maintenance_breakdown.uncached_prompt_tokens
+            ),
+            candidates_tokens=(
+                self.total_breakdown.candidates_tokens
+                + self.maintenance_breakdown.candidates_tokens
+            ),
+            total_tokens=self.total_breakdown.total_tokens
+            + self.maintenance_breakdown.total_tokens,
+            input_uncached_cost=(
+                self.total_breakdown.input_uncached_cost
+                + self.maintenance_breakdown.input_uncached_cost
+            ),
+            input_cached_cost=(
+                self.total_breakdown.input_cached_cost
+                + self.maintenance_breakdown.input_cached_cost
+            ),
+            output_cost=self.total_breakdown.output_cost + self.maintenance_breakdown.output_cost,
+            total_cost=self.total_breakdown.total_cost + self.maintenance_breakdown.total_cost,
+        )
+
     def to_dict(self) -> dict[str, object]:
+        all_in_total = self.all_in_total_breakdown()
         return {
             "model_id": self.model_id,
-            "total": {
-                "tokens": {
-                    "prompt_tokens": self.total_breakdown.prompt_tokens,
-                    "cached_tokens": self.total_breakdown.cached_tokens,
-                    "uncached_prompt_tokens": self.total_breakdown.uncached_prompt_tokens,
-                    "candidates_tokens": self.total_breakdown.candidates_tokens,
-                    "total_tokens": self.total_breakdown.total_tokens,
-                },
-                "costs_usd": {
-                    "input_uncached": round(self.total_breakdown.input_uncached_cost, 8),
-                    "input_cached": round(self.total_breakdown.input_cached_cost, 8),
-                    "output": round(self.total_breakdown.output_cost, 8),
-                    "total": round(self.total_breakdown.total_cost, 8),
-                },
-            },
+            "total": _breakdown_dict(self.total_breakdown),
+            "maintenance_total": _breakdown_dict(self.maintenance_breakdown),
+            "all_in_total": _breakdown_dict(all_in_total),
             "pricing": self.pricing,
             "turns": [
                 {
-                    "tokens": {
-                        "prompt_tokens": breakdown.prompt_tokens,
-                        "cached_tokens": breakdown.cached_tokens,
-                        "uncached_prompt_tokens": breakdown.uncached_prompt_tokens,
-                        "candidates_tokens": breakdown.candidates_tokens,
-                        "total_tokens": breakdown.total_tokens,
-                    },
-                    "costs_usd": {
-                        "input_uncached": round(breakdown.input_uncached_cost, 8),
-                        "input_cached": round(breakdown.input_cached_cost, 8),
-                        "output": round(breakdown.output_cost, 8),
-                        "total": round(breakdown.total_cost, 8),
-                    },
+                    **_breakdown_dict(breakdown),
                 }
                 for breakdown in self.turn_breakdowns
             ],
+            "maintenance_events": self.maintenance_events,
         }
 
     def save_json(self, path: Path) -> None:

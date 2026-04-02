@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-
 ToolSchema = dict[str, Any]
 ConversationMessage = dict[str, Any]
 ProviderResponse = dict[str, Any]
@@ -21,6 +20,17 @@ class ProviderClient(Protocol):
         messages: list[ConversationMessage],
         tools: list[ToolSchema],
     ) -> dict[str, Any]: ...
+
+    async def prepare_next_request(
+        self,
+        *,
+        system_prompt: str,
+        messages: list[ConversationMessage],
+        tools: list[ToolSchema],
+        completed_turns: int,
+        consecutive_compile_failure_count: int = 0,
+        last_compile_failure_sig: str | None = None,
+    ) -> Any: ...
 
     async def generate_with_tools(
         self,

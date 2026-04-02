@@ -24,10 +24,14 @@ class TraceWriter:
         self._conversation_file = self.conversation_path.open("w", encoding="utf-8")
 
     def write_message(self, message: dict[str, Any]) -> None:
+        record = {"message": message}
+        self.write_event("message", record)
+
+    def write_event(self, event_type: str, payload: dict[str, Any]) -> None:
         record = {
             "ts": time.time(),
-            "type": "message",
-            "message": message,
+            "type": event_type,
+            **payload,
         }
         self._conversation_file.write(json.dumps(record, ensure_ascii=False) + "\n")
         self._conversation_file.flush()

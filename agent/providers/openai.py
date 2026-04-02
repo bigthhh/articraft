@@ -16,6 +16,7 @@ import os
 import random
 import time
 import uuid
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlparse, urlunparse
@@ -29,6 +30,58 @@ except Exception:  # pragma: no cover
 
 
 logger = logging.getLogger(__name__)
+
+
+_COMPILE_PLATEAU_THRESHOLD = 3
+_GPT_5_4_DANGER_ZONE_TOKENS = 272_000
+_GPT_5_2_AND_5_3_CODEX_DANGER_ZONE_TOKENS = 280_000
+
+
+@dataclass(slots=True)
+class ProviderTraceEvent:
+    event_type: str
+    payload: dict[str, Any]
+
+
+@dataclass(slots=True)
+class CompactionEvent:
+    turn_before_request: int
+    trigger: str
+    model_id: str
+    usage: dict[str, int] | None
+    before_next_input_tokens: int | None
+    after_next_input_tokens: int | None
+    estimated_saved_next_input_tokens: int | None
+    before_item_count: int
+    after_item_count: int
+    previous_response_id_cleared: bool
+    guardrails: dict[str, Any] = field(default_factory=dict)
+    estimate_error: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "kind": "compaction",
+            "turn_before_request": self.turn_before_request,
+            "trigger": self.trigger,
+            "model_id": self.model_id,
+            "usage": dict(self.usage) if self.usage else None,
+            "before_next_input_tokens": self.before_next_input_tokens,
+            "after_next_input_tokens": self.after_next_input_tokens,
+            "estimated_saved_next_input_tokens": self.estimated_saved_next_input_tokens,
+            "before_item_count": self.before_item_count,
+            "after_item_count": self.after_item_count,
+            "previous_response_id_cleared": self.previous_response_id_cleared,
+            "guardrails": dict(self.guardrails),
+        }
+        if self.estimate_error:
+            payload["estimate_error"] = self.estimate_error
+        return payload
+
+
+@dataclass(slots=True)
+class PrepareRequestResult:
+    compaction_event: CompactionEvent | None = None
+    trace_events: list[ProviderTraceEvent] = field(default_factory=list)
 
 
 def openai_api_keys_from_env(env: dict[str, str] | None = None) -> list[str]:
@@ -145,6 +198,11 @@ class OpenAILLM:
         self._input_items: list[dict[str, Any]] = []
         self._last_message_count: int = 0
         self._previous_response_id: Optional[str] = None
+        self._last_response_start_index: Optional[int] = None
+        self._last_usage: Optional[dict[str, int]] = None
+        self._last_compaction_turn_number: Optional[int] = None
+        self._last_soft_compaction_failure_sig: Optional[str] = None
+        self._unsupported_threshold_event_emitted = False
         self._websocket: Any = None
         self._websocket_opened_at: Optional[float] = None
 
@@ -166,6 +224,11 @@ class OpenAILLM:
         self._input_items = []
         self._last_message_count = 0
         self._previous_response_id = None
+        self._last_response_start_index = None
+        self._last_usage = None
+        self._last_compaction_turn_number = None
+        self._last_soft_compaction_failure_sig = None
+        self._unsupported_threshold_event_emitted = False
         self._append_new_inputs(messages)
 
         return self._build_request_payload(
@@ -173,6 +236,164 @@ class OpenAILLM:
             tools=converted_tools,
             input_items=self._input_items,
         )
+
+    async def prepare_next_request(
+        self,
+        *,
+        system_prompt: str,
+        messages: list[dict],
+        tools: list[dict],
+        completed_turns: int,
+        consecutive_compile_failure_count: int = 0,
+        last_compile_failure_sig: Optional[str] = None,
+    ) -> PrepareRequestResult:
+        result = PrepareRequestResult()
+        converted_tools = self._convert_tools(tools)
+
+        # Keep provider-side canonical input state in sync before trigger checks.
+        self._append_new_inputs(messages)
+        if consecutive_compile_failure_count <= 0 or not last_compile_failure_sig:
+            self._last_soft_compaction_failure_sig = None
+
+        turn_number = completed_turns + 1
+        if turn_number <= 2:
+            return result
+
+        prompt_tokens = self._last_prompt_tokens()
+        hard_threshold = _hard_pressure_threshold_for_model(self.model_id)
+        if (
+            hard_threshold is None
+            and prompt_tokens is not None
+            and not self._unsupported_threshold_event_emitted
+        ):
+            self._unsupported_threshold_event_emitted = True
+            result.trace_events.append(
+                ProviderTraceEvent(
+                    event_type="compaction_skipped",
+                    payload={
+                        "reason": "unsupported_threshold_model",
+                        "model_id": self.model_id,
+                        "prompt_tokens": prompt_tokens,
+                        "turn_before_request": completed_turns,
+                    },
+                )
+            )
+
+        trigger: str | None = None
+        if (
+            hard_threshold is not None
+            and prompt_tokens is not None
+            and prompt_tokens >= hard_threshold
+        ):
+            trigger = "hard_pressure"
+        elif (
+            consecutive_compile_failure_count >= _COMPILE_PLATEAU_THRESHOLD
+            and isinstance(last_compile_failure_sig, str)
+            and last_compile_failure_sig
+            and last_compile_failure_sig != self._last_soft_compaction_failure_sig
+        ):
+            trigger = "compile_plateau"
+
+        if trigger is None:
+            return result
+
+        if (
+            trigger != "hard_pressure"
+            and self._last_compaction_turn_number is not None
+            and self._last_compaction_turn_number == (turn_number - 1)
+        ):
+            return result
+
+        immutable_prefix_items, compactable_items, raw_tail_items = (
+            self._partition_compaction_items()
+        )
+        if not compactable_items:
+            result.trace_events.append(
+                ProviderTraceEvent(
+                    event_type="compaction_skipped",
+                    payload={
+                        "reason": "nothing_to_compact",
+                        "trigger": trigger,
+                        "model_id": self.model_id,
+                        "turn_before_request": completed_turns,
+                    },
+                )
+            )
+            return result
+
+        before_item_count = len(self._input_items)
+        before_tokens: int | None = None
+        after_tokens: int | None = None
+        estimate_error: str | None = None
+        try:
+            before_tokens = await self._count_request_tokens(
+                self._build_request_payload(
+                    system_prompt=system_prompt,
+                    tools=converted_tools,
+                    input_items=self._input_items,
+                )
+            )
+        except Exception as exc:
+            estimate_error = str(exc)
+
+        compacted_response = await self._compact_inputs(
+            system_prompt=system_prompt,
+            tools=converted_tools,
+            input_items=compactable_items,
+        )
+        compacted_items = self._serialize_response_output(compacted_response)
+        self._input_items = [*immutable_prefix_items, *compacted_items, *raw_tail_items]
+        self._last_response_start_index = len(immutable_prefix_items) + len(compacted_items)
+        self._previous_response_id = None
+        self._last_compaction_turn_number = turn_number
+        if trigger == "compile_plateau":
+            self._last_soft_compaction_failure_sig = last_compile_failure_sig
+
+        if estimate_error is None:
+            try:
+                after_tokens = await self._count_request_tokens(
+                    self._build_request_payload(
+                        system_prompt=system_prompt,
+                        tools=converted_tools,
+                        input_items=self._input_items,
+                    )
+                )
+            except Exception as exc:
+                estimate_error = str(exc)
+                before_tokens = None
+                after_tokens = None
+
+        usage = self._extract_usage(compacted_response)
+        event = CompactionEvent(
+            turn_before_request=completed_turns,
+            trigger=trigger,
+            model_id=self.model_id,
+            usage=usage,
+            before_next_input_tokens=before_tokens,
+            after_next_input_tokens=after_tokens,
+            estimated_saved_next_input_tokens=(
+                before_tokens - after_tokens
+                if isinstance(before_tokens, int) and isinstance(after_tokens, int)
+                else None
+            ),
+            before_item_count=before_item_count,
+            after_item_count=len(self._input_items),
+            previous_response_id_cleared=True,
+            guardrails={
+                "min_turns_satisfied": True,
+                "back_to_back_allowed": True,
+                "raw_tail_preserved": True,
+            },
+            estimate_error=estimate_error,
+        )
+        result.compaction_event = event
+        result.trace_events.append(
+            ProviderTraceEvent(
+                event_type="compaction",
+                payload=event.to_dict(),
+            )
+        )
+        return result
 
     async def generate_with_tools(
         self,
@@ -239,8 +460,11 @@ class OpenAILLM:
         )
 
         # Persist the full response items as the source of truth for future turns.
+        response_start_index = len(self._input_items)
         self._input_items.extend(self._serialize_response_output(response))
+        self._last_response_start_index = response_start_index
         self._previous_response_id = self._extract_response_id(response)
+        self._last_usage = self._extract_usage(response)
 
         return self._convert_response(response)
 
@@ -288,6 +512,112 @@ class OpenAILLM:
         if previous_response_id:
             request_payload["previous_response_id"] = previous_response_id
         return request_payload
+
+    def _build_token_count_payload(self, request_payload: dict[str, Any]) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+        for key in ("model", "instructions", "input", "parallel_tool_calls", "reasoning", "tools"):
+            value = request_payload.get(key)
+            if value is not None:
+                payload[key] = value
+        return payload
+
+    async def _count_request_tokens(self, request_payload: dict[str, Any]) -> int:
+        if self._client is None:
+            raise RuntimeError("OpenAI token counting requires a real API client")
+
+        token_count_payload = self._build_token_count_payload(request_payload)
+        if self._client_is_async:
+            response = await self._client.responses.input_tokens.count(**token_count_payload)
+        else:
+            response = await asyncio.to_thread(
+                self._client.responses.input_tokens.count,
+                **token_count_payload,
+            )
+        input_tokens = (
+            response.get("input_tokens")
+            if isinstance(response, dict)
+            else getattr(response, "input_tokens", None)
+        )
+        if not isinstance(input_tokens, int):
+            raise RuntimeError("OpenAI token counting response did not include input_tokens")
+        return input_tokens
+
+    async def _compact_inputs(
+        self,
+        *,
+        system_prompt: str,
+        tools: list[dict[str, Any]],
+        input_items: list[dict[str, Any]],
+    ) -> Any:
+        async def _compact_once(*, extra_body: dict[str, Any] | None = None) -> Any:
+            if self._client is None:
+                raise RuntimeError("OpenAI compaction requires a real API client")
+            request_kwargs: dict[str, Any] = {
+                "model": self.model_id,
+                "input": input_items,
+                "instructions": system_prompt,
+            }
+            if self.prompt_cache_key:
+                request_kwargs["prompt_cache_key"] = self.prompt_cache_key
+            if extra_body:
+                request_kwargs["extra_body"] = extra_body
+            if self._client_is_async:
+                return await self._client.responses.compact(**request_kwargs)
+            return await asyncio.to_thread(self._client.responses.compact, **request_kwargs)
+
+        extra_body = {"tools": tools, "store": self.store}
+
+        async def _request_once() -> Any:
+            try:
+                return await _compact_once(extra_body=extra_body)
+            except Exception as exc:
+                if not _is_compaction_extra_body_unsupported_error(exc):
+                    raise
+                logger.warning(
+                    "OpenAI compaction rejected tools/store extra_body for model=%s; retrying without them: %s",
+                    self.model_id,
+                    _format_retry_exception(exc),
+                )
+                return await _compact_once()
+
+        return await _async_retry(
+            _request_once,
+            max_attempts=self.max_attempts,
+            should_retry=_should_retry_openai_exception,
+            base_delay=self.retry_base_seconds,
+            max_delay=self.retry_max_seconds,
+            logger=logger,
+            context=f"openai.compact[{self.transport}]",
+        )
+
+    def _partition_compaction_items(
+        self,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+        immutable_prefix_count = self._immutable_prefix_count()
+        raw_tail_start = self._last_response_start_index
+        if raw_tail_start is None:
+            raw_tail_start = len(self._input_items)
+        raw_tail_start = max(immutable_prefix_count, min(raw_tail_start, len(self._input_items)))
+        immutable_prefix_items = list(self._input_items[:immutable_prefix_count])
+        compactable_items = list(self._input_items[immutable_prefix_count:raw_tail_start])
+        raw_tail_items = list(self._input_items[raw_tail_start:])
+        return immutable_prefix_items, compactable_items, raw_tail_items
+
+    def _immutable_prefix_count(self) -> int:
+        count = 0
+        for item in self._input_items:
+            if count >= 2:
+                break
+            if not _is_user_message_item(item):
+                break
+            count += 1
+        return count
+
+    def _last_prompt_tokens(self) -> int | None:
+        if not isinstance(self._last_usage, dict):
+            return None
+        prompt_tokens = self._last_usage.get("prompt_tokens")
+        return prompt_tokens if isinstance(prompt_tokens, int) else None
 
     async def _request_with_http(self, request_payload: dict[str, Any]) -> Any:
         if self._client is None:
@@ -868,6 +1198,21 @@ class OpenAILLM:
         return None
 
 
+def _is_user_message_item(item: Any) -> bool:
+    if not isinstance(item, dict):
+        return False
+    return item.get("role") == "user" and item.get("content") is not None
+
+
+def _hard_pressure_threshold_for_model(model_id: str) -> int | None:
+    normalized = (model_id or "").strip().lower()
+    if normalized.startswith("gpt-5.4"):
+        return _GPT_5_4_DANGER_ZONE_TOKENS
+    if normalized.startswith("gpt-5.2") or normalized.startswith("gpt-5.3-codex"):
+        return _GPT_5_2_AND_5_3_CODEX_DANGER_ZONE_TOKENS
+    return None
+
+
 def _extract_reasoning_summary(summary: Any) -> str:
     if not summary:
         return ""
@@ -1122,6 +1467,22 @@ def _format_retry_exception(exc: BaseException) -> str:
     if message:
         return f"{summary}: {message}"
     return f"{summary}: {repr(exc)}"
+
+
+def _is_compaction_extra_body_unsupported_error(exc: BaseException) -> bool:
+    message = str(exc).lower()
+    if not message:
+        return False
+    if not any(
+        marker in message
+        for marker in (
+            "unsupported parameter",
+            "unknown parameter",
+            "extra inputs are not permitted",
+        )
+    ):
+        return False
+    return "tools" in message or "store" in message
 
 
 async def _async_retry(

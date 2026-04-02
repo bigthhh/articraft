@@ -766,6 +766,11 @@ class ArticraftAgent:
         except Exception as exc:
             logger.warning("Failed to save cost tracking: %s", exc)
 
+    def _current_total_cost_usd(self) -> float:
+        if not self.cost_tracker:
+            return 0.0
+        return self.cost_tracker.all_in_total_breakdown().total_cost
+
     def _extract_tool_calls(self, message: dict) -> list[dict]:
         return message.get("tool_calls", []) if isinstance(message, dict) else []
 
@@ -1189,6 +1194,50 @@ class ArticraftAgent:
             self.display.start_llm_wait()
             logger.info("Calling LLM (%s)...", type(self.llm).__name__)
             try:
+                prepare_next_request = getattr(self.llm, "prepare_next_request", None)
+                if callable(prepare_next_request):
+                    prepare_result = await prepare_next_request(
+                        system_prompt=self.system_prompt,
+                        messages=conversation,
+                        tools=self.tool_registry.get_tool_schemas(),
+                        completed_turns=completed_turns,
+                        consecutive_compile_failure_count=self._consecutive_compile_failure_count,
+                        last_compile_failure_sig=self._last_compile_failure_sig,
+                    )
+                    for trace_event in getattr(prepare_result, "trace_events", []):
+                        if self.trace_writer:
+                            event_type = getattr(trace_event, "event_type", None)
+                            payload = getattr(trace_event, "payload", None)
+                            if isinstance(event_type, str) and isinstance(payload, dict):
+                                self.trace_writer.write_event(event_type, payload)
+                    compaction_event = getattr(prepare_result, "compaction_event", None)
+                    if compaction_event is not None and self.cost_tracker:
+                        self.cost_tracker.add_maintenance_event(compaction_event.to_dict())
+                        if (
+                            self.max_cost_usd is not None
+                            and self._current_total_cost_usd() > self.max_cost_usd
+                        ):
+                            total_cost = self._current_total_cost_usd()
+                            self._persist_cost_tracking()
+                            self.display.end_turn(success=False)
+                            return AgentResult(
+                                success=False,
+                                reason=TerminateReason.COST_LIMIT,
+                                message=(
+                                    f"Cost limit exceeded before turn {turn}: "
+                                    f"cumulative ${total_cost:.6f} exceeded limit ${self.max_cost_usd:.6f}"
+                                ),
+                                conversation=conversation,
+                                compile_warnings=(
+                                    list(self._last_successful_compile_report.warnings)
+                                    if self._last_successful_compile_report
+                                    else []
+                                ),
+                                turn_count=completed_turns,
+                                tool_call_count=tool_call_count,
+                                compile_attempt_count=self._compile_attempt_count,
+                                usage=usage_totals or None,
+                            )
                 response = await self.llm.generate_with_tools(
                     system_prompt=self.system_prompt,
                     messages=conversation,
@@ -1239,9 +1288,9 @@ class ArticraftAgent:
                 self.display.add_llm_call(usage, turn_cost.total_cost, llm_duration)
                 if (
                     self.max_cost_usd is not None
-                    and self.cost_tracker.total_breakdown.total_cost > self.max_cost_usd
+                    and self._current_total_cost_usd() > self.max_cost_usd
                 ):
-                    total_cost = self.cost_tracker.total_breakdown.total_cost
+                    total_cost = self._current_total_cost_usd()
                     self._persist_cost_tracking()
                     self.display.end_turn(success=False)
                     return AgentResult(

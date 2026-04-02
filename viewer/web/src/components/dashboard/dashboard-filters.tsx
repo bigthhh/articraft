@@ -133,6 +133,7 @@ export function SliderPopover({
   children: React.ReactNode;
 }): JSX.Element | null {
   const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!open || !triggerRef.current) return;
@@ -153,7 +154,10 @@ export function SliderPopover({
   useEffect(() => {
     if (!open) return;
     const onMouse = (e: MouseEvent) => {
-      if (containerRef.current && e.target instanceof Node && !containerRef.current.contains(e.target)) onClose();
+      if (!(e.target instanceof Node)) return;
+      if (containerRef.current?.contains(e.target)) return;
+      if (popoverRef.current?.contains(e.target)) return;
+      onClose();
     };
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     document.addEventListener("mousedown", onMouse);
@@ -165,6 +169,7 @@ export function SliderPopover({
 
   return createPortal(
     <div
+      ref={popoverRef}
       className="fixed z-[120] rounded-lg border border-[var(--border-default)] bg-[var(--surface-0)] p-1 shadow-[0_4px_16px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.02)]"
       style={{ top: pos.top, left: pos.left, width: pos.width }}
     >

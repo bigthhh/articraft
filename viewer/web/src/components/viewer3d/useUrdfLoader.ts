@@ -50,6 +50,7 @@ export function useUrdfLoader(
   baseFileUrl: string | null,
   assetRevisionKey: string | null,
   jointPoseSignal: Map<string, number>,
+  showCollisionMeshes: boolean,
   scene: THREE.Scene | null,
   camera: THREE.PerspectiveCamera | null,
   controls: OrbitControls | null,
@@ -65,6 +66,10 @@ export function useUrdfLoader(
 
   // Track the current robot group so we can remove it when swapping models.
   const robotGroupRef = useRef<THREE.Group | null>(null);
+  const linkNodesRef = useRef<Map<string, THREE.Group> | null>(null);
+  const specRef = useRef<UrdfSpec | null>(null);
+  const collisionMeshesLoadedKeyRef = useRef<string | null>(null);
+  const collisionMeshesLoadingKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     // Reset when no base URL is available.
@@ -81,6 +86,10 @@ export function useUrdfLoader(
     const load = async () => {
       setLoading(true);
       setError(null);
+      linkNodesRef.current = null;
+      specRef.current = null;
+      collisionMeshesLoadedKeyRef.current = null;
+      collisionMeshesLoadingKeyRef.current = null;
 
       try {
         // 1. Fetch URDF text.
@@ -103,10 +112,8 @@ export function useUrdfLoader(
         const spec = rewriteAbsoluteMeshFilenames(rawSpec);
 
         // 3. Build scene graph.
-        // Always include collision geometry in the scene graph so the render toggle
-        // can reveal it without rebuilding the whole robot.
         const { root, jointNodes: joints, jointFrames: frames, linkNodes } = buildRobotSceneGraph(spec, { showCollisions: true });
-        await attachMeshGeometry(spec, linkNodes, baseFileUrl, assetRevisionKey);
+        await attachVisualMeshGeometry(spec, linkNodes, baseFileUrl, assetRevisionKey);
         if (cancelled) return;
 
         // 4. Swap robot group in scene.
@@ -149,6 +156,8 @@ export function useUrdfLoader(
         invalidate();
 
         if (!cancelled) {
+          specRef.current = spec;
+          linkNodesRef.current = linkNodes;
           setUrdfSpec(spec);
           setJointNodes(joints);
           setJointFrames(frames);
@@ -173,6 +182,46 @@ export function useUrdfLoader(
       cancelled = true;
     };
   }, [baseFileUrl, assetRevisionKey, scene, camera, controls, gridGroup, axisGroup, invalidate]);
+
+  useEffect(() => {
+    const assetKey = baseFileUrl ? `${baseFileUrl}|${assetRevisionKey ?? ''}` : null;
+    if (!showCollisionMeshes || !assetKey) {
+      return;
+    }
+    const baseUrl = baseFileUrl;
+
+    const spec = specRef.current;
+    const linkNodes = linkNodesRef.current;
+    if (!spec || !linkNodes || !baseUrl) {
+      return;
+    }
+    if (collisionMeshesLoadedKeyRef.current === assetKey || collisionMeshesLoadingKeyRef.current === assetKey) {
+      return;
+    }
+
+    let cancelled = false;
+    collisionMeshesLoadingKeyRef.current = assetKey;
+
+    void attachCollisionMeshGeometry(spec, linkNodes, baseUrl, assetRevisionKey)
+      .then(() => {
+        if (cancelled || collisionMeshesLoadingKeyRef.current !== assetKey) {
+          return;
+        }
+        collisionMeshesLoadingKeyRef.current = null;
+        collisionMeshesLoadedKeyRef.current = assetKey;
+        invalidate();
+      })
+      .catch(() => {
+        if (cancelled || collisionMeshesLoadingKeyRef.current !== assetKey) {
+          return;
+        }
+        collisionMeshesLoadingKeyRef.current = null;
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [assetRevisionKey, baseFileUrl, invalidate, showCollisionMeshes, urdfSpec]);
 
   useEffect(() => {
     if (!camera || !controls || !urdfSpec || !robotGroupRef.current) {
@@ -208,14 +257,13 @@ export function useUrdfLoader(
   return { urdfSpec, jointNodes, jointFrames, loading, error };
 }
 
-async function attachMeshGeometry(
+async function attachVisualMeshGeometry(
   spec: UrdfSpec,
   linkNodes: Map<string, THREE.Group>,
   baseUrl: string,
   assetRevisionKey: string | null,
 ): Promise<void> {
   const pending: Array<Promise<void>> = [];
-  let collisionIndex = 0;
   let visualIndex = 0;
 
   for (const link of spec.links) {
@@ -252,15 +300,35 @@ async function attachMeshGeometry(
       );
     }
 
+  }
+
+  await Promise.all(pending);
+}
+
+async function attachCollisionMeshGeometry(
+  spec: UrdfSpec,
+  linkNodes: Map<string, THREE.Group>,
+  baseUrl: string,
+  assetRevisionKey: string | null,
+): Promise<void> {
+  const pending: Array<Promise<void>> = [];
+  let collisionIndex = 0;
+
+  for (const link of spec.links) {
+    const linkGroup = linkNodes.get(link.name);
+    if (!linkGroup) {
+      continue;
+    }
+
     for (const collision of link.collisions) {
       const depthBias = depthBiasForOrdinal(collisionIndex);
+      const color = collisionColorForIndex(collisionIndex);
+      collisionIndex += 1;
+
       if (collision.geometry.type !== 'mesh') {
-        collisionIndex += 1;
         continue;
       }
 
-      const color = collisionColorForIndex(collisionIndex);
-      collisionIndex += 1;
       pending.push(
         loadGeometryObject(collision.geometry, baseUrl, {
           kind: 'collision',

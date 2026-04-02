@@ -349,6 +349,7 @@ export function SceneCanvas({
     baseFileUrl,
     assetRevisionKey,
     jointPoseSignal,
+    renderOptions.showCollisions,
     scene,
     camera,
     controls,

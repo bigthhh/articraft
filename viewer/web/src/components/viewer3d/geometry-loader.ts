@@ -13,6 +13,8 @@ export interface LoadGeometryOptions {
   assetRevisionKey?: string | null;
 }
 
+const geometryTemplateCache = new Map<string, Promise<THREE.Object3D>>();
+
 function appendRevisionParam(url: string, assetRevisionKey: string | null | undefined): string {
   if (!assetRevisionKey) {
     return url;
@@ -20,6 +22,62 @@ function appendRevisionParam(url: string, assetRevisionKey: string | null | unde
 
   const separator = url.includes('?') ? '&' : '?';
   return `${url}${separator}rev=${encodeURIComponent(assetRevisionKey)}`;
+}
+
+function cloneCachedObject(root: THREE.Object3D): THREE.Object3D {
+  const clone = root.clone(true);
+
+  clone.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) {
+      return;
+    }
+
+    const material = child.material;
+    if (Array.isArray(material)) {
+      child.material = material.map((entry) => entry.clone());
+      return;
+    }
+
+    if (material) {
+      child.material = material.clone();
+    }
+  });
+
+  return clone;
+}
+
+function loadGeometryTemplate(
+  resolvedUrl: string,
+  extension: string | undefined,
+): Promise<THREE.Object3D> {
+  const cached = geometryTemplateCache.get(resolvedUrl);
+  if (cached) {
+    return cached;
+  }
+
+  const pending = (async () => {
+    if (extension === 'glb' || extension === 'gltf') {
+      const loader = new GLTFLoader();
+      const gltf = await loader.loadAsync(resolvedUrl);
+      return gltf.scene;
+    }
+
+    if (extension === 'obj') {
+      const loader = new OBJLoader();
+      return loader.loadAsync(resolvedUrl);
+    }
+
+    throw new Error(`Unsupported mesh file format for ${resolvedUrl}`);
+  })();
+
+  geometryTemplateCache.set(resolvedUrl, pending);
+  void pending.catch(() => {
+    if (geometryTemplateCache.get(resolvedUrl) === pending) {
+      geometryTemplateCache.delete(resolvedUrl);
+    }
+  });
+
+  return pending;
 }
 
 /**
@@ -88,28 +146,16 @@ export async function loadGeometryObject(
 
   const extension = filename.split('.').pop()?.toLowerCase();
   const scale = geometry.scale ?? [1, 1, 1];
-
-  if (extension === 'glb' || extension === 'gltf') {
-    const loader = new GLTFLoader();
-    const gltf = await loader.loadAsync(resolvedUrl);
-    const group = new THREE.Group();
-    group.add(gltf.scene);
-    group.scale.set(scale[0], scale[1], scale[2]);
-    applyLoadedMeshPresentation(group, options);
-    return group;
+  if (extension !== 'glb' && extension !== 'gltf' && extension !== 'obj') {
+    throw new Error(`Unsupported mesh file format: .${extension} (${filename})`);
   }
 
-  if (extension === 'obj') {
-    const loader = new OBJLoader();
-    const obj = await loader.loadAsync(resolvedUrl);
-    const group = new THREE.Group();
-    group.add(obj);
-    group.scale.set(scale[0], scale[1], scale[2]);
-    applyLoadedMeshPresentation(group, options);
-    return group;
-  }
-
-  throw new Error(`Unsupported mesh file format: .${extension} (${filename})`);
+  const template = await loadGeometryTemplate(resolvedUrl, extension);
+  const group = new THREE.Group();
+  group.add(cloneCachedObject(template));
+  group.scale.set(scale[0], scale[1], scale[2]);
+  applyLoadedMeshPresentation(group, options);
+  return group;
 }
 
 function applyLoadedMeshPresentation(root: THREE.Object3D, options: LoadGeometryOptions): void {

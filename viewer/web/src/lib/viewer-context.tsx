@@ -10,6 +10,7 @@ import {
 } from "react";
 
 import { fetchBootstrap, fetchRecordSummary, fetchStagingEntries, HttpError } from "@/lib/api";
+import { isRunActive } from "@/lib/dashboard-stats";
 import { useRoute } from "@/lib/useRoute";
 import type {
   BrowserTab,
@@ -54,6 +55,11 @@ const TIME_FILTER_POINTS = new Set<string>(["1y", "180d", "90d", "60d", "30d", "
 const RATING_FILTERS = ["1", "2", "3", "4", "5", "unrated"] as const satisfies readonly RatingFilterValue[];
 
 const STAGING_POLL_INTERVAL_MS = 3000;
+
+function isStagingEntryActive(status: string | null | undefined): boolean {
+  const normalized = (status ?? "").toLowerCase();
+  return normalized !== "failed" && normalized !== "success";
+}
 
 function computeEffectiveRating(
   rating: number | null | undefined,
@@ -794,16 +800,18 @@ function useStagingPolling(state: ViewerState, dispatch: Dispatch<ViewerAction>)
   const stateRef = useRef(state);
   stateRef.current = state;
 
-  const stagingEntryCount = state.bootstrap?.staging_entries.length ?? 0;
-  const selectionKind = state.selection?.kind;
+  const browserTab = state.browserTab;
+  const hasActiveRuns = state.bootstrap?.runs.some((run) => isRunActive(run)) ?? false;
+  const hasActiveStagingEntries =
+    state.bootstrap?.staging_entries.some((entry) => isStagingEntryActive(entry.status)) ?? false;
 
   useEffect(() => {
     const shouldPoll = (): boolean => {
-      const { bootstrap, selection } = stateRef.current;
+      const { bootstrap, browserTab: currentBrowserTab } = stateRef.current;
       if (!bootstrap) return false;
-      if (bootstrap.staging_entries.length > 0) return true;
-      if (selection?.kind === "staging") return true;
-      return false;
+      if (currentBrowserTab === "staging") return true;
+      if (bootstrap.runs.some((run) => isRunActive(run))) return true;
+      return bootstrap.staging_entries.some((entry) => isStagingEntryActive(entry.status));
     };
 
     if (!shouldPoll()) return;
@@ -823,7 +831,7 @@ function useStagingPolling(state: ViewerState, dispatch: Dispatch<ViewerAction>)
     return () => {
       clearInterval(intervalId);
     };
-  }, [dispatch, stagingEntryCount, selectionKind]);
+  }, [browserTab, dispatch, hasActiveRuns, hasActiveStagingEntries]);
 }
 
 export function ViewerProvider({ children }: { children: ReactNode }): JSX.Element {

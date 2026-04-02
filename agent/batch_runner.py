@@ -42,6 +42,7 @@ from storage.dataset_workflow import (
 from storage.datasets import DatasetStore
 from storage.models import RunRecord
 from storage.queries import StorageQueries
+from storage.record_authors import resolve_current_record_author
 from storage.records import RecordStore
 from storage.repo import StorageRepo
 from storage.runs import RunStore
@@ -591,6 +592,7 @@ class BatchRunConfig:
     pause_file: Path
     pause_poll_seconds: float
     keyboard_pause_enabled: bool
+    record_author: str | None = None
     qc_blurb_text: str | None = None
     post_success_design_audit: bool = True
 
@@ -1410,6 +1412,7 @@ async def _run_batch_row(
         row_id=row.row_id,
         prompt_index=allocation.prompt_index,
         runtime_limits=runtime_limits,
+        record_author=config.record_author,
     )
     return BatchRowOutcome(
         row_id=row.row_id,
@@ -1791,6 +1794,7 @@ def build_batch_config(
 ) -> BatchRunConfig:
     repo = StorageRepo(repo_root.resolve())
     repo.ensure_layout()
+    record_author = resolve_current_record_author(repo.root)
     spec_path, batch_spec_id = _resolve_spec_path(repo, spec_arg)
     resolved_scaffold_mode = normalize_scaffold_mode(scaffold_mode)
     resolved_max_cost_usd = (
@@ -1863,4 +1867,5 @@ def build_batch_config(
         pause_file=resolved_pause_file,
         pause_poll_seconds=pause_poll_seconds,
         keyboard_pause_enabled=keyboard_pause_enabled,
+        record_author=record_author,
     )

@@ -910,6 +910,7 @@ def test_run_dataset_batch_continues_after_over_budget_row(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(batch_runner, "resolve_current_record_author", lambda repo_root: "mattzh72")
     repo = StorageRepo(tmp_path)
     repo.ensure_layout()
     CategoryStore(repo).save(
@@ -963,6 +964,7 @@ def test_run_dataset_batch_continues_after_over_budget_row(
     async def fake_execute_single_run(
         *args: object, **kwargs: object
     ) -> runner.RunExecutionOutcome:
+        assert kwargs["record_author"] == "mattzh72"
         context = kwargs["context"]
         assert isinstance(context, runner.SingleRunContext)
         prompt_text = str(kwargs["prompt_text"])
@@ -1030,6 +1032,7 @@ def test_run_dataset_batch_continues_after_over_budget_row(
     result_by_row = {row["row_id"]: row for row in result_rows if row["status"] != "running"}
     assert "Cost limit exceeded" in result_by_row["expensive_row"]["message"]
     assert result_by_row["cheap_row"]["status"] == "success"
+    assert config.record_author == "mattzh72"
 
 
 def test_run_batch_persists_records_and_batch_metadata(

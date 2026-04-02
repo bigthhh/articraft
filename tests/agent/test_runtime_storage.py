@@ -269,6 +269,67 @@ def test_workbench_run_and_rerun_persist_runtime_artifacts(
     assert not (run_dirs[-1] / "staging" / record_dir.name).exists()
 
 
+def test_run_from_input_stamps_author_and_rerun_preserves_existing_author(
+    fake_agent: None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(runner, "_resolve_runtime_record_author", lambda repo_root: "mattzh72")
+
+    exit_code = asyncio.run(
+        runner.run_from_input(
+            "make a hinge",
+            prompt_text="make a hinge",
+            display_prompt="make a hinge",
+            repo_root=tmp_path,
+            image_path=None,
+            provider="openai",
+            thinking_level="high",
+            max_turns=10,
+            system_prompt_path=DESIGNER_PROMPT_NAME,
+            sdk_package="sdk",
+            sdk_docs_mode="full",
+        )
+    )
+
+    assert exit_code == 0
+    record_dir = next((tmp_path / "data" / "records").iterdir())
+    original_record = json.loads((record_dir / "record.json").read_text(encoding="utf-8"))
+    assert original_record["author"] == "mattzh72"
+
+    monkeypatch.setattr(runner, "_resolve_runtime_record_author", lambda repo_root: "RuiningLi")
+    rerun_exit_code = asyncio.run(
+        runner.rerun_record_in_place(
+            repo_root=tmp_path,
+            record_id=record_dir.name,
+        )
+    )
+
+    assert rerun_exit_code == 0
+    updated_record = json.loads((record_dir / "record.json").read_text(encoding="utf-8"))
+    assert updated_record["author"] == "mattzh72"
+
+
+def test_create_workbench_draft_record_stamps_author_immediately(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(runner, "_resolve_runtime_record_author", lambda repo_root: "mattzh72")
+
+    record_dir = runner.create_workbench_draft_record(
+        repo_root=tmp_path,
+        prompt_text="make a draft hinge",
+        provider="openai",
+        thinking_level="high",
+        max_turns=10,
+        system_prompt_path=DESIGNER_PROMPT_NAME,
+        sdk_package="sdk",
+    )
+
+    record = json.loads((record_dir / "record.json").read_text(encoding="utf-8"))
+    assert record["author"] == "mattzh72"
+
+
 def test_over_budget_run_persists_failed_run_metadata_without_record(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

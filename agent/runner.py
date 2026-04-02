@@ -84,6 +84,7 @@ from storage.models import (
     SourceRef,
 )
 from storage.queries import StorageQueries
+from storage.record_authors import resolve_current_record_author
 from storage.records import RecordStore
 from storage.repo import StorageRepo
 from storage.runs import RunStore
@@ -331,6 +332,13 @@ def _detect_git_commit(repo_root: Path) -> str | None:
         return None
     commit = result.stdout.strip()
     return commit or None
+
+
+def _resolve_runtime_record_author(repo_root: Path) -> str | None:
+    try:
+        return resolve_current_record_author(repo_root)
+    except Exception:
+        return None
 
 
 def _detect_uv_lock_sha256(repo_root: Path) -> str | None:
@@ -738,6 +746,7 @@ def create_workbench_draft_record(
     resolved_repo_root = repo_root.resolve()
     storage_repo = StorageRepo(resolved_repo_root)
     storage_repo.ensure_layout()
+    record_author = _resolve_runtime_record_author(resolved_repo_root)
     record_store = RecordStore(storage_repo)
     collections = CollectionStore(storage_repo)
     collections.ensure_workbench()
@@ -851,6 +860,7 @@ def create_workbench_draft_record(
             model_py_sha256=model_py_sha,
         ),
         collections=["workbench"],
+        author=record_author,
     )
     record_store.write_record(record)
     collections.append_workbench_entry(
@@ -904,6 +914,7 @@ def _write_success_record(
     workbench_entry: dict | None = None,
     dataset_entry: dict | None = None,
     update_dataset_manifest: bool = True,
+    record_author: str | None = None,
 ) -> Path:
     materializations = MaterializationStore(storage_repo)
     persisted_warnings = list(compile_warnings)
@@ -1070,9 +1081,12 @@ def _write_success_record(
             if isinstance(existing_record, dict)
             else [collection]
         ),
-        author=_optional_string(existing_record.get("author"))
-        if isinstance(existing_record, dict)
-        else None,
+        author=(
+            _optional_string(existing_record.get("author"))
+            if isinstance(existing_record, dict)
+            else None
+        )
+        or record_author,
         rated_by=(
             _optional_string(existing_record.get("rated_by"))
             if isinstance(existing_record, dict)
@@ -1230,6 +1244,7 @@ async def run_from_input(
     dataset_id: str | None = None,
     record_id: str | None = None,
     run_id: str | None = None,
+    record_author: str | None = None,
     persist_run_metadata: bool = True,
     persist_run_result: bool = True,
 ) -> int:
@@ -1260,6 +1275,7 @@ async def run_from_input(
         dataset_id=dataset_id,
         record_id=record_id,
         run_id=run_id,
+        record_author=record_author,
         persist_run_metadata=persist_run_metadata,
         persist_run_result=persist_run_result,
     )
@@ -1313,6 +1329,7 @@ async def _execute_single_run(
     row_id: str | None = None,
     prompt_index: int | None = None,
     runtime_limits: BatchRuntimeLimits | None = None,
+    record_author: str | None = None,
 ) -> RunExecutionOutcome:
     scaffold_mode = normalize_scaffold_mode(scaffold_mode)
     resolved_context = context or await asyncio.to_thread(
@@ -1596,6 +1613,7 @@ async def _execute_single_run(
             workbench_entry=loaded_workbench_entry,
             dataset_entry=loaded_dataset_entry,
             update_dataset_manifest=update_dataset_manifest,
+            record_author=record_author,
         )
         if reconcile_category_after_success and collection == "dataset" and category_slug:
             persisted_record = await asyncio.to_thread(
@@ -1721,6 +1739,7 @@ async def _run_from_input_impl(
     dataset_id: str | None = None,
     record_id: str | None = None,
     run_id: str | None = None,
+    record_author: str | None = None,
     persist_run_metadata: bool = True,
     persist_run_result: bool = True,
 ) -> RunExecutionOutcome:
@@ -1728,6 +1747,12 @@ async def _run_from_input_impl(
     resolved_repo_root = repo_root.resolve()
     storage_repo = StorageRepo(resolved_repo_root)
     await asyncio.to_thread(storage_repo.ensure_layout)
+    resolved_record_author = record_author
+    if resolved_record_author is None:
+        resolved_record_author = await asyncio.to_thread(
+            _resolve_runtime_record_author,
+            resolved_repo_root,
+        )
     record_store = RecordStore(storage_repo)
     collections = CollectionStore(storage_repo)
     datasets = DatasetStore(storage_repo)
@@ -1791,6 +1816,7 @@ async def _run_from_input_impl(
         run_mode=run_mode,
         record_id=record_id,
         run_id=run_id,
+        record_author=resolved_record_author,
         persist_run_metadata=persist_run_metadata,
         persist_run_result=persist_run_result,
     )
@@ -1811,6 +1837,7 @@ async def rerun_record_in_place(
     resolved_repo_root = repo_root.resolve()
     storage_repo = StorageRepo(resolved_repo_root)
     storage_repo.ensure_layout()
+    record_author = _resolve_runtime_record_author(resolved_repo_root)
     record_store = RecordStore(storage_repo)
     collections = CollectionStore(storage_repo)
     datasets = DatasetStore(storage_repo)
@@ -1989,6 +2016,7 @@ async def rerun_record_in_place(
         existing_record=existing_record,
         workbench_entry=workbench_entry if isinstance(workbench_entry, dict) else None,
         dataset_entry=dataset_entry if isinstance(dataset_entry, dict) else None,
+        record_author=record_author,
     )
     return outcome.exit_code
 

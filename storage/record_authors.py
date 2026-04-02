@@ -23,6 +23,28 @@ def canonicalize_record_author(value: str | None) -> str | None:
     return _AUTHOR_ALIASES.get(text.casefold(), text)
 
 
+def resolve_current_record_author(repo_root: Path) -> str | None:
+    ident_result = subprocess.run(
+        ["git", "var", "GIT_AUTHOR_IDENT"],
+        cwd=repo_root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    ident_name = canonicalize_record_author(ident_result.stdout.partition("<")[0].strip())
+    if ident_name is not None:
+        return ident_name
+
+    config_result = subprocess.run(
+        ["git", "config", "--get", "user.name"],
+        cwd=repo_root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return canonicalize_record_author(config_result.stdout.strip())
+
+
 def _run_git(repo_root: Path, *args: str) -> str:
     result = subprocess.run(
         ["git", *args],

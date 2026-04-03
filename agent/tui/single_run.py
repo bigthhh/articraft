@@ -316,6 +316,38 @@ class SingleRunDisplay:
             note.append(truncate_text(f"estimate: {estimate_error}", 80), style="yellow")
             self.console.print(note)
 
+    def add_maintenance_event(
+        self,
+        event: dict[str, Any],
+        *,
+        billed_cost: float | None = None,
+        usage_total_tokens: int | None = None,
+    ) -> None:
+        if not self.enabled:
+            return
+
+        kind = str(event.get("kind") or event.get("type") or "maintenance")
+        if billed_cost and billed_cost > 0:
+            self.total_cost += billed_cost
+        if usage_total_tokens and usage_total_tokens > 0:
+            self.total_tokens += usage_total_tokens
+
+        line = Text()
+        line.append("  maint   ", style="magenta")
+        line.append(kind.replace("_", " "), style="bold")
+        cache_name = event.get("cache_name")
+        reason = event.get("reason")
+        if isinstance(cache_name, str) and cache_name:
+            line.append("  cache=", style="dim")
+            line.append(truncate_text(cache_name, 28), style="blue")
+        elif isinstance(reason, str) and reason:
+            line.append("  reason=", style="dim")
+            line.append(reason, style="yellow")
+        if billed_cost is not None:
+            line.append("  billed=", style="dim")
+            line.append(format_cost(billed_cost), style="green")
+        self.console.print(line)
+
     def add_tool_call(
         self,
         tool_name: str,

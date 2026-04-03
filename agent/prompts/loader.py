@@ -18,6 +18,7 @@ LEGACY_SDK_DOCS_MODE_ALIASES = {
 }
 PROMPTS_ROOT = Path(__file__).resolve().parent
 GENERATED_PROMPTS_DIR = PROMPTS_ROOT / "generated"
+SECTIONS_DIR = PROMPTS_ROOT / "sections"
 # Back-compat alias for older references.
 PROMPTING_ROOT = PROMPTS_ROOT
 
@@ -167,6 +168,13 @@ def load_system_prompt_text(
     if not prompt_file.exists():
         raise FileNotFoundError(f"System prompt file not found: {prompt_path}")
     return prompt_file, prompt_file.read_text(encoding="utf-8")
+
+
+def load_prompt_section_text(section_name: str) -> tuple[Path, str]:
+    section_path = (SECTIONS_DIR / section_name).resolve()
+    if not section_path.exists():
+        raise FileNotFoundError(f"Prompt section file not found: {section_name}")
+    return section_path, section_path.read_text(encoding="utf-8")
 
 
 def provider_system_prompt_suffix(provider: str, *, sdk_package: str = "sdk") -> str:

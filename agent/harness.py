@@ -284,6 +284,7 @@ class ArticraftAgent:
         display_enabled: Optional[bool] = None,
         on_turn_start: Optional[Callable[[int], None]] = None,
         on_compaction_event: Optional[Callable[[dict[str, Any], float], None]] = None,
+        on_maintenance_event: Optional[Callable[[dict[str, Any], float], None]] = None,
         checkpoint_urdf_path: Optional[Path] = None,
         sdk_package: str = "sdk",
         scaffold_mode: str = "lite",
@@ -358,6 +359,7 @@ class ArticraftAgent:
         )
         self.on_turn_start = on_turn_start
         self.on_compaction_event = on_compaction_event
+        self.on_maintenance_event = on_maintenance_event
 
         if display_enabled is None:
             display_enabled = os.environ.get("URDF_TUI_ENABLED", "1") != "0"
@@ -772,6 +774,41 @@ class ArticraftAgent:
         if not self.cost_tracker:
             return 0.0
         return self.cost_tracker.all_in_total_breakdown().total_cost
+
+    def _record_maintenance_event(self, event: dict[str, Any]) -> float:
+        billed_cost = 0.0
+        if self.cost_tracker:
+            billed_cost = self.cost_tracker.add_maintenance_event(event).total_cost
+
+        kind = event.get("kind") or event.get("type")
+        if kind == "compaction":
+            return billed_cost
+
+        add_maintenance_event = getattr(self.display, "add_maintenance_event", None)
+        if callable(add_maintenance_event):
+            usage = event.get("usage")
+            usage_total_tokens = (
+                usage.get("total_tokens")
+                if isinstance(usage, dict) and isinstance(usage.get("total_tokens"), int)
+                else None
+            )
+            try:
+                add_maintenance_event(
+                    event,
+                    billed_cost=billed_cost,
+                    usage_total_tokens=usage_total_tokens,
+                )
+            except TypeError:
+                add_maintenance_event(event)
+
+        on_maintenance_event = getattr(self, "on_maintenance_event", None)
+        if on_maintenance_event:
+            try:
+                on_maintenance_event(event, billed_cost)
+            except Exception:
+                logger.exception("on_maintenance_event callback failed")
+
+        return billed_cost
 
     def _extract_tool_calls(self, message: dict) -> list[dict]:
         return message.get("tool_calls", []) if isinstance(message, dict) else []
@@ -1212,12 +1249,13 @@ class ArticraftAgent:
                             payload = getattr(trace_event, "payload", None)
                             if isinstance(event_type, str) and isinstance(payload, dict):
                                 self.trace_writer.write_event(event_type, payload)
+                    for maintenance_event in getattr(prepare_result, "maintenance_events", []):
+                        if isinstance(maintenance_event, dict):
+                            self._record_maintenance_event(maintenance_event)
                     compaction_event = getattr(prepare_result, "compaction_event", None)
                     if compaction_event is not None and self.cost_tracker:
                         compaction_payload = compaction_event.to_dict()
-                        maintenance_cost = self.cost_tracker.add_maintenance_event(
-                            compaction_payload
-                        )
+                        maintenance_cost_usd = self._record_maintenance_event(compaction_payload)
                         usage = compaction_payload.get("usage")
                         usage_total_tokens = (
                             usage.get("total_tokens")
@@ -1232,7 +1270,7 @@ class ArticraftAgent:
                                 estimated_saved_next_input_tokens=(
                                     compaction_event.estimated_saved_next_input_tokens
                                 ),
-                                billed_cost=maintenance_cost.total_cost,
+                                billed_cost=maintenance_cost_usd,
                                 previous_response_id_cleared=(
                                     compaction_event.previous_response_id_cleared
                                 ),
@@ -1244,35 +1282,35 @@ class ArticraftAgent:
                             try:
                                 on_compaction_event(
                                     compaction_payload,
-                                    maintenance_cost.total_cost,
+                                    maintenance_cost_usd,
                                 )
                             except Exception:
                                 logger.exception("on_compaction_event callback failed")
-                        if (
-                            self.max_cost_usd is not None
-                            and self._current_total_cost_usd() > self.max_cost_usd
-                        ):
-                            total_cost = self._current_total_cost_usd()
-                            self._persist_cost_tracking()
-                            self.display.end_turn(success=False)
-                            return AgentResult(
-                                success=False,
-                                reason=TerminateReason.COST_LIMIT,
-                                message=(
-                                    f"Cost limit exceeded before turn {turn}: "
-                                    f"cumulative ${total_cost:.6f} exceeded limit ${self.max_cost_usd:.6f}"
-                                ),
-                                conversation=conversation,
-                                compile_warnings=(
-                                    list(self._last_successful_compile_report.warnings)
-                                    if self._last_successful_compile_report
-                                    else []
-                                ),
-                                turn_count=completed_turns,
-                                tool_call_count=tool_call_count,
-                                compile_attempt_count=self._compile_attempt_count,
-                                usage=usage_totals or None,
-                            )
+                    if (
+                        self.max_cost_usd is not None
+                        and self._current_total_cost_usd() > self.max_cost_usd
+                    ):
+                        total_cost = self._current_total_cost_usd()
+                        self._persist_cost_tracking()
+                        self.display.end_turn(success=False)
+                        return AgentResult(
+                            success=False,
+                            reason=TerminateReason.COST_LIMIT,
+                            message=(
+                                f"Cost limit exceeded before turn {turn}: "
+                                f"cumulative ${total_cost:.6f} exceeded limit ${self.max_cost_usd:.6f}"
+                            ),
+                            conversation=conversation,
+                            compile_warnings=(
+                                list(self._last_successful_compile_report.warnings)
+                                if self._last_successful_compile_report
+                                else []
+                            ),
+                            turn_count=completed_turns,
+                            tool_call_count=tool_call_count,
+                            compile_attempt_count=self._compile_attempt_count,
+                            usage=usage_totals or None,
+                        )
                 response = await self.llm.generate_with_tools(
                     system_prompt=self.system_prompt,
                     messages=conversation,
@@ -1528,10 +1566,18 @@ class ArticraftAgent:
         )
 
     async def close(self) -> None:
+        close_events = await self.llm.close()
+        if isinstance(close_events, list):
+            for event in close_events:
+                if not isinstance(event, dict):
+                    continue
+                if self.trace_writer:
+                    event_type = str(event.get("type") or event.get("kind") or "maintenance")
+                    self.trace_writer.write_event(event_type, event)
+                self._record_maintenance_event(event)
         self.display.stop()
         if self.trace_writer:
             self.trace_writer.close()
-        await self.llm.close()
 
     async def __aenter__(self) -> ArticraftAgent:
         return self

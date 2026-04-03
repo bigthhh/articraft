@@ -41,3 +41,19 @@ def test_add_compaction_event_shows_row_label_and_cost() -> None:
     assert "saved≈90.0K" in output
     assert "billed=$0.000450" in output
     assert "prev=cleared" in output
+
+
+def test_add_maintenance_event_shows_cache_lifecycle_line() -> None:
+    display, buffer = _make_display()
+    display.add_run("rec_hinge_0001", "make a hinge")
+
+    display.add_maintenance_event(
+        "rec_hinge_0001",
+        {"kind": "cache_create", "cache_name": "cachedContents/cache_1"},
+        billed_cost=0.0,
+    )
+
+    output = buffer.getvalue()
+    assert "maint   [#001/20] rec_hinge_0001" in output
+    assert "cache create" in output
+    assert "cachedContents/cache_1" in output

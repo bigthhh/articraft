@@ -241,6 +241,35 @@ class BatchRunDisplay:
         if estimate_error:
             self._print_indented_block(f"estimate: {estimate_error}", style="yellow")
 
+    def add_maintenance_event(
+        self,
+        slug: str,
+        event: dict[str, object],
+        *,
+        billed_cost: float | None = None,
+    ) -> None:
+        if not self.enabled:
+            return
+        line = Text()
+        line.append("  maint   ", style="bold magenta")
+        line.append(f"[{self._run_label(slug)}] ", style="bold black on magenta")
+        line.append(truncate_text(slug, 40), style="bold")
+        line.append("  ", style="")
+        kind = str(event.get("kind") or event.get("type") or "maintenance")
+        line.append(kind.replace("_", " "), style="bold")
+        cache_name = event.get("cache_name")
+        reason = event.get("reason")
+        if isinstance(cache_name, str) and cache_name:
+            line.append("  cache=", style="dim")
+            line.append(truncate_text(cache_name, 28), style="blue")
+        elif isinstance(reason, str) and reason:
+            line.append("  reason=", style="dim")
+            line.append(reason, style="yellow")
+        if billed_cost is not None:
+            line.append("  billed=", style="dim")
+            line.append(format_cost(billed_cost), style="green")
+        self.console.print(line)
+
     def stop(self):
         if not self.enabled:
             return

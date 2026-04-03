@@ -209,3 +209,19 @@ def test_add_compaction_event_shows_saved_tokens_and_billed_cost_in_summary() ->
     assert "prev=cleared" in output
     assert "1.8K tokens" in output
     assert "$0.001250" in output
+
+
+def test_add_maintenance_event_shows_cache_lifecycle_line() -> None:
+    display, buffer = _make_display()
+
+    display.add_maintenance_event(
+        {
+            "kind": "cache_create",
+            "cache_name": "cachedContents/cache_1",
+        },
+        billed_cost=0.0,
+    )
+
+    output = buffer.getvalue()
+    assert "maint   cache create" in output
+    assert "cachedContents/cache_1" in output

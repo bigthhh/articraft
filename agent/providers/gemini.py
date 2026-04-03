@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import copy
+import hashlib
 import json
 import logging
 import mimetypes
@@ -14,8 +16,12 @@ import random
 import threading
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional, Union
+
+from agent.prompts import load_prompt_section_text
+from agent.providers.base import CompactionEvent, PrepareRequestResult, ProviderTraceEvent
 
 try:
     from dotenv import load_dotenv  # type: ignore
@@ -23,6 +29,16 @@ except Exception:  # pragma: no cover
 
     def load_dotenv(*args: Any, **kwargs: Any) -> None:  # type: ignore
         return None
+
+
+_logger = logging.getLogger(__name__)
+
+_COMPILE_PLATEAU_THRESHOLD = 3
+_GEMINI_DANGER_ZONE_TOKENS = 700_000
+_GEMINI_PREFIX_CACHE_TTL_SECONDS = 3600
+_GEMINI_PREFIX_CACHE_REFRESH_WINDOW_SECONDS = 300
+_GEMINI_COMPACTION_PROMPT_FILE = "gemini_compaction.md"
+DEFAULT_GEMINI_COMPACTION_MODEL = "gemini-3-flash-preview"
 
 
 class GeminiLLM:
@@ -33,9 +49,11 @@ class GeminiLLM:
         model_id: str = "gemini-3.1-pro-preview",
         thinking_level: str = "high",
         *,
+        compaction_model_id: str | None = None,
         dry_run: bool = False,
     ):
         self.model_id = model_id
+        self.compaction_model_id = (compaction_model_id or DEFAULT_GEMINI_COMPACTION_MODEL).strip()
         self.thinking_level = thinking_level
         self.include_thoughts = _env_bool("GEMINI_INCLUDE_THOUGHTS", True)
         # Hard timeout for a single Gemini request. This protects the harness from
@@ -65,6 +83,7 @@ class GeminiLLM:
             self._next_client_index = random.randrange(len(self._clients))
             # Keep the legacy attribute for compatibility with any external callers.
             self.client = self._clients[0]
+        self._reset_request_state()
 
     def build_request_preview(
         self,
@@ -77,18 +96,13 @@ class GeminiLLM:
         Build the exact request arguments that would be sent to the Gemini client,
         without making any network calls.
         """
-        from google.genai import types  # type: ignore
-
-        tool_declarations = self._convert_tools(tools)
+        self._reset_request_state()
+        self._sync_messages_state(messages)
         contents = self._convert_messages(messages)
-
-        config = types.GenerateContentConfig(
-            system_instruction=system_prompt,
-            tools=[types.Tool(function_declarations=tool_declarations)]
-            if tool_declarations
-            else None,
-            temperature=0.7,
-            thinking_config=self._build_thinking_config(),
+        config = self._build_generate_config(
+            system_prompt=system_prompt,
+            tools=tools,
+            cached_content_name=None,
         )
 
         return {
@@ -97,6 +111,157 @@ class GeminiLLM:
             "config": config.model_dump(mode="json", exclude_none=True),
         }
 
+    async def prepare_next_request(
+        self,
+        *,
+        system_prompt: str,
+        messages: list[dict],
+        tools: list[dict],
+        completed_turns: int,
+        consecutive_compile_failure_count: int = 0,
+        last_compile_failure_sig: Optional[str] = None,
+    ) -> PrepareRequestResult:
+        result = PrepareRequestResult()
+        self._sync_messages_state(messages)
+        if consecutive_compile_failure_count <= 0 or not last_compile_failure_sig:
+            self._last_soft_compaction_failure_sig = None
+
+        result.maintenance_events.extend(
+            await self._ensure_prefix_cache(
+                system_prompt=system_prompt,
+                tools=tools,
+                trace_events=result.trace_events,
+            )
+        )
+
+        turn_number = completed_turns + 1
+        if turn_number <= 2:
+            return result
+
+        prompt_tokens = self._last_prompt_tokens()
+        hard_threshold = _hard_pressure_threshold_for_model(self.model_id)
+        if (
+            hard_threshold is None
+            and prompt_tokens is not None
+            and not self._unsupported_threshold_event_emitted
+        ):
+            self._unsupported_threshold_event_emitted = True
+            result.trace_events.append(
+                ProviderTraceEvent(
+                    event_type="compaction_skipped",
+                    payload={
+                        "reason": "unsupported_threshold_model",
+                        "model_id": self.model_id,
+                        "prompt_tokens": prompt_tokens,
+                        "turn_before_request": completed_turns,
+                    },
+                )
+            )
+
+        trigger: str | None = None
+        if (
+            hard_threshold is not None
+            and prompt_tokens is not None
+            and prompt_tokens >= hard_threshold
+        ):
+            trigger = "hard_pressure"
+        elif (
+            consecutive_compile_failure_count >= _COMPILE_PLATEAU_THRESHOLD
+            and isinstance(last_compile_failure_sig, str)
+            and last_compile_failure_sig
+            and last_compile_failure_sig != self._last_soft_compaction_failure_sig
+        ):
+            trigger = "compile_plateau"
+
+        if trigger is None:
+            return result
+
+        if (
+            trigger != "hard_pressure"
+            and self._last_compaction_turn_number is not None
+            and self._last_compaction_turn_number == (turn_number - 1)
+        ):
+            return result
+
+        immutable_prefix_messages, compactable_messages, raw_tail_messages = (
+            self._partition_compaction_messages()
+        )
+        if not compactable_messages:
+            result.trace_events.append(
+                ProviderTraceEvent(
+                    event_type="compaction_skipped",
+                    payload={
+                        "reason": "nothing_to_compact",
+                        "trigger": trigger,
+                        "model_id": self.model_id,
+                        "turn_before_request": completed_turns,
+                    },
+                )
+            )
+            return result
+
+        before_item_count = self._effective_message_count()
+        before_tokens: int | None = None
+        after_tokens: int | None = None
+        estimate_error: str | None = None
+        try:
+            before_tokens = await self._count_request_tokens(
+                system_prompt=system_prompt,
+                tools=tools,
+                messages=self._request_messages(),
+            )
+        except Exception as exc:
+            estimate_error = str(exc)
+
+        summary_message, usage = await self._compact_messages(
+            system_prompt=system_prompt,
+            messages=compactable_messages,
+        )
+        self._summary_message = summary_message
+        self._last_compaction_turn_number = turn_number
+        if trigger == "compile_plateau":
+            self._last_soft_compaction_failure_sig = last_compile_failure_sig
+
+        if estimate_error is None:
+            try:
+                after_tokens = await self._count_request_tokens(
+                    system_prompt=system_prompt,
+                    tools=tools,
+                    messages=self._request_messages(),
+                )
+            except Exception as exc:
+                estimate_error = str(exc)
+                before_tokens = None
+                after_tokens = None
+
+        event = CompactionEvent(
+            turn_before_request=completed_turns,
+            trigger=trigger,
+            model_id=self.model_id,
+            usage=usage,
+            before_next_input_tokens=before_tokens,
+            after_next_input_tokens=after_tokens,
+            estimated_saved_next_input_tokens=(
+                before_tokens - after_tokens
+                if isinstance(before_tokens, int) and isinstance(after_tokens, int)
+                else None
+            ),
+            before_item_count=before_item_count,
+            after_item_count=self._effective_message_count(),
+            previous_response_id_cleared=False,
+            guardrails={
+                "min_turns_satisfied": True,
+                "back_to_back_allowed": True,
+                "raw_tail_preserved": True,
+            },
+            estimate_error=estimate_error,
+        )
+        result.compaction_event = event
+        result.trace_events.append(
+            ProviderTraceEvent(event_type="compaction", payload=event.to_dict())
+        )
+        return result
+
     async def generate_with_tools(
         self,
         system_prompt: str,
@@ -104,18 +269,12 @@ class GeminiLLM:
         tools: list[dict],
     ) -> dict:
         """Generate a response with optional tool calls."""
-        from google.genai import types  # type: ignore
-
-        tool_declarations = self._convert_tools(tools)
-        contents = self._convert_messages(messages)
-
-        config = types.GenerateContentConfig(
-            system_instruction=system_prompt,
-            tools=[types.Tool(function_declarations=tool_declarations)]
-            if tool_declarations
-            else None,
-            temperature=0.7,
-            thinking_config=self._build_thinking_config(),
+        self._sync_messages_state(messages)
+        contents = self._convert_messages(self._request_messages())
+        config = self._build_generate_config(
+            system_prompt=system_prompt,
+            tools=tools,
+            cached_content_name=self._active_cached_content_name(),
         )
 
         async def _call() -> Any:
@@ -139,11 +298,580 @@ class GeminiLLM:
             context=f"gemini.generate_content(model={self.model_id})",
         )
 
+        self._last_usage = self._extract_usage(response)
         return self._convert_response(response)
 
-    async def close(self) -> None:
-        """Close any underlying resources (no-op for now)."""
+    async def close(self) -> list[dict[str, Any]]:
+        events: list[dict[str, Any]] = []
+        if self._cached_content_name:
+            cache_name = self._cached_content_name
+            try:
+                await self._delete_prefix_cache(cache_name)
+                events.append(
+                    {
+                        "kind": "cache_delete",
+                        "type": "cache_delete",
+                        "model_id": self.model_id,
+                        "cache_name": cache_name,
+                        "usage": None,
+                        "accounting_status": "not_billed_v1",
+                    }
+                )
+            except Exception as exc:
+                _logger.exception("Failed to delete Gemini cached content: %s", cache_name)
+                events.append(
+                    {
+                        "kind": "cache_delete",
+                        "type": "cache_delete",
+                        "model_id": self.model_id,
+                        "cache_name": cache_name,
+                        "usage": None,
+                        "accounting_status": "not_billed_v1",
+                        "error": str(exc),
+                    }
+                )
+            finally:
+                self._cached_content_name = None
+                self._cached_content_expire_time = None
+                self._cached_prefix_digest = None
+        return events
+
+    def _reset_request_state(self) -> None:
+        self._conversation_messages: list[dict[str, Any]] = []
+        self._last_message_count = 0
+        self._last_response_start_index: int | None = None
+        self._last_usage: Optional[dict[str, int]] = None
+        self._last_compaction_turn_number: int | None = None
+        self._last_soft_compaction_failure_sig: str | None = None
+        self._unsupported_threshold_event_emitted = False
+        self._summary_message: dict[str, Any] | None = None
+        self._cached_content_name: str | None = None
+        self._cached_content_expire_time: datetime | None = None
+        self._cached_prefix_digest: str | None = None
+
+    def _sync_messages_state(self, messages: list[dict]) -> None:
+        if not messages:
+            self._conversation_messages = []
+            self._last_message_count = 0
+            self._last_response_start_index = None
+            return
+
+        copied_messages = copy.deepcopy(messages)
+        if (
+            self._conversation_messages
+            and self._last_message_count <= len(copied_messages)
+            and copied_messages[: self._last_message_count] == self._conversation_messages
+        ):
+            appended_messages = copied_messages[self._last_message_count :]
+            if appended_messages and appended_messages[0].get("role") == "assistant":
+                self._last_response_start_index = self._last_message_count
+            self._conversation_messages = copied_messages
+            self._last_message_count = len(copied_messages)
+            return
+
+        self._conversation_messages = copied_messages
+        self._last_message_count = len(copied_messages)
+        self._last_response_start_index = self._find_latest_assistant_start(copied_messages)
+
+    def _find_latest_assistant_start(self, messages: list[dict[str, Any]]) -> int | None:
+        for index in range(len(messages) - 1, -1, -1):
+            if messages[index].get("role") == "assistant":
+                return index
         return None
+
+    def _immutable_prefix_count(self) -> int:
+        count = 0
+        for message in self._conversation_messages:
+            if count >= 2:
+                break
+            if message.get("role") != "user":
+                break
+            count += 1
+        return count
+
+    def _partition_compaction_messages(
+        self,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+        immutable_prefix_count = self._immutable_prefix_count()
+        raw_tail_start = self._last_response_start_index
+        if raw_tail_start is None:
+            raw_tail_start = len(self._conversation_messages)
+        raw_tail_start = max(
+            immutable_prefix_count,
+            min(raw_tail_start, len(self._conversation_messages)),
+        )
+        immutable_prefix_messages = copy.deepcopy(
+            self._conversation_messages[:immutable_prefix_count]
+        )
+        compactable_messages = []
+        if self._summary_message:
+            compactable_messages.append(copy.deepcopy(self._summary_message))
+        compactable_messages.extend(
+            copy.deepcopy(self._conversation_messages[immutable_prefix_count:raw_tail_start])
+        )
+        raw_tail_messages = copy.deepcopy(self._conversation_messages[raw_tail_start:])
+        return immutable_prefix_messages, compactable_messages, raw_tail_messages
+
+    def _request_messages(self) -> list[dict[str, Any]]:
+        immutable_prefix_messages, _, raw_tail_messages = self._partition_compaction_messages()
+        request_messages: list[dict[str, Any]] = []
+        if not self._active_cached_content_name():
+            request_messages.extend(immutable_prefix_messages)
+        if self._summary_message:
+            request_messages.append(copy.deepcopy(self._summary_message))
+        request_messages.extend(raw_tail_messages)
+        return request_messages
+
+    def _effective_message_count(self) -> int:
+        return len(self._request_messages())
+
+    def _last_prompt_tokens(self) -> int | None:
+        if not isinstance(self._last_usage, dict):
+            return None
+        prompt_tokens = self._last_usage.get("prompt_tokens")
+        return prompt_tokens if isinstance(prompt_tokens, int) else None
+
+    def _extract_cache_usage(self, cache: Any) -> dict[str, int] | None:
+        if isinstance(cache, dict) and isinstance(cache.get("usage_metadata"), dict):
+            usage = self._extract_usage({"usage": cache["usage_metadata"]})
+        else:
+            usage = self._extract_usage(cache)
+        return usage if usage else None
+
+    def _active_cached_content_name(self) -> str | None:
+        if not self._cached_content_name or not self._cached_content_expire_time:
+            return None
+        now = datetime.now(timezone.utc)
+        if self._cached_content_expire_time <= now:
+            self._cached_content_name = None
+            self._cached_content_expire_time = None
+            self._cached_prefix_digest = None
+            return None
+        return self._cached_content_name
+
+    def _build_generate_config(
+        self,
+        *,
+        system_prompt: str,
+        tools: list[dict],
+        cached_content_name: str | None,
+    ) -> Any:
+        from google.genai import types  # type: ignore
+
+        tool_declarations = self._convert_tools(tools)
+        return types.GenerateContentConfig(
+            system_instruction=None if cached_content_name else system_prompt,
+            tools=(
+                [types.Tool(function_declarations=tool_declarations)]
+                if tool_declarations and not cached_content_name
+                else None
+            ),
+            cached_content=cached_content_name,
+            temperature=0.7,
+            thinking_config=self._build_thinking_config(),
+        )
+
+    async def _ensure_prefix_cache(
+        self,
+        *,
+        system_prompt: str,
+        tools: list[dict],
+        trace_events: list[ProviderTraceEvent],
+    ) -> list[dict[str, Any]]:
+        immutable_prefix_count = self._immutable_prefix_count()
+        immutable_prefix_messages = self._conversation_messages[:immutable_prefix_count]
+        if not immutable_prefix_messages:
+            return []
+
+        min_prefix_tokens = _prefix_cache_min_tokens_for_model(self.model_id)
+        if min_prefix_tokens is None:
+            trace_events.append(
+                ProviderTraceEvent(
+                    event_type="cache_skip",
+                    payload={
+                        "kind": "cache_skip",
+                        "reason": "unsupported_cache_model",
+                        "model_id": self.model_id,
+                    },
+                )
+            )
+            return []
+
+        prefix_digest = _prefix_digest(system_prompt, tools, immutable_prefix_messages)
+        prefix_token_count: int | None = None
+        try:
+            prefix_token_count = await self._count_prefix_tokens(
+                system_prompt=system_prompt,
+                tools=tools,
+                messages=immutable_prefix_messages,
+            )
+        except Exception as exc:
+            payload = {
+                "kind": "cache_skip",
+                "reason": "prefix_token_count_failed",
+                "model_id": self.model_id,
+                "prefix_digest": prefix_digest,
+                "error": str(exc),
+            }
+            trace_events.append(ProviderTraceEvent(event_type="cache_skip", payload=payload))
+            return []
+
+        if prefix_token_count < min_prefix_tokens:
+            payload = {
+                "kind": "cache_skip",
+                "reason": "prefix_below_min_tokens",
+                "model_id": self.model_id,
+                "prefix_digest": prefix_digest,
+                "prefix_token_count": prefix_token_count,
+                "min_prefix_tokens": min_prefix_tokens,
+            }
+            trace_events.append(ProviderTraceEvent(event_type="cache_skip", payload=payload))
+            return []
+
+        maintenance_events: list[dict[str, Any]] = []
+        if self._cached_prefix_digest != prefix_digest or not self._active_cached_content_name():
+            cache = await self._create_prefix_cache(
+                system_prompt=system_prompt,
+                tools=tools,
+                messages=immutable_prefix_messages,
+            )
+            self._cached_content_name = getattr(cache, "name", None) or (
+                cache.get("name") if isinstance(cache, dict) else None
+            )
+            self._cached_content_expire_time = _parse_cache_expire_time(cache)
+            self._cached_prefix_digest = prefix_digest
+            event_payload = {
+                "kind": "cache_create",
+                "type": "cache_create",
+                "model_id": self.model_id,
+                "cache_name": self._cached_content_name,
+                "prefix_digest": prefix_digest,
+                "prefix_token_count": prefix_token_count,
+                "min_prefix_tokens": min_prefix_tokens,
+                "ttl_seconds": _GEMINI_PREFIX_CACHE_TTL_SECONDS,
+                "expire_time": _isoformat_or_none(self._cached_content_expire_time),
+                "usage": None,
+                "accounting_status": "not_billed_v1",
+                "cache_usage": self._extract_cache_usage(cache),
+            }
+            trace_events.append(
+                ProviderTraceEvent(event_type="cache_create", payload=event_payload)
+            )
+            maintenance_events.append(event_payload)
+            return maintenance_events
+
+        if (
+            self._cached_content_expire_time
+            and _seconds_until(self._cached_content_expire_time)
+            <= _GEMINI_PREFIX_CACHE_REFRESH_WINDOW_SECONDS
+        ):
+            cache = await self._refresh_prefix_cache(self._cached_content_name)
+            self._cached_content_expire_time = _parse_cache_expire_time(cache)
+            event_payload = {
+                "kind": "cache_refresh",
+                "type": "cache_refresh",
+                "model_id": self.model_id,
+                "cache_name": self._cached_content_name,
+                "prefix_digest": prefix_digest,
+                "prefix_token_count": prefix_token_count,
+                "min_prefix_tokens": min_prefix_tokens,
+                "ttl_seconds": _GEMINI_PREFIX_CACHE_TTL_SECONDS,
+                "expire_time": _isoformat_or_none(self._cached_content_expire_time),
+                "usage": None,
+                "accounting_status": "not_billed_v1",
+                "cache_usage": self._extract_cache_usage(cache),
+            }
+            trace_events.append(
+                ProviderTraceEvent(event_type="cache_refresh", payload=event_payload)
+            )
+            maintenance_events.append(event_payload)
+        return maintenance_events
+
+    async def _create_prefix_cache(
+        self,
+        *,
+        system_prompt: str,
+        tools: list[dict],
+        messages: list[dict[str, Any]],
+    ) -> Any:
+        if not self._clients:
+            raise RuntimeError("Gemini cached content requires a real API client")
+        from google.genai import types  # type: ignore
+
+        tool_declarations = self._convert_tools(tools)
+        cache_config = types.CreateCachedContentConfig(
+            contents=self._convert_messages(messages),
+            system_instruction=system_prompt,
+            tools=[types.Tool(function_declarations=tool_declarations)]
+            if tool_declarations
+            else None,
+            ttl=f"{_GEMINI_PREFIX_CACHE_TTL_SECONDS}s",
+            display_name=f"articraft-{uuid.uuid4().hex[:8]}",
+        )
+
+        async def _call() -> Any:
+            client = self._next_client()
+            return await client.aio.caches.create(model=self.model_id, config=cache_config)
+
+        return await _async_retry(
+            _call,
+            max_attempts=1 + max(0, self.max_retries),
+            should_retry=_should_retry_gemini_exception,
+            base_delay=self.retry_base_seconds,
+            max_delay=self.retry_max_seconds,
+            logger=_logger,
+            context=f"gemini.caches.create(model={self.model_id})",
+        )
+
+    async def _refresh_prefix_cache(self, cache_name: str) -> Any:
+        if not self._clients:
+            raise RuntimeError("Gemini cache refresh requires a real API client")
+        from google.genai import types  # type: ignore
+
+        async def _call() -> Any:
+            client = self._next_client()
+            return await client.aio.caches.update(
+                name=cache_name,
+                config=types.UpdateCachedContentConfig(ttl=f"{_GEMINI_PREFIX_CACHE_TTL_SECONDS}s"),
+            )
+
+        return await _async_retry(
+            _call,
+            max_attempts=1 + max(0, self.max_retries),
+            should_retry=_should_retry_gemini_exception,
+            base_delay=self.retry_base_seconds,
+            max_delay=self.retry_max_seconds,
+            logger=_logger,
+            context=f"gemini.caches.update(model={self.model_id})",
+        )
+
+    async def _delete_prefix_cache(self, cache_name: str) -> None:
+        if not self._clients:
+            return None
+
+        async def _call() -> Any:
+            client = self._next_client()
+            return await client.aio.caches.delete(name=cache_name)
+
+        await _async_retry(
+            _call,
+            max_attempts=1 + max(0, self.max_retries),
+            should_retry=_should_retry_gemini_exception,
+            base_delay=self.retry_base_seconds,
+            max_delay=self.retry_max_seconds,
+            logger=_logger,
+            context=f"gemini.caches.delete(model={self.model_id})",
+        )
+        return None
+
+    async def _count_prefix_tokens(
+        self,
+        *,
+        system_prompt: str,
+        tools: list[dict],
+        messages: list[dict[str, Any]],
+    ) -> int:
+        return await self._count_uncached_tokens(
+            system_prompt=system_prompt,
+            tools=tools,
+            messages=messages,
+        )
+
+    async def _count_request_tokens(
+        self,
+        *,
+        system_prompt: str,
+        tools: list[dict],
+        messages: list[dict[str, Any]],
+    ) -> int:
+        cached_content_name = self._active_cached_content_name()
+        if cached_content_name:
+            return await self._count_cached_request_tokens(
+                system_prompt=system_prompt,
+                tools=tools,
+                messages=messages,
+                cached_content_name=cached_content_name,
+            )
+        return await self._count_uncached_tokens(
+            system_prompt=system_prompt,
+            tools=tools,
+            messages=messages,
+        )
+
+    async def _count_uncached_tokens(
+        self,
+        *,
+        system_prompt: str,
+        tools: list[dict],
+        messages: list[dict[str, Any]],
+    ) -> int:
+        if not self._clients:
+            raise RuntimeError("Gemini token counting requires a real API client")
+        from google.genai import types  # type: ignore
+
+        tool_declarations = self._convert_tools(tools)
+        config = types.CountTokensConfig(
+            system_instruction=system_prompt,
+            tools=[types.Tool(function_declarations=tool_declarations)]
+            if tool_declarations
+            else None,
+        )
+
+        async def _call() -> Any:
+            client = self._next_client()
+            return await client.aio.models.count_tokens(
+                model=self.model_id,
+                contents=self._convert_messages(messages),
+                config=config,
+            )
+
+        response = await _async_retry(
+            _call,
+            max_attempts=1 + max(0, self.max_retries),
+            should_retry=_should_retry_gemini_exception,
+            base_delay=self.retry_base_seconds,
+            max_delay=self.retry_max_seconds,
+            logger=_logger,
+            context=f"gemini.count_tokens(model={self.model_id})",
+        )
+        total_tokens = getattr(response, "total_tokens", None) or getattr(
+            response, "total_token_count", None
+        )
+        if not isinstance(total_tokens, int):
+            raise RuntimeError("Gemini count_tokens response did not include total_tokens")
+        return total_tokens
+
+    async def _count_cached_request_tokens(
+        self,
+        *,
+        system_prompt: str,
+        tools: list[dict],
+        messages: list[dict[str, Any]],
+        cached_content_name: str,
+    ) -> int:
+        if not self._clients:
+            raise RuntimeError("Gemini token counting requires a real API client")
+        from google.genai import _common, types  # type: ignore
+        from google.genai import models as genai_models
+
+        client = self._next_client()
+        config = types.GenerateContentConfig(
+            cached_content=cached_content_name,
+            temperature=0.7,
+            thinking_config=self._build_thinking_config(),
+        )
+        parameter_model = types._GenerateContentParameters(
+            model=self.model_id,
+            contents=self._convert_messages(messages),
+            config=config,
+        )
+        if client._api_client.vertexai:
+            request_dict = genai_models._GenerateContentParameters_to_vertex(
+                client._api_client,
+                parameter_model,
+                None,
+                parameter_model,
+            )
+        else:
+            request_dict = genai_models._GenerateContentParameters_to_mldev(
+                client._api_client,
+                parameter_model,
+                None,
+                parameter_model,
+            )
+        request_url_dict = request_dict.get("_url")
+        path = (
+            "{model}:countTokens".format_map(request_url_dict)
+            if request_url_dict
+            else "{model}:countTokens"
+        )
+        request_dict.pop("config", None)
+        request_dict = _common.convert_to_dict(request_dict)
+        request_dict = _common.encode_unserializable_types(request_dict)
+
+        async def _call() -> int:
+            http_response = await client._api_client.async_request(
+                "post",
+                path,
+                request_dict,
+            )
+            body = getattr(http_response, "body", None)
+            if isinstance(body, str):
+                body = json.loads(body)
+            if not isinstance(body, dict):
+                raise RuntimeError("Gemini cached countTokens response did not include a JSON body")
+            total_tokens = body.get("totalTokens") or body.get("total_tokens")
+            if not isinstance(total_tokens, int):
+                raise RuntimeError("Gemini cached countTokens response did not include totalTokens")
+            return total_tokens
+
+        return await _async_retry(
+            _call,
+            max_attempts=1 + max(0, self.max_retries),
+            should_retry=_should_retry_gemini_exception,
+            base_delay=self.retry_base_seconds,
+            max_delay=self.retry_max_seconds,
+            logger=_logger,
+            context=f"gemini.count_tokens_cached(model={self.model_id})",
+        )
+
+    async def _compact_messages(
+        self,
+        *,
+        system_prompt: str,
+        messages: list[dict[str, Any]],
+    ) -> tuple[dict[str, Any], dict[str, int] | None]:
+        if not self._clients:
+            raise RuntimeError("Gemini compaction requires a real API client")
+        from google.genai import types  # type: ignore
+
+        compact_input = {
+            "system_prompt": system_prompt,
+            "messages": [_message_for_compaction_prompt(message) for message in messages],
+        }
+        prompt_text = _gemini_compaction_prompt_text()
+        compaction_config = types.GenerateContentConfig(
+            system_instruction=prompt_text,
+            temperature=0,
+            response_mime_type="application/json",
+            response_schema={
+                "type": "object",
+                "properties": {
+                    "task_requirements": {"type": "array", "items": {"type": "string"}},
+                    "constraints": {"type": "array", "items": {"type": "string"}},
+                    "tool_findings": {"type": "array", "items": {"type": "string"}},
+                    "compile_state": {"type": "array", "items": {"type": "string"}},
+                    "next_steps": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": [
+                    "task_requirements",
+                    "constraints",
+                    "tool_findings",
+                    "compile_state",
+                    "next_steps",
+                ],
+            },
+        )
+
+        async def _call() -> Any:
+            client = self._next_client()
+            return await client.aio.models.generate_content(
+                model=self.compaction_model_id,
+                contents=json.dumps(compact_input, ensure_ascii=False),
+                config=compaction_config,
+            )
+
+        response = await _async_retry(
+            _call,
+            max_attempts=1 + max(0, self.max_retries),
+            should_retry=_should_retry_gemini_exception,
+            base_delay=self.retry_base_seconds,
+            max_delay=self.retry_max_seconds,
+            logger=_logger,
+            context=f"gemini.compact(model={self.compaction_model_id})",
+        )
+        parsed = _parse_json_response_text(response)
+        return _render_compaction_summary_message(parsed), self._extract_usage(response)
 
     def _next_client(self) -> Any:
         if not self._clients:
@@ -561,7 +1289,146 @@ def _decode_signature(signature: Optional[Union[str, bytes]]) -> Optional[bytes]
         return signature.encode("utf-8")
 
 
-_logger = logging.getLogger(__name__)
+def _hard_pressure_threshold_for_model(model_id: str) -> int | None:
+    normalized = (model_id or "").strip().lower()
+    if normalized.startswith("gemini-3") or normalized.startswith("gemini-2.5"):
+        return _GEMINI_DANGER_ZONE_TOKENS
+    return None
+
+
+def _prefix_cache_min_tokens_for_model(model_id: str) -> int | None:
+    normalized = (model_id or "").strip().lower()
+    if normalized.startswith(("gemini-3", "gemini-2.5")) and "flash" in normalized:
+        return 1024
+    if normalized.startswith(("gemini-3", "gemini-2.5")):
+        return 4096
+    return None
+
+
+def _prefix_digest(system_prompt: str, tools: list[dict], messages: list[dict[str, Any]]) -> str:
+    payload = {
+        "system_prompt": system_prompt,
+        "tools": tools,
+        "messages": messages,
+    }
+    raw = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _isoformat_or_none(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    return value.astimezone(timezone.utc).isoformat()
+
+
+def _seconds_until(value: datetime) -> float:
+    return (value - datetime.now(timezone.utc)).total_seconds()
+
+
+def _parse_cache_expire_time(cache: Any) -> datetime | None:
+    raw = getattr(cache, "expire_time", None)
+    if raw is None and isinstance(cache, dict):
+        raw = cache.get("expire_time")
+    if isinstance(raw, datetime):
+        return raw.astimezone(timezone.utc)
+    if isinstance(raw, str) and raw.strip():
+        candidate = raw.strip().replace("Z", "+00:00")
+        try:
+            parsed = datetime.fromisoformat(candidate)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    return None
+
+
+def _gemini_compaction_prompt_text() -> str:
+    _, text = load_prompt_section_text(_GEMINI_COMPACTION_PROMPT_FILE)
+    return text
+
+
+def _message_for_compaction_prompt(message: dict[str, Any]) -> dict[str, Any]:
+    payload: dict[str, Any] = {"role": message.get("role")}
+    content = message.get("content")
+    if isinstance(content, str):
+        payload["content"] = content
+    elif isinstance(content, list):
+        rendered_parts: list[str] = []
+        for item in content:
+            if not isinstance(item, dict):
+                rendered_parts.append(str(item))
+                continue
+            item_type = item.get("type")
+            if item_type == "input_text" and isinstance(item.get("text"), str):
+                rendered_parts.append(item["text"])
+            elif item_type == "input_image":
+                image_ref = item.get("image_path") or item.get("image_url") or "<image>"
+                rendered_parts.append(f"[image] {image_ref}")
+            elif isinstance(item.get("text"), str):
+                rendered_parts.append(item["text"])
+        payload["content"] = "\n".join(part for part in rendered_parts if part)
+    elif content is not None:
+        payload["content"] = json.dumps(content, ensure_ascii=False, default=str)
+
+    thought_summary = message.get("thought_summary")
+    if isinstance(thought_summary, str) and thought_summary.strip():
+        payload["thought_summary"] = thought_summary.strip()
+
+    if message.get("role") == "assistant" and isinstance(message.get("tool_calls"), list):
+        payload["tool_calls"] = [
+            {
+                "id": call.get("id"),
+                "name": call.get("function", {}).get("name"),
+                "arguments": call.get("function", {}).get("arguments"),
+            }
+            for call in message["tool_calls"]
+            if isinstance(call, dict)
+        ]
+    elif message.get("role") == "tool":
+        payload["name"] = message.get("name")
+        payload["tool_call_id"] = message.get("tool_call_id")
+    return payload
+
+
+def _parse_json_response_text(response: Any) -> dict[str, Any]:
+    if hasattr(response, "parsed") and isinstance(response.parsed, dict):
+        return response.parsed
+    text = ""
+    for candidate in getattr(response, "candidates", None) or []:
+        content = getattr(candidate, "content", None)
+        for part in getattr(content, "parts", None) or []:
+            part_text = getattr(part, "text", None)
+            if isinstance(part_text, str) and part_text.strip():
+                text += part_text
+    if not text.strip():
+        raise RuntimeError("Gemini compaction response did not include JSON text")
+    parsed = json.loads(text)
+    if not isinstance(parsed, dict):
+        raise RuntimeError("Gemini compaction response JSON was not an object")
+    return parsed
+
+
+def _render_compaction_summary_message(payload: dict[str, Any]) -> dict[str, Any]:
+    sections = [
+        ("Task Requirements", payload.get("task_requirements")),
+        ("Constraints", payload.get("constraints")),
+        ("Tool Findings", payload.get("tool_findings")),
+        ("Compile State", payload.get("compile_state")),
+        ("Next Steps", payload.get("next_steps")),
+    ]
+    lines = [
+        "[System-generated compaction summary]",
+        "This is preserved prior run context. It is not a new user request.",
+    ]
+    for title, raw_items in sections:
+        items = [str(item).strip() for item in raw_items or [] if str(item).strip()]
+        if not items:
+            continue
+        lines.append("")
+        lines.append(f"{title}:")
+        lines.extend(f"- {item}" for item in items)
+    return {"role": "user", "content": "\n".join(lines).strip()}
 
 
 @dataclass(frozen=True)

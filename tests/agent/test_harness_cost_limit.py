@@ -225,3 +225,24 @@ def test_harness_persists_compaction_maintenance_cost_and_trace(tmp_path: Path) 
         if line.strip()
     ]
     assert any(line.get("type") == "compaction" for line in trace_lines)
+
+
+def test_cost_tracker_preserves_unbilled_maintenance_events() -> None:
+    tracker = CostTracker(
+        model_id="gemini-3-flash-preview",
+        pricing={"input_uncached": 0.5, "input_cached": 0.05, "output": 3.0},
+    )
+
+    event = {
+        "kind": "cache_create",
+        "model_id": "gemini-3-flash-preview",
+        "cache_name": "cachedContents/cache_1",
+        "usage": None,
+        "accounting_status": "not_billed_v1",
+    }
+    maintenance_cost = tracker.add_maintenance_event(event)
+    payload = tracker.to_dict()
+
+    assert maintenance_cost.total_cost == 0.0
+    assert payload["maintenance_events"][0]["tokens"] is None
+    assert payload["maintenance_events"][0]["costs_usd"] is None

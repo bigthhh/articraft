@@ -8,6 +8,7 @@ from agent.prompts import (
     HYBRID_GEMINI_DESIGNER_PROMPT_NAME,
     HYBRID_OPENAI_DESIGNER_PROMPT_NAME,
     OPENAI_DESIGNER_PROMPT_NAME,
+    load_prompt_section_text,
     load_system_prompt_text,
     provider_system_prompt_suffix,
     resolve_system_prompt_path,
@@ -59,3 +60,10 @@ def test_system_prompt_resolution_variants() -> None:
 def test_provider_system_prompt_suffixes() -> None:
     assert provider_system_prompt_suffix("openai") == ""
     assert provider_system_prompt_suffix("gemini") == ""
+
+
+def test_compaction_prompt_section_loads_from_prompt_assets() -> None:
+    prompt_path, prompt_text = load_prompt_section_text("gemini_compaction.md")
+
+    assert prompt_path.name == "gemini_compaction.md"
+    assert "Return JSON only." in prompt_text

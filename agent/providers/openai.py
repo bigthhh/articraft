@@ -16,10 +16,11 @@ import os
 import random
 import time
 import uuid
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlparse, urlunparse
+
+from agent.providers.base import CompactionEvent, PrepareRequestResult, ProviderTraceEvent
 
 try:
     from dotenv import load_dotenv  # type: ignore
@@ -36,53 +37,6 @@ _COMPILE_PLATEAU_THRESHOLD = 3
 _GPT_5_4_DANGER_ZONE_TOKENS = 272_000
 _GPT_5_2_AND_5_3_CODEX_DANGER_ZONE_TOKENS = 280_000
 DEFAULT_OPENAI_COMPACTION_MODEL = "gpt-5.4-mini"
-
-
-@dataclass(slots=True)
-class ProviderTraceEvent:
-    event_type: str
-    payload: dict[str, Any]
-
-
-@dataclass(slots=True)
-class CompactionEvent:
-    turn_before_request: int
-    trigger: str
-    model_id: str
-    usage: dict[str, int] | None
-    before_next_input_tokens: int | None
-    after_next_input_tokens: int | None
-    estimated_saved_next_input_tokens: int | None
-    before_item_count: int
-    after_item_count: int
-    previous_response_id_cleared: bool
-    guardrails: dict[str, Any] = field(default_factory=dict)
-    estimate_error: str | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            "kind": "compaction",
-            "turn_before_request": self.turn_before_request,
-            "trigger": self.trigger,
-            "model_id": self.model_id,
-            "usage": dict(self.usage) if self.usage else None,
-            "before_next_input_tokens": self.before_next_input_tokens,
-            "after_next_input_tokens": self.after_next_input_tokens,
-            "estimated_saved_next_input_tokens": self.estimated_saved_next_input_tokens,
-            "before_item_count": self.before_item_count,
-            "after_item_count": self.after_item_count,
-            "previous_response_id_cleared": self.previous_response_id_cleared,
-            "guardrails": dict(self.guardrails),
-        }
-        if self.estimate_error:
-            payload["estimate_error"] = self.estimate_error
-        return payload
-
-
-@dataclass(slots=True)
-class PrepareRequestResult:
-    compaction_event: CompactionEvent | None = None
-    trace_events: list[ProviderTraceEvent] = field(default_factory=list)
 
 
 def openai_api_keys_from_env(env: dict[str, str] | None = None) -> list[str]:

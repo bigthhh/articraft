@@ -1408,6 +1408,11 @@ async def _run_batch_row(
                 else None
             ),
         ),
+        on_maintenance_event=lambda event, billed_cost: display.add_maintenance_event(
+            context.record_id,
+            event,
+            billed_cost=billed_cost,
+        ),
         sdk_package=row.sdk_package,
         scaffold_mode=row.scaffold_mode,
         sdk_docs_mode=config.sdk_docs_mode,

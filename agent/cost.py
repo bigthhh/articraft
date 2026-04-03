@@ -191,8 +191,12 @@ class CostTracker:
         self.maintenance_breakdown.total_cost += maintenance_cost.total_cost
 
         event_record = dict(event)
-        event_record["tokens"] = _breakdown_tokens_dict(maintenance_cost)
-        event_record["costs_usd"] = _breakdown_costs_dict(maintenance_cost)
+        if usage_dict:
+            event_record["tokens"] = _breakdown_tokens_dict(maintenance_cost)
+            event_record["costs_usd"] = _breakdown_costs_dict(maintenance_cost)
+        else:
+            event_record["tokens"] = None
+            event_record["costs_usd"] = None
         self.maintenance_events.append(event_record)
         return maintenance_cost
 

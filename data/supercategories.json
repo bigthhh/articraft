@@ -97,6 +97,7 @@
         "frontload_washing_machine",
         "frontload_dryer",
         "chest_freezer_with_hinged_lid",
+        "display_freezer_with_sliding_glass_lids",
         "blender",
         "toaster_oven",
         "stove_top",
@@ -107,7 +108,7 @@
         "ceiling_fan",
         "grill_with_hinged_lid",
         "faucet_with_side_handle",
-        "wall_thermostat_with_rotating_dial",
+        "wall_thermostat_with_articulated_controls",
         "screwin_light_bulb_with_socket",
         "stick_vacuum_with_folding_joint",
         "vacuum_cleaner_with_articulated_wand"
@@ -119,6 +120,8 @@
       "description": "Desks, chairs, cabinets, lamps, and storage containers",
       "category_slugs": [
         "desk_with_drawer",
+        "standing_desk_with_synchronous_telescoping_legs_and_articulated_controls",
+        "overbed_table",
         "drawer_cabinet_with_sliding_drawers",
         "hingeddoor_cabinet",
         "office_chair",
@@ -134,6 +137,7 @@
         "tackle_box_with_simple_hinged_lid",
         "instrument_case_with_hinged_lid",
         "watch_winder_box_with_hinged_lid",
+        "pedal_trash_bin_with_hinged_lid",
         "wheelie_bin_with_hinged_lid"
       ]
     },
@@ -151,6 +155,7 @@
         "internet_router",
         "dj_equipment",
         "turntable",
+        "portable_speaker_with_articulated_controls",
         "flatbed_scanner_with_hinged_lid",
         "binoculars",
         "camera_lens",
@@ -216,7 +221,7 @@
         "paper_cutter_guillotine",
         "retractable_utility_knife",
         "syringe",
-        "trigger_spray_bottle",
+        "air_pump_with_t_handle",
         "pump_bottle",
         "screwcap_bottle",
         "louvered_shutter_assembly",

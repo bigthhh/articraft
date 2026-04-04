@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from agent.providers.openai import (
+    DEFAULT_OPENAI_COMPACTION_MODEL,
     OpenAILLM,
     _OpenAIWebSocketError,
     openai_api_key_from_env,
@@ -170,6 +171,13 @@ def test_openai_default_request_timeout_is_30_minutes(
     provider = OpenAILLM(dry_run=True)
 
     assert provider.request_timeout_seconds == 1800.0
+
+
+def test_openai_default_compaction_model_is_mini() -> None:
+    provider = OpenAILLM(dry_run=True)
+
+    assert DEFAULT_OPENAI_COMPACTION_MODEL == "gpt-5.4-mini"
+    assert provider.compaction_model_id == "gpt-5.4-mini"
 
 
 def test_openai_sync_client_disables_sdk_retries_and_uses_request_timeout(

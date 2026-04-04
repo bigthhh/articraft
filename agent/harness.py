@@ -1316,6 +1316,7 @@ class ArticraftAgent:
                 _build_first_turn_messages(
                     user_message,
                     sdk_docs_context=self.sdk_docs_context,
+                    provider=self.provider,
                 )
             )
             if self.trace_writer:

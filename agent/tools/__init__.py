@@ -39,6 +39,46 @@ SUPPORTED_IMAGE_MIME_TYPES_BY_PROVIDER: dict[str, set[str]] = {
     },
 }
 
+_FIRST_TURN_RUNTIME_GUIDANCE_SHARED = (
+    "<runtime_task_guidance>\n"
+    "- Start with a small coherent backbone or subassembly, then expand incrementally.\n"
+    "- For unfamiliar geometry or mechanisms, use `find_examples` before improvising.\n"
+    "- Check your work as you go. Do not batch the whole object into one edit.\n"
+    "- After each coherent chunk, run `compile_model` before moving on.\n"
+    "- Treat tool outputs as evidence. If compile or probe results disagree with your plan, update the plan.\n"
+    "- If a failure is unclear, inspect with `probe_model` before changing more code.\n"
+    "- Do not do blind self-correction passes without new evidence.\n"
+    "</runtime_task_guidance>"
+)
+
+_FIRST_TURN_RUNTIME_GUIDANCE_BY_PROVIDER: dict[str, str] = {
+    "openai": (
+        "<runtime_task_guidance>\n"
+        "- Start with a small coherent backbone or subassembly, then expand incrementally.\n"
+        "- Read the exact current code with `read_file` before editing.\n"
+        "- For unfamiliar geometry or mechanisms, use `find_examples` before improvising.\n"
+        "- Prefer multiple small `apply_patch` edits over one giant patch.\n"
+        "- After each coherent chunk, run `compile_model` before moving on.\n"
+        "- Treat tool outputs as evidence. If compile or probe results disagree with your plan, update the plan.\n"
+        "- If a failure is unclear, inspect with `probe_model` before changing more code.\n"
+        "- Do not do blind self-correction passes without new evidence.\n"
+        "</runtime_task_guidance>"
+    ),
+    "gemini": (
+        "<runtime_task_guidance>\n"
+        "- Start with a small coherent backbone or subassembly, then expand incrementally.\n"
+        "- Read the exact current code with `read_code` before editing.\n"
+        "- For unfamiliar geometry or mechanisms, use `find_examples` before improvising.\n"
+        "- Prefer small exact `edit_code` replacements over broad rewrites.\n"
+        "- If `edit_code` fails, reread the exact current text before retrying.\n"
+        "- After each coherent chunk, run `compile_model` before moving on.\n"
+        "- Treat tool outputs as evidence. If compile or probe results disagree with your plan, update the plan.\n"
+        "- If a failure is unclear, inspect with `probe_model` before changing more code.\n"
+        "- Do not do blind self-correction passes without new evidence.\n"
+        "</runtime_task_guidance>"
+    ),
+}
+
 
 def build_tool_registry(
     provider: str,
@@ -71,15 +111,52 @@ def provider_system_prompt_suffix(provider: str, *, sdk_package: str = "sdk") ->
     return ""
 
 
+def build_first_turn_runtime_guidance(provider: str) -> str:
+    provider_norm = (provider or "").strip().lower()
+    return _FIRST_TURN_RUNTIME_GUIDANCE_BY_PROVIDER.get(
+        provider_norm,
+        _FIRST_TURN_RUNTIME_GUIDANCE_SHARED,
+    )
+
+
+def prepend_runtime_guidance(
+    user_content: Any,
+    *,
+    runtime_guidance_text: str | None = None,
+) -> Any:
+    guidance = (runtime_guidance_text or "").strip()
+    if not guidance:
+        return user_content
+
+    if isinstance(user_content, str):
+        if not user_content.strip():
+            return guidance
+        return f"{guidance}\n\n{user_content}"
+
+    if not isinstance(user_content, list):
+        return user_content
+
+    return [{"type": "input_text", "text": guidance}, *user_content]
+
+
 def build_first_turn_messages(
     user_content: Any,
     *,
     sdk_docs_context: str,
+    provider: str,
 ) -> list[dict[str, Any]]:
     messages: list[dict[str, Any]] = []
     if sdk_docs_context:
         messages.append({"role": "user", "content": sdk_docs_context})
-    messages.append({"role": "user", "content": user_content})
+    messages.append(
+        {
+            "role": "user",
+            "content": prepend_runtime_guidance(
+                user_content,
+                runtime_guidance_text=build_first_turn_runtime_guidance(provider),
+            ),
+        }
+    )
     return messages
 
 
@@ -88,18 +165,22 @@ def build_initial_user_content(
     *,
     image_path: Path | None = None,
     image_detail: str = "high",
+    runtime_guidance_text: str | None = None,
 ) -> Any:
+    content: Any
     if image_path is None:
-        return text_prompt
+        content = text_prompt
+    else:
+        content = [
+            {"type": "input_text", "text": text_prompt},
+            {
+                "type": "input_image",
+                "image_path": str(image_path),
+                "detail": image_detail,
+            },
+        ]
 
-    return [
-        {"type": "input_text", "text": text_prompt},
-        {
-            "type": "input_image",
-            "image_path": str(image_path),
-            "detail": image_detail,
-        },
-    ]
+    return prepend_runtime_guidance(content, runtime_guidance_text=runtime_guidance_text)
 
 
 def resolve_image_path(
@@ -158,6 +239,8 @@ __all__ = [
     "SUPPORTED_IMAGE_MIME_TYPES_BY_PROVIDER",
     "build_tool_registry",
     "provider_system_prompt_suffix",
+    "build_first_turn_runtime_guidance",
+    "prepend_runtime_guidance",
     "build_first_turn_messages",
     "build_initial_user_content",
     "resolve_image_path",

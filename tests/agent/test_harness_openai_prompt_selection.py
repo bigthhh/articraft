@@ -71,6 +71,7 @@ def test_openai_prompt_resolution_and_payload_preview() -> None:
     )
     instructions = payload["instructions"]
     docs_message = payload["input"][0]["content"][0]["text"]
+    task_message = payload["input"][1]["content"][0]["text"]
 
     # Section tags
     assert "<tools>" in instructions
@@ -84,33 +85,33 @@ def test_openai_prompt_resolution_and_payload_preview() -> None:
     )
     assert "FREEFORM tool" in instructions
     assert "write_code" not in instructions
-    assert "Use `compile_model` explicitly to run full compile + QC" in instructions
+    assert "Prefer several small `apply_patch` edits over one giant patch" in instructions
+    assert "Treat `compile_model` as the full validation pass." in instructions
 
     # Three hard requirements
     assert "NO FLOATING PARTS" in instructions
     assert "NO UNINTENTIONAL OVERLAPS" in instructions
     assert "REALISTIC GEOMETRY" in instructions
 
-    # Phased workflow
-    assert "PHASE 1" in instructions
-    assert "Do NOT write all geometry in one giant edit" in instructions
-    assert "simple envelope geometry or minimal sketches/extrusions" in instructions
-    assert "Upgrade each region from envelope geometry to realistic geometry" in instructions
-    assert "keep its learned dimensions/joints/attachments" in instructions
+    # Compact workflow + moved SDK guidance
+    assert "Read the bound scaffold and the injected SDK docs before editing." in instructions
+    assert "Start with the smallest coherent backbone or subassembly" in instructions
+    assert "Always run `compile_model` on the latest revision before concluding." in instructions
+    assert "PHASE 1" not in instructions
 
-    # Probe and testing guidance
+    # Provider/system guidance
     assert "inspection-only" in instructions
     assert "lexical search over curated examples for the active SDK" in instructions
     assert "<compile_signals>" in instructions
-    assert "SDK docs" in instructions
-    assert "object-first" in instructions
-    assert "find_floating_parts(...)" in instructions
-    assert "exactly one root part" in instructions
-    assert "Use `run_tests()` for prompt-specific exact checks" in instructions
-    assert "treat that name as a contract" in instructions
+    assert "See injected SDK docs" in instructions
     assert "Do not provide `file_path`" not in instructions
     assert "missing exact geometry" not in instructions
     assert "means a gap, not an overlap" not in instructions
+
+    # Runtime first-turn task guidance
+    assert task_message.startswith("<runtime_task_guidance>")
+    assert "Read the exact current code with `read_file` before editing." in task_message
+    assert task_message.endswith("a pair of scissors")
 
     # Cache key
     assert payload["prompt_cache_key"].startswith("ac1:")
@@ -121,6 +122,9 @@ def test_openai_prompt_resolution_and_payload_preview() -> None:
     assert "## sdk/_docs/common/00_quickstart.md" in docs_message
     assert "## sdk/_docs/common/70_probe_tooling.md" in docs_message
     assert "## sdk/_docs/common/80_testing.md" in docs_message
+    assert "Use `place_on_surface(...)` by default" in docs_message
+    assert "Prefer object-first snippets" in docs_message
+    assert "Once `run_tests()` references a visual by exact `elem_*` name" in docs_message
 
 
 def test_openai_hybrid_payload_preview_includes_hybrid_docs() -> None:
@@ -174,6 +178,30 @@ def test_openai_hybrid_payload_preview_includes_find_examples_tool() -> None:
         in payload["instructions"]
     )
     assert "lexical search over curated examples for the active SDK" in payload["instructions"]
+
+
+def test_openai_multimodal_payload_preview_keeps_image_and_prepends_guidance(
+    tmp_path: Path,
+) -> None:
+    image_path = tmp_path / "reference.png"
+    image_path.write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    payload = _build_openai_preview(
+        user_content=[
+            {"type": "input_text", "text": "a table lamp"},
+            {"type": "input_image", "image_path": str(image_path), "detail": "high"},
+        ]
+    )
+
+    task_parts = payload["input"][1]["content"]
+
+    assert task_parts[0]["type"] == "input_text"
+    assert task_parts[0]["text"].startswith("<runtime_task_guidance>")
+    assert "apply_patch" in task_parts[0]["text"]
+    assert task_parts[1] == {"type": "input_text", "text": "a table lamp"}
+    assert task_parts[2]["type"] == "input_image"
+    assert task_parts[2]["detail"] == "high"
+    assert task_parts[2]["image_url"].startswith("data:image/png;base64,")
 
 
 def test_openai_prompt_cache_key_is_stable_across_user_prompt_changes() -> None:
@@ -302,6 +330,7 @@ def test_gemini_prompt_resolution_and_payload_preview() -> None:
     )
     gemini_instructions = gemini_payload["config"]["system_instruction"]
     gemini_docs_message = gemini_payload["contents"][0]["parts"][0]["text"]
+    gemini_task_message = gemini_payload["contents"][1]["parts"][0]["text"]
 
     # Section tags
     assert "<process>" in gemini_instructions
@@ -316,26 +345,38 @@ def test_gemini_prompt_resolution_and_payload_preview() -> None:
     )
     assert 'old_string=""' in gemini_instructions
     assert "write_code" not in gemini_instructions
-    assert "Use `compile_model` explicitly to run full compile + QC" in gemini_instructions
+    assert "Prefer small exact `edit_code` replacements over broad rewrites" in gemini_instructions
+    assert "Treat `compile_model` as the full validation pass." in gemini_instructions
 
     # Three hard requirements
     assert "NO FLOATING PARTS" in gemini_instructions
     assert "NO UNINTENTIONAL OVERLAPS" in gemini_instructions
     assert "REALISTIC GEOMETRY" in gemini_instructions
 
-    # Phased workflow
-    assert "PHASE 1" in gemini_instructions
-    assert "Do NOT write all geometry in one giant edit" in gemini_instructions
+    # Compact workflow
+    assert (
+        "Read the bound scaffold and the injected SDK docs before editing." in gemini_instructions
+    )
+    assert "Start with the smallest coherent backbone or subassembly" in gemini_instructions
+    assert (
+        "Always run `compile_model` on the latest revision before concluding."
+        in gemini_instructions
+    )
+    assert "PHASE 1" not in gemini_instructions
 
-    # Probe and testing
+    # Provider/system guidance
     assert "inspection-only" in gemini_instructions
     assert "lexical search over curated examples for the active SDK" in gemini_instructions
-    assert "object-first" in gemini_instructions
-    assert "find_floating_parts(...)" in gemini_instructions
-    assert "exactly one root part" in gemini_instructions
-    assert "Use `run_tests()` for prompt-specific exact checks" in gemini_instructions
+    assert "See injected SDK docs" in gemini_instructions
+
+    # Runtime first-turn task guidance
+    assert gemini_task_message.startswith("<runtime_task_guidance>")
+    assert "Read the exact current code with `read_code` before editing." in gemini_task_message
+    assert gemini_task_message.endswith("a pair of scissors")
 
     assert "## sdk/_docs/common/70_probe_tooling.md" in gemini_docs_message
+    assert "Prefer object-first snippets" in gemini_docs_message
+    assert "Once `run_tests()` references a visual by exact `elem_*` name" in gemini_docs_message
 
 
 def test_gemini_hybrid_payload_preview_includes_find_examples_tool() -> None:
@@ -360,4 +401,32 @@ def test_gemini_hybrid_payload_preview_includes_find_examples_tool() -> None:
     assert (
         "lexical search over curated examples for the active SDK"
         in payload["config"]["system_instruction"]
+    )
+
+
+def test_gemini_multimodal_payload_preview_keeps_image_and_prepends_guidance(
+    tmp_path: Path,
+) -> None:
+    image_path = tmp_path / "reference.png"
+    image_path.write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    payload = build_provider_payload_preview(
+        [
+            {"type": "input_text", "text": "a table lamp"},
+            {"type": "input_image", "image_path": str(image_path), "detail": "high"},
+        ],
+        provider="gemini",
+        model_id="gemini-2.5-pro",
+        thinking_level="high",
+        system_prompt_path=DESIGNER_PROMPT_NAME,
+    )
+
+    task_parts = payload["contents"][1]["parts"]
+
+    assert task_parts[0]["text"].startswith("<runtime_task_guidance>")
+    assert "edit_code" in task_parts[0]["text"]
+    assert task_parts[1] == {"text": "a table lamp"}
+    assert any(
+        isinstance(part, dict) and ("inline_data" in part or "inlineData" in part)
+        for part in task_parts
     )

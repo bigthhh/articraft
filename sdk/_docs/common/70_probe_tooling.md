@@ -199,6 +199,11 @@ Return approximate bilateral symmetry report.
   corresponding `expect_*` assertion so it persists across repair turns.
 - Prefer object-first snippets: resolve parts, articulations, and visuals into
   locals once, then pass those objects into the report helpers.
+- If compile feedback suggests floating geometry, overlap risk, or a suspicious
+  support relationship and the cause is not obvious, probe the current geometry
+  before editing.
+- Prefer a short focused probe that answers one spatial question over a large
+  diagnostic script that mixes many checks at once.
 
 ## Examples
 

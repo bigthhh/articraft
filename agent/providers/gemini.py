@@ -1091,21 +1091,20 @@ class GeminiLLM:
     def _convert_user_content_parts(self, content: list[dict[str, Any]]) -> list[Any]:
         from google.genai.types import Part  # type: ignore
 
-        image_parts: list[Part] = []
-        text_parts: list[Part] = []
+        parts: list[Part] = []
         for item in content:
             if not isinstance(item, dict):
                 continue
             item_type = item.get("type")
             if item_type == "input_image":
-                image_parts.append(self._convert_input_image_part(item))
+                parts.append(self._convert_input_image_part(item))
                 continue
             if item_type in {"input_text", "text"}:
                 text = item.get("text")
                 if isinstance(text, str) and text:
-                    text_parts.append(Part(text=text))
+                    parts.append(Part(text=text))
 
-        return image_parts + text_parts
+        return parts
 
     def _convert_input_image_part(self, item: dict[str, Any]) -> Any:
         from google.genai.types import Part  # type: ignore

@@ -136,6 +136,29 @@ makes positive angles open upward.
 6. Use `allow_overlap(...)` and `allow_isolated_part(...)` only when the
    intended mechanism genuinely requires those exceptions.
 
+## Authoring Habits
+
+- Model visible openings, cavities, and hollow bodies explicitly. Do not cap a
+  visible opening with a solid placeholder.
+- If the object is layered or nested, model those layers with clear visual
+  separation instead of collapsing them into one solid mass.
+- Hidden supports and internal structure can stay simple as long as the visible
+  form reads correctly.
+- Within one part, avoid disconnected visual islands. If a feature should read
+  as mounted, give it a real rib, bracket, pin, collar, stem, or wall
+  connection, or split it into a separate part.
+- For mounted child parts, prefer placement helpers over hand-tuned
+  `Origin(...)` offsets.
+- Use `place_on_surface(...)` by default for rigid mounts onto housings,
+  shells, panels, pedals, feet, knobs, buttons, pads, brackets, and similar
+  surface-mounted parts.
+- Use `place_on_face(...)` or `place_on_face_uv(...)` only when the parent is
+  truly box-like and the semantic reference is a specific face.
+- Use `proud_for_flush_mount(...)` when a centered child should sit flush
+  instead of half-embedded.
+- Use restrained real-world materials and colors rather than placeholder
+  defaults.
+
 ## See Also
 
 - `20_core_types.md` for geometry, material, inertial, and motion types

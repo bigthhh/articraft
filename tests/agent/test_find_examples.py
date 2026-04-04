@@ -356,7 +356,14 @@ def test_first_turn_no_tool_response_no_longer_injects_nudge(tmp_path: Path) -> 
     result = asyncio.run(agent.run("make a bracket"))
 
     assert result.reason == TerminateReason.MAX_TURNS
-    assert len(result.conversation) == 2
+    assert len(result.conversation) == 3
+    assert result.conversation[0]["content"].startswith("<runtime_task_guidance>")
+    assert (
+        "Prefer multiple small `apply_patch` edits over one giant patch."
+        in result.conversation[0]["content"]
+    )
+    assert result.conversation[0]["content"].endswith("make a bracket")
+    assert result.conversation[2]["content"].startswith("<compile_required>")
     assert all(
         "<first_turn_tool_nudge>" not in str(message.get("content", ""))
         for message in result.conversation

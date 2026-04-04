@@ -1198,6 +1198,7 @@ def build_provider_payload_preview(
     conversation = _build_first_turn_messages(
         user_content,
         sdk_docs_context=docs,
+        provider=provider,
     )
     tools = build_tool_registry(provider, sdk_package=sdk_package).get_tool_schemas()
 

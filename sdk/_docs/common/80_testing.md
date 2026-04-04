@@ -89,6 +89,22 @@ Use `run_tests()` for prompt-specific exact assertions such as `expect_gap(...)`
 Keep pose-specific checks lean. Add articulated-pose assertions only when a
 prompt-critical mechanism remains ambiguous after exact rest-pose checks.
 
+## High-Signal Testing Habits
+
+- Prefer exact part or element relationship checks over broad heuristics when
+  the mounting path, retained insertion, or clearance is what matters.
+- If a part has multiple visual regions, use exact contact/support checks for
+  the critical mounts instead of broad whole-part approximations.
+- Delay brittle numeric thresholds and exact `elem_*` checks until the geometry
+  representation is stable.
+- Once `run_tests()` references a visual by exact `elem_*` name, treat that
+  name as a contract. Preserve it or update every dependent check in the same
+  edit.
+- Do not add broad lower/upper pose sweeps by default. Use one or two decisive
+  articulated poses when a prompt-critical mechanism still needs proof.
+- When support, floating status, or overlap meaning is ambiguous, probe first,
+  then encode the lasting invariant in `run_tests()`.
+
 ## Parameter Conventions
 
 These rules apply across most of the API. Method signatures below are

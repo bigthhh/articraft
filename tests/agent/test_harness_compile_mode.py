@@ -352,6 +352,7 @@ def test_run_requires_compile_model_before_concluding_and_delays_design_audit(
         file_path=str(tmp_path / "model.py"),
         provider="gemini",
         max_turns=6,
+        post_success_design_audit=True,
         display_enabled=False,
     )
 
@@ -496,6 +497,7 @@ def run_tests():
         file_path=str(tmp_path / f"{provider_name}_model.py"),
         provider=provider_name,
         max_turns=10,
+        post_success_design_audit=True,
         display_enabled=False,
     )
     agent.tool_registry = ToolRegistry([WriteCodeTool(), CompileModelTool()])
@@ -575,6 +577,7 @@ def test_finish_attempt_paths_end_turn_and_share_compile_then_audit_gate(
         file_path=str(tmp_path / "model.py"),
         provider="gemini",
         max_turns=6,
+        post_success_design_audit=True,
         display_enabled=False,
     )
     agent.tool_registry = ToolRegistry([CompileModelTool()])

@@ -304,7 +304,7 @@ class ArticraftAgent:
         scaffold_mode: str = "lite",
         sdk_docs_mode: str = "full",
         openai_reasoning_summary: Optional[str] = "auto",
-        post_success_design_audit: bool = True,
+        post_success_design_audit: bool = False,
         max_cost_usd: float | None = None,
         runtime_limits: BatchRuntimeLimits | None = None,
     ):

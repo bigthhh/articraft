@@ -712,7 +712,7 @@ def _build_parser() -> argparse.ArgumentParser:
     run_single.add_argument(
         "--design-audit",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=False,
         help="Enable or disable post-success design-audit injection.",
     )
     run_single.add_argument(
@@ -897,7 +897,7 @@ def _build_parser() -> argparse.ArgumentParser:
     run_batch.add_argument(
         "--design-audit",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=False,
         help="Enable or disable post-success design-audit injection for this batch.",
     )
     run_batch.add_argument(

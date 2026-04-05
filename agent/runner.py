@@ -747,7 +747,7 @@ def create_workbench_draft_record(
     scaffold_mode: str = DEFAULT_SCAFFOLD_MODE,
     sdk_docs_mode: str = "full",
     openai_reasoning_summary: str | None = "auto",
-    post_success_design_audit: bool = True,
+    post_success_design_audit: bool = False,
     max_cost_usd: float | None = None,
     label: str | None = None,
     tags: Optional[list[str]] = None,
@@ -1257,7 +1257,7 @@ async def run_from_input(
     scaffold_mode: str = DEFAULT_SCAFFOLD_MODE,
     sdk_docs_mode: str = "full",
     openai_reasoning_summary: Optional[str] = "auto",
-    post_success_design_audit: bool = True,
+    post_success_design_audit: bool = False,
     max_cost_usd: float | None = None,
     label: str | None = None,
     tags: Optional[list[str]] = None,
@@ -1330,7 +1330,7 @@ async def _execute_single_run(
     scaffold_mode: str = DEFAULT_SCAFFOLD_MODE,
     sdk_docs_mode: str = "full",
     openai_reasoning_summary: Optional[str] = "auto",
-    post_success_design_audit: bool = True,
+    post_success_design_audit: bool = False,
     max_cost_usd: float | None = None,
     label: str | None = None,
     tags: Optional[list[str]] = None,
@@ -1761,7 +1761,7 @@ async def _run_from_input_impl(
     scaffold_mode: str = DEFAULT_SCAFFOLD_MODE,
     sdk_docs_mode: str = "full",
     openai_reasoning_summary: Optional[str] = "auto",
-    post_success_design_audit: bool = True,
+    post_success_design_audit: bool = False,
     max_cost_usd: float | None = None,
     label: str | None = None,
     tags: Optional[list[str]] = None,
@@ -1943,7 +1943,7 @@ async def rerun_record_in_place(
         else (
             stored_post_success_design_audit
             if stored_post_success_design_audit is not None
-            else True
+            else False
         )
     )
     try:
@@ -2197,7 +2197,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--design-audit",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=False,
         help="Enable or disable post-success design-audit injection.",
     )
     args = parser.parse_args(argv)

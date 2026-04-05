@@ -117,7 +117,7 @@ def _build_parser() -> argparse.ArgumentParser:
     init_record.add_argument(
         "--design-audit",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=False,
         help="Enable or disable post-success design-audit injection for this draft and reruns.",
     )
     init_record.add_argument(
@@ -176,7 +176,7 @@ def _build_parser() -> argparse.ArgumentParser:
     rerun.add_argument(
         "--design-audit",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=False,
         help="Enable or disable post-success design-audit injection for this rerun.",
     )
     subparsers.add_parser("status", help="Show workbench storage status.")

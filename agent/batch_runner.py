@@ -544,7 +544,7 @@ class BatchRowSpec:
     sdk_package: str
     scaffold_mode: str = DEFAULT_SCAFFOLD_MODE
     scaffold_mode_explicit: bool = False
-    post_success_design_audit: bool = True
+    post_success_design_audit: bool = False
     label: str | None = None
 
     def resume_signature(
@@ -595,7 +595,7 @@ class BatchRunConfig:
     keyboard_pause_enabled: bool
     record_author: str | None = None
     qc_blurb_text: str | None = None
-    post_success_design_audit: bool = True
+    post_success_design_audit: bool = False
 
 
 def _read_csv_rows(spec_path: Path) -> list[dict[str, str]]:
@@ -1812,7 +1812,7 @@ def build_batch_config(
     sdk_docs_mode: str = "full",
     max_cost_usd: float | None = None,
     qc_blurb_path: str | None,
-    post_success_design_audit: bool = True,
+    post_success_design_audit: bool = False,
     resume: bool,
     resume_policy: str,
     allow_resume_spec_mismatch: bool = False,

@@ -724,7 +724,11 @@ def create_app(*, repo_root: Path | None = None) -> FastAPI:
         suffix = target.suffix.lower()
         media_type = media_type_map.get(suffix, "application/octet-stream")
 
-        return FileResponse(target, media_type=media_type)
+        return FileResponse(
+            target,
+            media_type=media_type,
+            headers={"Cache-Control": "no-store"},
+        )
 
     @app.get(
         "/api/staging/{run_id}/{record_id}/text/{file_path:path}",
@@ -764,7 +768,11 @@ def create_app(*, repo_root: Path | None = None) -> FastAPI:
         suffix = target.suffix.lower()
         media_type = media_type_map.get(suffix, "application/octet-stream")
 
-        return FileResponse(target, media_type=media_type)
+        return FileResponse(
+            target,
+            media_type=media_type,
+            headers={"Cache-Control": "no-store"},
+        )
 
     @app.get("/api/records/{record_id}/traces/{file_path:path}")
     async def record_trace_file(record_id: str, file_path: str) -> FileResponse:

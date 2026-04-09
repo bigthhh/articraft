@@ -298,12 +298,7 @@ def _first_nonempty_line(value: str) -> str | None:
 
 
 def _mtime_to_utc(value: float) -> str:
-    return (
-        datetime.fromtimestamp(value, tz=timezone.utc)
-        .replace(microsecond=0)
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
+    return datetime.fromtimestamp(value, tz=timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _file_mtime_to_utc(path: Path) -> str | None:

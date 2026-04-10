@@ -99,6 +99,23 @@ function parseReadFileResult(raw: string): { code: string; startLine: number } |
   }
 }
 
+function parseReadFileArgs(
+  raw: string,
+): { path: string; offset?: number; limit?: number } | null {
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const path = typeof parsed.path === "string" ? parsed.path : null;
+    if (!path) return null;
+    return {
+      path,
+      offset: typeof parsed.offset === "number" ? parsed.offset : undefined,
+      limit: typeof parsed.limit === "number" ? parsed.limit : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
 type FindExamplesResultMatch = {
   title: string;
   description: string;
@@ -114,6 +131,11 @@ type ParsedCompileModelResult = {
   warnings: string[];
   notes: string[];
   error: string | null;
+};
+
+type ToolCallContext = {
+  name: string;
+  rawArgs: string | null;
 };
 
 function parseFindExamplesResult(raw: string): FindExamplesResultMatch[] | null {
@@ -653,6 +675,30 @@ function ToolCallBlock({ call }: { call: EnrichedToolCall }): JSX.Element {
     }
   }
 
+  if (name === "read_file" && rawArgs) {
+    const readArgs = parseReadFileArgs(rawArgs);
+    if (readArgs) {
+      return (
+        <div className="min-w-0 space-y-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-[11px] text-[var(--text-primary)]">
+              <code className="rounded bg-[var(--surface-2)] px-1 py-0.5 font-mono text-[10px]">
+                {name}
+              </code>
+            </p>
+            <Badge variant="secondary">{readArgs.path}</Badge>
+            {readArgs.offset != null ? (
+              <Badge variant="secondary">offset {readArgs.offset}</Badge>
+            ) : null}
+            {readArgs.limit != null ? (
+              <Badge variant="secondary">limit {readArgs.limit}</Badge>
+            ) : null}
+          </div>
+        </div>
+      );
+    }
+  }
+
   const prettyArgs = !isPatch && rawArgs ? tryPrettyJson(rawArgs) : null;
 
   return (
@@ -692,7 +738,13 @@ function AssistantEvent({ event }: { event: EnrichedTraceMessage }): JSX.Element
   );
 }
 
-function ToolEvent({ event }: { event: EnrichedTraceMessage }): JSX.Element {
+function ToolEvent({
+  event,
+  toolCallContext,
+}: {
+  event: EnrichedTraceMessage;
+  toolCallContext?: ToolCallContext;
+}): JSX.Element {
   const raw = fullMessageText(event.content);
 
   if (event.name === "compile_model" && raw) {
@@ -852,20 +904,36 @@ function ToolEvent({ event }: { event: EnrichedTraceMessage }): JSX.Element {
   if (event.name === "read_file" && raw) {
     const parsed = parseReadFileResult(raw);
     if (parsed) {
+      const readArgs =
+        toolCallContext?.name === "read_file" && toolCallContext.rawArgs
+          ? parseReadFileArgs(toolCallContext.rawArgs)
+          : null;
+      const path = readArgs?.path ?? null;
+      const isMarkdown = path?.endsWith(".md") ?? false;
+      const isPython = path?.endsWith(".py") ?? false;
       return (
         <div className="min-w-0 space-y-1.5">
-          <p className="text-[11px] text-[var(--text-tertiary)]">
-            <code className="rounded bg-[var(--surface-2)] px-1 py-0.5 font-mono text-[10px] text-[var(--text-secondary)]">
-              {event.name}
-            </code>{" "}
-            result
-          </p>
-          <CodeBlock
-            code={parsed.code}
-            language="python"
-            maxHeight="max-h-80"
-            startingLineNumber={parsed.startLine}
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-[11px] text-[var(--text-tertiary)]">
+              <code className="rounded bg-[var(--surface-2)] px-1 py-0.5 font-mono text-[10px] text-[var(--text-secondary)]">
+                {event.name}
+              </code>{" "}
+              result
+            </p>
+            {path ? <Badge variant="secondary">{path}</Badge> : null}
+          </div>
+          {isMarkdown ? (
+            <MarkdownBlock text={parsed.code} maxHeight="max-h-80" />
+          ) : isPython ? (
+            <CodeBlock
+              code={parsed.code}
+              language="python"
+              maxHeight="max-h-80"
+              startingLineNumber={parsed.startLine}
+            />
+          ) : (
+            <PlainBlock text={parsed.code} maxHeight="max-h-80" />
+          )}
         </div>
       );
     }
@@ -1024,11 +1092,21 @@ function GenericTraceEvent({ event }: { event: EnrichedGenericTraceEvent }): JSX
   );
 }
 
-function EventRow({ event }: { event: EnrichedTraceEvent }): JSX.Element {
+function EventRow({
+  event,
+  toolCallContextById,
+}: {
+  event: EnrichedTraceEvent;
+  toolCallContextById: Map<string, ToolCallContext>;
+}): JSX.Element {
   if (event.kind === "compaction") return <CompactionEvent event={event} />;
   if (event.kind === "event") return <GenericTraceEvent event={event} />;
   if (event.role === "assistant") return <AssistantEvent event={event} />;
-  if (event.role === "tool") return <ToolEvent event={event} />;
+  if (event.role === "tool") {
+    const toolCallContext =
+      event.tool_call_id != null ? toolCallContextById.get(event.tool_call_id) : undefined;
+    return <ToolEvent event={event} toolCallContext={toolCallContext} />;
+  }
   return <UserEvent event={event} />;
 }
 
@@ -1068,6 +1146,17 @@ export function TrajectoryTurnCard({ turn, baseTimestamp }: TrajectoryTurnCardPr
       : eventUsage.billedCost > 0
         ? formatUsd(eventUsage.billedCost)
         : null;
+  const toolCallContextById = new Map<string, ToolCallContext>();
+  for (const event of turn.events) {
+    if (event.kind !== "message" || event.role !== "assistant") continue;
+    for (const call of event.tool_calls ?? []) {
+      if (!call.id) continue;
+      toolCallContextById.set(call.id, {
+        name: toolCallName(call),
+        rawArgs: toolCallArguments(call),
+      });
+    }
+  }
 
   return (
     <div className="min-w-0">
@@ -1088,7 +1177,7 @@ export function TrajectoryTurnCard({ turn, baseTimestamp }: TrajectoryTurnCardPr
         <div className="min-w-0 space-y-3 pl-3">
           {turn.events.map((event, eventIndex) => (
             <div key={`${turn.index}-${eventIndex}`} className="min-w-0">
-              <EventRow event={event} />
+              <EventRow event={event} toolCallContextById={toolCallContextById} />
             </div>
           ))}
         </div>

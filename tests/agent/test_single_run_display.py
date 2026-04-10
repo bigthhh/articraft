@@ -113,6 +113,23 @@ def test_add_tool_call_marks_weakly_relevant_find_example_titles() -> None:
     assert "- PiTray Clip [weakly relevant]" in output
 
 
+def test_add_tool_call_shows_read_file_path_before_slice_args() -> None:
+    display, buffer = _make_display()
+
+    display.add_tool_call(
+        tool_name="read_file",
+        args={"offset": 10, "limit": 20, "path": "docs/sdk/references/runtime.md"},
+        success=True,
+        duration=0.02,
+        result='{"result":"L10: runtime"}',
+    )
+
+    output = buffer.getvalue()
+    assert "tool    read_file ✓" in output
+    assert "path: docs/sdk/references/runtime.md" in output
+    assert "offset: 10" in output
+
+
 def test_add_tool_call_renders_compile_model_as_compile_event() -> None:
     display, buffer = _make_display()
 

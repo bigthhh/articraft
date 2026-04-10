@@ -113,12 +113,12 @@ def test_openai_prompt_resolution_and_payload_preview() -> None:
     assert "means a gap, not an overlap" not in instructions
 
     # Runtime first-turn task guidance
-    assert task_message.startswith("<runtime_task_guidance>")
+    assert task_message.startswith("a pair of scissors")
     assert (
         'Read the exact current code with `read_file(path="model.py")` before editing.'
         in task_message
     )
-    assert task_message.endswith("a pair of scissors")
+    assert task_message.endswith("</runtime_task_guidance>")
 
     # Cache key
     assert payload["prompt_cache_key"].startswith("ac1:")
@@ -192,7 +192,7 @@ def test_openai_hybrid_payload_preview_includes_find_examples_tool() -> None:
     assert "lexical search over curated examples for the active SDK" in payload["instructions"]
 
 
-def test_openai_multimodal_payload_preview_keeps_image_and_prepends_guidance(
+def test_openai_multimodal_payload_preview_keeps_image_and_appends_guidance(
     tmp_path: Path,
 ) -> None:
     image_path = tmp_path / "reference.png"
@@ -207,13 +207,13 @@ def test_openai_multimodal_payload_preview_keeps_image_and_prepends_guidance(
 
     task_parts = payload["input"][1]["content"]
 
-    assert task_parts[0]["type"] == "input_text"
-    assert task_parts[0]["text"].startswith("<runtime_task_guidance>")
-    assert "apply_patch" in task_parts[0]["text"]
-    assert task_parts[1] == {"type": "input_text", "text": "a table lamp"}
-    assert task_parts[2]["type"] == "input_image"
-    assert task_parts[2]["detail"] == "high"
-    assert task_parts[2]["image_url"].startswith("data:image/png;base64,")
+    assert task_parts[0] == {"type": "input_text", "text": "a table lamp"}
+    assert task_parts[1]["type"] == "input_image"
+    assert task_parts[1]["detail"] == "high"
+    assert task_parts[1]["image_url"].startswith("data:image/png;base64,")
+    assert task_parts[2]["type"] == "input_text"
+    assert task_parts[2]["text"].startswith("<runtime_task_guidance>")
+    assert "apply_patch" in task_parts[2]["text"]
 
 
 def test_openai_prompt_cache_key_is_stable_across_user_prompt_changes() -> None:
@@ -352,7 +352,7 @@ def test_gemini_prompt_resolution_and_payload_preview() -> None:
 
     # Tool contract
     assert (
-        "Use ONLY `read_file`, `read_code`, `edit_code`, `compile_model`, `probe_model`, and `find_examples`"
+        "Use ONLY `read_file`, `edit_code`, `compile_model`, `probe_model`, and `find_examples`"
         in gemini_instructions
     )
     assert 'old_string=""' in gemini_instructions
@@ -384,10 +384,13 @@ def test_gemini_prompt_resolution_and_payload_preview() -> None:
     assert "See injected SDK docs" in gemini_instructions
 
     # Runtime first-turn task guidance
-    assert gemini_task_message.startswith("<runtime_task_guidance>")
-    assert "Read the exact current code with `read_code` before editing." in gemini_task_message
+    assert gemini_task_message.startswith("a pair of scissors")
+    assert (
+        'Read the exact current code with `read_file(path="model.py")` before editing.'
+        in gemini_task_message
+    )
     assert 'read_file(path="docs/...")' in gemini_task_message
-    assert gemini_task_message.endswith("a pair of scissors")
+    assert gemini_task_message.endswith("</runtime_task_guidance>")
 
     assert "## docs/sdk/README.md" in gemini_docs_message
     assert "## docs/sdk/references/probe-tooling.md" in gemini_docs_message
@@ -411,7 +414,7 @@ def test_gemini_hybrid_payload_preview_includes_find_examples_tool() -> None:
     assert "probe_model" in tool_names
     assert "find_examples" in tool_names
     assert (
-        "Use ONLY `read_file`, `read_code`, `edit_code`, `compile_model`, `probe_model`, and `find_examples`"
+        "Use ONLY `read_file`, `edit_code`, `compile_model`, `probe_model`, and `find_examples`"
         in payload["config"]["system_instruction"]
     )
     assert (
@@ -420,7 +423,7 @@ def test_gemini_hybrid_payload_preview_includes_find_examples_tool() -> None:
     )
 
 
-def test_gemini_multimodal_payload_preview_keeps_image_and_prepends_guidance(
+def test_gemini_multimodal_payload_preview_keeps_image_and_appends_guidance(
     tmp_path: Path,
 ) -> None:
     image_path = tmp_path / "reference.png"
@@ -439,10 +442,10 @@ def test_gemini_multimodal_payload_preview_keeps_image_and_prepends_guidance(
 
     task_parts = payload["contents"][1]["parts"]
 
-    assert task_parts[0]["text"].startswith("<runtime_task_guidance>")
-    assert "edit_code" in task_parts[0]["text"]
-    assert task_parts[1] == {"text": "a table lamp"}
+    assert task_parts[0] == {"text": "a table lamp"}
     assert any(
         isinstance(part, dict) and ("inline_data" in part or "inlineData" in part)
         for part in task_parts
     )
+    assert task_parts[-1]["text"].startswith("<runtime_task_guidance>")
+    assert "edit_code" in task_parts[-1]["text"]

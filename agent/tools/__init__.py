@@ -18,7 +18,6 @@ from agent.tools.compile_model import CompileModelTool
 from agent.tools.edit_code import EditCodeTool
 from agent.tools.find_examples import FindExamplesTool
 from agent.tools.probe_model import ProbeModelTool
-from agent.tools.read_code import ReadCodeTool
 from agent.tools.read_file import ReadFileTool
 from agent.tools.registry import ToolRegistry
 from agent.tools.write_code import WriteCodeTool
@@ -68,7 +67,7 @@ _FIRST_TURN_RUNTIME_GUIDANCE_BY_PROVIDER: dict[str, str] = {
     "gemini": (
         "<runtime_task_guidance>\n"
         "- Start with a small coherent backbone or subassembly, then expand incrementally.\n"
-        "- Read the exact current code with `read_code` before editing.\n"
+        '- Read the exact current code with `read_file(path="model.py")` before editing.\n'
         '- The SDK router doc is preloaded. Read additional docs with `read_file(path="docs/...")` when needed.\n'
         "- For unfamiliar geometry or mechanisms, use `find_examples` before improvising.\n"
         "- Prefer small exact `edit_code` replacements over broad rewrites.\n"
@@ -100,7 +99,6 @@ def build_tool_registry(
     else:
         tools = [
             ReadFileTool(),
-            ReadCodeTool(),
             EditCodeTool(),
             CompileModelTool(),
             ProbeModelTool(sdk_package=package, runtime_limits=runtime_limits),
@@ -134,12 +132,12 @@ def prepend_runtime_guidance(
     if isinstance(user_content, str):
         if not user_content.strip():
             return guidance
-        return f"{guidance}\n\n{user_content}"
+        return f"{user_content}\n\n{guidance}"
 
     if not isinstance(user_content, list):
         return user_content
 
-    return [{"type": "input_text", "text": guidance}, *user_content]
+    return [*user_content, {"type": "input_text", "text": guidance}]
 
 
 def build_first_turn_messages(
@@ -235,7 +233,6 @@ __all__ = [
     "EditCodeTool",
     "FindExamplesTool",
     "ProbeModelTool",
-    "ReadCodeTool",
     "ReadFileTool",
     "WriteCodeTool",
     "ToolRegistry",

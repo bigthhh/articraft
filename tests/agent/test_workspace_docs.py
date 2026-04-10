@@ -13,7 +13,6 @@ def test_load_sdk_docs_bundle_mounts_router_and_default_refs() -> None:
     bundle = load_sdk_docs_bundle(repo_root, sdk_package="sdk")
 
     assert bundle.router.virtual_path == "docs/sdk/README.md"
-    assert bundle.frontmatter.always_load is True
     assert bundle.default_read_virtual_paths() == (
         "docs/sdk/references/runtime.md",
         "docs/sdk/references/quickstart.md",

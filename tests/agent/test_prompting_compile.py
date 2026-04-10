@@ -102,7 +102,7 @@ def test_prompt_outputs_are_current() -> None:
     gemini_text = compiled_by_name["designer_system_prompt_gemini.txt"]
     _assert_shared_contract(gemini_text)
     assert (
-        "Use ONLY `read_file`, `read_code`, `edit_code`, `compile_model`, `probe_model`, and `find_examples`"
+        "Use ONLY `read_file`, `edit_code`, `compile_model`, `probe_model`, and `find_examples`"
         in gemini_text
     )
     assert 'old_string=""' in gemini_text
@@ -115,7 +115,7 @@ def test_prompt_outputs_are_current() -> None:
     gemini_hybrid_text = compiled_by_name["designer_system_prompt_gemini_hybrid.txt"]
     _assert_shared_contract(gemini_hybrid_text)
     assert (
-        "Use ONLY `read_file`, `read_code`, `edit_code`, `compile_model`, `probe_model`, and `find_examples`"
+        "Use ONLY `read_file`, `edit_code`, `compile_model`, `probe_model`, and `find_examples`"
         in gemini_hybrid_text
     )
     assert "Prefer small exact `edit_code` replacements over broad rewrites" in gemini_hybrid_text

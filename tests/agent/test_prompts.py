@@ -75,7 +75,6 @@ def test_first_turn_runtime_guidance_is_provider_specific() -> None:
     assert "apply_patch" in openai_guidance
     assert "docs/..." in openai_guidance
     assert "read_file" in gemini_guidance
-    assert "read_code" in gemini_guidance
     assert "edit_code" in gemini_guidance
 
 
@@ -86,11 +85,11 @@ def test_prepend_runtime_guidance_supports_text_only_content() -> None:
     )
 
     assert isinstance(content, str)
-    assert content.startswith("<runtime_task_guidance>")
-    assert content.endswith("make a hinge")
+    assert content.startswith("make a hinge")
+    assert content.endswith("</runtime_task_guidance>")
 
 
-def test_build_initial_user_content_can_prepend_runtime_guidance_for_multimodal(
+def test_build_initial_user_content_can_append_runtime_guidance_for_multimodal(
     tmp_path: Path,
 ) -> None:
     image_path = tmp_path / "reference.png"
@@ -103,12 +102,12 @@ def test_build_initial_user_content_can_prepend_runtime_guidance_for_multimodal(
     )
 
     assert content == [
+        {"type": "input_text", "text": "make a lamp"},
+        {"type": "input_image", "image_path": str(image_path), "detail": "high"},
         {
             "type": "input_text",
             "text": "<runtime_task_guidance>\n- Stay incremental.\n</runtime_task_guidance>",
         },
-        {"type": "input_text", "text": "make a lamp"},
-        {"type": "input_image", "image_path": str(image_path), "detail": "high"},
     ]
 
 

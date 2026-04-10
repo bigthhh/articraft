@@ -1,18 +1,3 @@
----
-name: articraft-sdk
-description: Canonical Articraft SDK docs router for artifact generation. Read the runtime and quickstart references first, then load only the topic docs you need.
-always_load: true
-default_reads:
-  - references/runtime.md
-  - references/quickstart.md
-  - references/probe-tooling.md
-  - references/testing.md
-writable_paths:
-  - model.py
-read_only_roots:
-  - docs/
----
-
 # Articraft SDK Docs
 
 You are working in a virtual authoring workspace.

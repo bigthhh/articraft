@@ -1,28 +1,19 @@
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
-
-import yaml
 
 from sdk._profiles import get_sdk_profile
 
-_FRONTMATTER_RE = re.compile(r"\A---\n(?P<frontmatter>.*?)\n---\n?(?P<body>.*)\Z", re.DOTALL)
 _SDK_ROUTER_SOURCE = Path("agent/docs/sdk/README.md")
 _SDK_ROUTER_VIRTUAL_PATH = "docs/sdk/README.md"
 _MODEL_VIRTUAL_PATH = "model.py"
-
-
-@dataclass(frozen=True)
-class DocsRouterFrontmatter:
-    name: str
-    description: str
-    always_load: bool
-    default_reads: tuple[str, ...]
-    writable_paths: tuple[str, ...]
-    read_only_roots: tuple[str, ...]
+_DEFAULT_PRELOAD_PATHS = (
+    "docs/sdk/references/runtime.md",
+    "docs/sdk/references/quickstart.md",
+    "docs/sdk/references/probe-tooling.md",
+    "docs/sdk/references/testing.md",
+)
 
 
 @dataclass(frozen=True)
@@ -42,7 +33,6 @@ class VirtualWorkspaceFile:
 @dataclass(frozen=True)
 class DocsBundle:
     router: VirtualWorkspaceFile
-    frontmatter: DocsRouterFrontmatter
     files_by_path: dict[str, VirtualWorkspaceFile]
 
     def read_text(self, virtual_path: str) -> str:
@@ -56,9 +46,7 @@ class DocsBundle:
             raise FileNotFoundError(f"Unknown virtual docs path: {normalized}") from exc
 
     def default_read_virtual_paths(self) -> tuple[str, ...]:
-        return tuple(
-            _resolve_sdk_docs_relative_path(path) for path in self.frontmatter.default_reads
-        )
+        return _DEFAULT_PRELOAD_PATHS
 
 
 @dataclass(frozen=True)
@@ -133,7 +121,6 @@ def load_sdk_docs_bundle(repo_root: Path, *, sdk_package: str) -> DocsBundle:
     }
     return DocsBundle(
         router=router.router,
-        frontmatter=router.frontmatter,
         files_by_path=files_by_path,
     )
 
@@ -141,47 +128,18 @@ def load_sdk_docs_bundle(repo_root: Path, *, sdk_package: str) -> DocsBundle:
 @dataclass(frozen=True)
 class _LoadedRouter:
     router: VirtualWorkspaceFile
-    frontmatter: DocsRouterFrontmatter
 
 
 def _load_router_document(repo_root: Path) -> _LoadedRouter:
     path = repo_root / _SDK_ROUTER_SOURCE
-    text = path.read_text(encoding="utf-8")
-    frontmatter, _body = _parse_markdown_frontmatter(text, source=path)
-    metadata = DocsRouterFrontmatter(
-        name=str(frontmatter.get("name") or "").strip(),
-        description=str(frontmatter.get("description") or "").strip(),
-        always_load=bool(frontmatter.get("always_load", True)),
-        default_reads=tuple(str(item).strip() for item in frontmatter.get("default_reads") or []),
-        writable_paths=tuple(
-            str(item).strip() for item in frontmatter.get("writable_paths") or [_MODEL_VIRTUAL_PATH]
-        ),
-        read_only_roots=tuple(
-            str(item).strip() for item in frontmatter.get("read_only_roots") or ["docs/"]
-        ),
-    )
-    if not metadata.name:
-        raise ValueError(f"{path}: missing required frontmatter field 'name'")
-    if not metadata.description:
-        raise ValueError(f"{path}: missing required frontmatter field 'description'")
+    if not path.exists():
+        raise FileNotFoundError(f"SDK router document not found: {path}")
     return _LoadedRouter(
         router=VirtualWorkspaceFile(
             virtual_path=_SDK_ROUTER_VIRTUAL_PATH,
             disk_path=path,
         ),
-        frontmatter=metadata,
     )
-
-
-def _parse_markdown_frontmatter(text: str, *, source: Path) -> tuple[dict[str, Any], str]:
-    match = _FRONTMATTER_RE.match(text)
-    if not match:
-        raise ValueError(f"{source}: expected YAML frontmatter delimited by ---")
-    frontmatter = yaml.safe_load(match.group("frontmatter")) or {}
-    if not isinstance(frontmatter, dict):
-        raise ValueError(f"{source}: frontmatter must decode to a mapping")
-    body = match.group("body")
-    return frontmatter, body
 
 
 def _build_sdk_reference_files(

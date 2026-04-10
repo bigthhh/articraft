@@ -673,7 +673,7 @@ class ArticraftAgent:
                 "content": (
                     "<edit_retry_guidance>\n"
                     "- Your last edit_code failed because `old_string` did not match the file exactly.\n"
-                    "- Do NOT guess. Call `read_code` again, then pick a smaller exact snippet from the current file as `old_string` and retry.\n"
+                    '- Do NOT guess. Call `read_file(path="model.py")` again, then pick a smaller exact snippet from the current file as `old_string` and retry.\n'
                     "- Keep edits surgical.\n"
                     "</edit_retry_guidance>"
                 ),
@@ -912,7 +912,7 @@ class ArticraftAgent:
             "- The previous assistant response pasted code and was discarded. Ignore it.\n"
             "- Source of truth is the file on disk, not the discarded text.\n"
             "- Use tools to apply your changes.\n"
-            "- Use read_code to fetch exact current text, then edit_code for edits.\n"
+            '- Use `read_file(path="model.py")` to fetch exact current text, then `edit_code` for edits.\n'
             "- If the latest compile already covers the current revision and you cannot name one specific defect, conclude.\n"
             '- If the editable section is empty, initialize it with edit_code using old_string="".\n'
             "</tool_use_rules>"
@@ -1129,7 +1129,7 @@ class ArticraftAgent:
                 result = ToolResult(
                     error=(
                         "old_string cannot be empty unless the editable code section is empty. "
-                        "Call read_code to copy exact current text and retry."
+                        'Call `read_file(path="model.py")` to copy exact current text and retry.'
                     ),
                     tool_call_id=tool_id,
                 )

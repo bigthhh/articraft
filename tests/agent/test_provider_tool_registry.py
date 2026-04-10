@@ -23,7 +23,6 @@ def test_provider_tool_registry_schemas() -> None:
     }
     assert set(gemini_registry.get_all_tool_names()) == {
         "read_file",
-        "read_code",
         "edit_code",
         "compile_model",
         "probe_model",
@@ -38,7 +37,6 @@ def test_provider_tool_registry_schemas() -> None:
     }
     assert set(hybrid_gemini_registry.get_all_tool_names()) == {
         "read_file",
-        "read_code",
         "edit_code",
         "compile_model",
         "probe_model",
@@ -110,7 +108,7 @@ def test_tool_registry_rejects_hidden_file_path_parameter() -> None:
     with pytest.raises(ValidationError):
         asyncio.run(
             gemini_registry.build_invocation(
-                "read_code",
+                "read_file",
                 {"file_path": "/tmp/model.py"},
             )
         )

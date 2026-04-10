@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-import cadquery as cq  # noqa: F401
+from sdk import ArticulatedObject, TestContext, TestReport
 
-from sdk import ArticulatedObject, TestContext, TestReport, mesh_from_cadquery  # noqa: F401
+# Advanced; only use CadQuery if the native sdk is not enough to represent the shapes you want:
+# import cadquery as cq
+# from sdk import mesh_from_cadquery
 
 
 def build_object_model() -> ArticulatedObject:
@@ -21,6 +23,9 @@ def run_tests() -> TestReport:
     # - current-pose real 3D overlap detection
     # Use `run_tests()` only for prompt-specific exact checks, targeted poses,
     # and explicit allowances such as `ctx.allow_overlap(...)`.
+    # If overlap QC reports an intersection, classify it first: intentional
+    # embeddings or nested fits should get a scoped allowance; unintended
+    # collisions should be fixed in geometry, support, mount, or pose.
 
     # For bounded REVOLUTE/PRISMATIC joints, add exact lower/upper motion-limit
     # checks for prompt-critical contacts, clearances, and motion direction. Example:

@@ -729,7 +729,7 @@ def _iter_test_failures(test_report: TestReportLike | None) -> Iterable[CompileS
                 else REAL_OVERLAP_TEST_SPEC
             )
             summary = (
-                "Compiler-owned global QC found real 3D overlap in the current pose "
+                "Compiler-owned global QC reported real 3D overlap in the current pose "
                 "(`fail_if_parts_overlap_in_current_pose()`)."
                 if spec is REAL_OVERLAP_COMPILER_SPEC
                 else "Authored QC check found real 3D overlap in the tested pose."
@@ -1023,13 +1023,13 @@ def _primary_failure_summary(signals: tuple[CompileSignal, ...]) -> str:
     if primary.source == "compiler" and primary.kind == "isolated_part":
         return "Primary issue: compiler-owned global QC found floating disconnected parts."
     if primary.source == "compiler" and primary.kind == "real_overlap":
-        return "Primary issue: compiler-owned global QC found real part overlap."
+        return "Primary issue: compiler-owned global QC reported part overlap that needs classification."
     if primary.kind == "missing_exact_geometry":
         return "Primary issue: authored exact checks reference missing named geometry."
     if primary.kind == "exact_contact_gap":
         return "Primary issue: authored exact-contact checks found separation where contact was expected."
     if primary.kind == "real_overlap":
-        return "Primary issue: required QC tests found real part overlap."
+        return "Primary issue: required QC tests reported part overlap."
     if primary.kind == "isolated_part":
         return "Primary issue: required QC tests found floating disconnected parts."
     return "Primary issue: required QC tests failed."
@@ -1190,9 +1190,10 @@ def _response_rules_for_failures(
 
     primary = failures[0]
     intentional_qc_allowance_rule = (
-        "- If any disconnected or overlapping finding is intentional, declare explicit "
-        "allowances for every intentional case. Otherwise fix the underlying support "
-        "path, mount, geometry, or pose."
+        "- If any disconnected or overlapping finding is intentional, declare or "
+        "correct explicit allowances for every intentional case. Scope each "
+        "allowance to the exact part or element pair and include a concrete reason. "
+        "Otherwise fix the underlying support path, mount, geometry, or pose."
     )
     rules: list[str]
     if primary.kind == "compile_runtime":
@@ -1223,8 +1224,8 @@ def _response_rules_for_failures(
         ]
     elif primary.source == "compiler" and primary.kind == "real_overlap":
         rules = [
-            "- Fix the compiler-owned blocking overlap first. Do not keep patching authored exact checks until the global QC failure is gone.",
-            "- This is a real 3D interpenetration finding, not a tolerance issue.",
+            "- Compiler-owned overlap QC reported a real 3D overlap in the current pose. First decide whether it is an intentional embedding or an unintended collision.",
+            "- If the overlap could be intentional, inspect any existing `allow_overlap(...)` coverage and compare its part and element scope to the reported pair before changing geometry.",
             intentional_qc_allowance_rule,
         ]
     elif primary.kind == "missing_exact_geometry":
@@ -1241,7 +1242,7 @@ def _response_rules_for_failures(
         ]
     elif primary.kind == "real_overlap":
         rules = [
-            "- Fix the real 3D overlap in the tested pose before adding more exact checks.",
+            "- Fix or explicitly justify the real 3D overlap in the tested pose before adding more exact checks.",
             intentional_qc_allowance_rule,
         ]
     elif primary.kind == "isolated_part":
@@ -1262,7 +1263,7 @@ def _response_rules_for_failures(
 
     if repeated and primary.kind in {"real_overlap", "isolated_part"}:
         rules.append(
-            "- This failure class repeated. Stop patching symptoms and rewrite the affected region from the root cause."
+            "- This failure class repeated. Stop patching symptoms; either correct the underlying representation/support path or add a precise allowance when the finding is intentional."
         )
     if failure_streak >= 3:
         if primary.kind in {"missing_exact_geometry", "exact_contact_gap"}:
@@ -1271,6 +1272,6 @@ def _response_rules_for_failures(
             )
         elif primary.kind in {"real_overlap", "isolated_part"}:
             rules.append(
-                "- You are in a repair loop. Stop making small placement, tolerance, or box/cylinder tweaks and rewrite the failing subassembly with a more realistic representation."
+                "- You are in a repair loop. Stop making small placement, tolerance, or primitive tweaks without a clear hypothesis. Reassess the subassembly representation, support path, and whether any repeated finding should instead be captured as an explicit allowance."
             )
     return rules

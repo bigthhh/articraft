@@ -21,6 +21,9 @@ def run_tests() -> TestReport:
     # - current-pose real 3D overlap detection
     # Use `run_tests()` only for prompt-specific exact checks, targeted poses,
     # and explicit allowances such as `ctx.allow_overlap(...)`.
+    # If overlap QC reports an intersection, classify it first: intentional
+    # embeddings or nested fits should get a scoped allowance; unintended
+    # collisions should be fixed in geometry, support, mount, or pose.
 
     return ctx.report()
 

@@ -504,9 +504,11 @@ def test_compile_signal_bundle_classifies_compiler_owned_overlap_failure() -> No
     assert signal.source == "compiler"
     assert (
         signal.summary
-        == "Compiler-owned global QC found real 3D overlap in the current pose (`fail_if_parts_overlap_in_current_pose()`)."
+        == "Compiler-owned global QC reported real 3D overlap in the current pose (`fail_if_parts_overlap_in_current_pose()`)."
     )
-    assert "compiler-owned global qc found real part overlap" in bundle.summary.lower()
+    assert "compiler-owned global qc reported part overlap that needs classification" in (
+        bundle.summary.lower()
+    )
 
 
 def test_harness_injects_exact_geometry_contract_guidance(tmp_path: Path) -> None:

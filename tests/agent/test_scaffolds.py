@@ -12,10 +12,7 @@ def test_base_strict_scaffold_matches_harness_fallback() -> None:
 
     assert scaffold_text == _minimal_scaffold_text(sdk_package="sdk", scaffold_mode="strict")
     assert "import cadquery as cq" in scaffold_text
-    assert (
-        "from sdk import ArticulatedObject, TestContext, TestReport, mesh_from_cadquery"
-        in scaffold_text
-    )
+    assert "from sdk import ArticulatedObject, TestContext, TestReport" in scaffold_text
     assert "USER_CODE_START" not in scaffold_text
     assert "USER_CODE_END" not in scaffold_text
     assert "hidden scaffold imports" not in scaffold_text

@@ -69,7 +69,7 @@ def test_repeated_compile_failure_signal_message_escalates_to_rewrite() -> None:
 
     assert "This failure matches the previous compile attempt." in content
     assert "This failure class repeated." in content
-    assert "rewrite the affected region from the root cause" in content
+    assert "add a precise allowance when the finding is intentional" in content
 
 
 def test_compile_failure_streak_escalates_even_when_signature_changes() -> None:
@@ -131,7 +131,7 @@ def test_compile_failure_streak_escalates_even_when_signature_changes() -> None:
         )
 
     assert "This is compile failure 3 in a row." in content
-    assert "You are in a repair loop." in content
+    assert "Stop making small placement, tolerance, or primitive tweaks" in content
 
 
 def test_missing_exact_geometry_loop_avoids_geometry_rewrite_advice() -> None:

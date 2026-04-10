@@ -65,7 +65,11 @@ from storage.dataset_workflow import (
     reconcile_category_metadata,
 )
 from storage.datasets import DatasetStore
-from storage.materialize import MaterializationStore, ensure_record_artifacts_exist
+from storage.materialize import (
+    MaterializationStore,
+    build_compile_fingerprint_from_inputs,
+    ensure_record_artifacts_exist,
+)
 from storage.models import (
     CompileReport as StorageCompileReport,
 )
@@ -987,6 +991,8 @@ def _write_success_record(
         context.staging_dir / "assets" / "viewer",
         storage_repo.layout.record_materialization_asset_viewer_dir(context.record_id),
     )
+    prompt_sha = _sha256_text(prompt_text)
+    model_py_sha = _sha256_file(context.record_model_path)
 
     compile_report = StorageCompileReport(
         schema_version=1,
@@ -1002,12 +1008,19 @@ def _write_success_record(
             "turn_count": turn_count,
             "tool_call_count": tool_call_count,
             "compile_attempt_count": compile_attempt_count,
+            "fingerprint_inputs": {
+                "model_py_sha256": model_py_sha,
+                "sdk_fingerprint": None,
+            },
+            "materialization_fingerprint": build_compile_fingerprint_from_inputs(
+                {
+                    "model_py_sha256": model_py_sha,
+                    "sdk_fingerprint": None,
+                }
+            ),
         },
     )
     materializations.write_compile_report(context.record_id, compile_report)
-
-    prompt_sha = _sha256_text(prompt_text)
-    model_py_sha = _sha256_file(context.record_model_path)
 
     provenance = Provenance(
         schema_version=2,

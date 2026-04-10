@@ -171,6 +171,8 @@ def test_workbench_run_and_rerun_persist_runtime_artifacts(
         (materialization_dir / "compile_report.json").read_text(encoding="utf-8")
     )
     assert compile_report["metrics"]["compile_level"] == "full"
+    assert compile_report["metrics"]["fingerprint_inputs"]["model_py_sha256"]
+    assert compile_report["metrics"]["materialization_fingerprint"]
     assert not (materialization_dir / "assets" / "meshes").exists()
 
     workbench_path = repo_root / "data" / "local" / "workbench.json"
@@ -661,6 +663,8 @@ def test_workbench_run_succeeds_when_persisted_input_image_disappears(
         (materialization_dir / "compile_report.json").read_text(encoding="utf-8")
     )
     assert compile_report["metrics"]["compile_level"] == "full"
+    assert compile_report["metrics"]["fingerprint_inputs"]["model_py_sha256"]
+    assert compile_report["metrics"]["materialization_fingerprint"]
     assert list((record_dir / "inputs").iterdir()) == []
 
     run_dir = next((repo_root / "data" / "cache" / "runs").iterdir())

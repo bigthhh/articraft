@@ -50,7 +50,7 @@ def test_compile_failure_signal_message_has_structured_sections() -> None:
     assert "<summary>" in content
     assert "<failures>" in content
     assert "<response_rules>" in content
-    assert "compile execution failed" in content
+    assert "Primary issue: RuntimeError: ValueError: bad loft" in content
     assert "Fix the compile/runtime error first." in content
     assert "Geometry repair is blocked" in content
     assert conversation

@@ -191,7 +191,7 @@ def test_execute_compile_model_failure_leaves_latest_revision_stale() -> None:
     assert agent._latest_code_is_fresh() is False
     assert result.compilation == {
         "status": "error",
-        "error": "status=failure failures=1 warnings=0 notes=0\nPrimary issue: compile execution failed.",
+        "error": "status=failure failures=1 warnings=0 notes=0\nPrimary issue: RuntimeError: ValueError: bad loft",
     }
     assert "<compile_signals>" in str(result.output)
     assert "bad loft" in str(result.output)

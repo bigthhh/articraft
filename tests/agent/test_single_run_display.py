@@ -199,7 +199,7 @@ def test_add_tool_call_renders_compile_model_failure_details() -> None:
             "<compile_signals>\n"
             "<summary>\n"
             "status=failure failures=1 warnings=0 notes=0\n"
-            "Primary issue: compile execution failed.\n"
+            "Primary issue: ValueError: bad loft\n"
             "</summary>\n\n"
             "<failures>\n"
             "- [compile_runtime] ValueError: bad loft\n"
@@ -211,13 +211,13 @@ def test_add_tool_call_renders_compile_model_failure_details() -> None:
             "</response_rules>\n"
             "</compile_signals>"
         ),
-        compilation={"status": "error", "error": "Primary issue: compile execution failed."},
+        compilation={"status": "error", "error": "Primary issue: ValueError: bad loft"},
     )
 
     output = buffer.getvalue()
     assert "compile ✗" in output
     assert "status=failure failures=1 warnings=0 notes=0" in output
-    assert "Primary issue: compile execution failed." in output
+    assert "Primary issue: ValueError: bad loft" in output
     assert "[compile_runtime] ValueError: bad loft" in output
     assert "Traceback line 1" in output
     assert "Traceback line 2" in output

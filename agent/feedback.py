@@ -1010,7 +1010,10 @@ def _primary_failure_summary(signals: tuple[CompileSignal, ...]) -> str:
 
     primary = failures[0]
     if primary.kind == "compile_runtime":
-        return "Primary issue: compile execution failed."
+        primary_summary = primary.summary.strip()
+        if not primary_summary:
+            return "Primary issue: compile execution failed."
+        return f"Primary issue: {primary_summary}"
     if primary.kind == "single_root_policy":
         return "Primary issue: compiler-owned structural policy checks failed."
     if primary.kind == "model_validity":

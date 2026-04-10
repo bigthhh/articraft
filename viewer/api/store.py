@@ -1970,7 +1970,7 @@ class ViewerStore:
             repo_root=self.repo_root.as_posix(),
             generated_at=_utc_now(),
             workbench_entries=self.list_workbench_entries(summary_cache=summary_cache),
-            dataset_entries=[],
+            dataset_entries=self.list_dataset_entries(summary_cache=summary_cache),
             staging_entries=self.list_staging_entries(summary_cache=summary_cache),
             runs=self.list_runs(),
             supercategories=self.list_supercategories(),

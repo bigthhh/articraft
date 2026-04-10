@@ -87,7 +87,10 @@ def test_prompt_outputs_are_current() -> None:
         "Prefer Articraft-native primitives and placement helpers when they represent the form credibly."
         in openai_text
     )
-    assert "Use CadQuery only for the parts that need lower-level shape control" in openai_text
+    assert (
+        "Use CadQuery only for the advanced parts that need lower-level shape control"
+        in openai_text
+    )
     assert (
         "Mix approaches freely; do not switch the whole object to CadQuery unless the whole object needs it."
         in openai_text
@@ -116,7 +119,10 @@ def test_prompt_outputs_are_current() -> None:
         "Prefer Articraft-native primitives and placement helpers when they represent the form credibly."
         in gemini_text
     )
-    assert "Use CadQuery only for the parts that need lower-level shape control" in gemini_text
+    assert (
+        "Use CadQuery only for the advanced parts that need lower-level shape control"
+        in gemini_text
+    )
     assert (
         "Mix approaches freely; do not switch the whole object to CadQuery unless the whole object needs it."
         in gemini_text

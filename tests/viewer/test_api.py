@@ -522,7 +522,10 @@ def test_viewer_api_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     bootstrap = client.get("/api/bootstrap").json()
     assert bootstrap["repo_root"] == repo_root.resolve().as_posix()
     assert len(bootstrap["workbench_entries"]) == 3
-    assert bootstrap["dataset_entries"] == []
+    assert [item["dataset_id"] for item in bootstrap["dataset_entries"]] == [
+        "dj_dataset_001",
+        "hinge_dataset_001",
+    ]
     assert len(bootstrap["staging_entries"]) == 1
     assert len(bootstrap["runs"]) == 2
     assert bootstrap["staging_entries"][0]["run_id"] == "run_live_001"
@@ -719,7 +722,11 @@ def test_viewer_api_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
 
     bootstrap_after_promote = client.get("/api/bootstrap").json()
     assert len(bootstrap_after_promote["workbench_entries"]) == 2
-    assert bootstrap_after_promote["dataset_entries"] == []
+    assert [item["dataset_id"] for item in bootstrap_after_promote["dataset_entries"]] == [
+        "dj_dataset_001",
+        "ds_exercise_bikes_0001",
+        "hinge_dataset_001",
+    ]
     dataset_after_promote = client.get("/api/collections/dataset").json()
     assert [item["dataset_id"] for item in dataset_after_promote] == [
         "dj_dataset_001",
@@ -956,7 +963,10 @@ def test_viewer_api_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
 
     bootstrap_after_delete = client.get("/api/bootstrap").json()
     assert len(bootstrap_after_delete["workbench_entries"]) == 1
-    assert bootstrap_after_delete["dataset_entries"] == []
+    assert [item["record_id"] for item in bootstrap_after_delete["dataset_entries"]] == [
+        "rec_dj_001",
+        "rec_bike_001",
+    ]
     dataset_after_delete = client.get("/api/collections/dataset").json()
     assert [item["record_id"] for item in dataset_after_delete] == [
         "rec_dj_001",
@@ -2245,7 +2255,7 @@ def test_viewer_store_full_materialize_persists_allowed_isolated_part_note(
                 "    ArticulationType.FIXED,",
                 "    parent=base,",
                 "    child=support,",
-                "    origin=Origin(xyz=(0.0, 0.0, 0.1)),",
+                "    origin=Origin(xyz=(0.0, 0.0, 0.0)),",
                 ")",
                 "object_model.articulation(",
                 "    'base_to_antenna',",

@@ -24,8 +24,8 @@ Always available in `docs/sdk/references/`:
 - `quickstart.md`: script contract, workspace rules, minimal example, workflow, and the
   full reference inventory.
 - `errors.md`: common compile and authoring failures, plus how to interpret them.
-- `core-types.md`: geometry, material, inertial, articulation, and test-related core
-  types.
+- `core-types.md`: geometry, material, articulation, and test-related core
+  types, plus optional inertial helpers.
 - `articulated-object.md`: object, part, and articulation authoring helpers and lookup
   patterns.
 - `assets.md`: explicit asset-root helpers for standalone scripts and tests.
@@ -74,7 +74,6 @@ from sdk import (
     ArticulatedObject,
     ArticulationType,
     Box,
-    Inertial,
     MotionLimits,
     Origin,
     TestContext,
@@ -99,7 +98,6 @@ from sdk import (
     ArticulatedObject,
     ArticulationType,
     Box,
-    Inertial,
     MotionLimits,
     Origin,
     TestContext,
@@ -116,11 +114,6 @@ def build_object_model() -> ArticulatedObject:
         origin=Origin(xyz=(0.0, 0.0, 0.025)),
         name="base_shell",
     )
-    base.inertial = Inertial.from_geometry(
-        Box((0.20, 0.20, 0.05)),
-        mass=1.0,
-        origin=Origin(xyz=(0.0, 0.0, 0.025)),
-    )
 
     lid = model.part("lid")
     lid.visual(
@@ -128,11 +121,6 @@ def build_object_model() -> ArticulatedObject:
         # The lid part frame sits on the hinge line; the panel extends along +X.
         origin=Origin(xyz=(0.09, 0.0, 0.01)),
         name="lid_shell",
-    )
-    lid.inertial = Inertial.from_geometry(
-        Box((0.18, 0.18, 0.02)),
-        mass=0.3,
-        origin=Origin(xyz=(0.09, 0.0, 0.01)),
     )
 
     model.articulation(
@@ -176,11 +164,13 @@ makes positive angles open upward.
 
 1. Build parts with `model.part(...)`.
 2. Add visuals with `part.visual(...)`.
-3. Add inertials when needed with `Inertial.from_geometry(...)`.
-4. Add motion with `model.articulation(...)`.
-5. Add prompt-specific `expect_*` assertions in `run_tests()`.
-6. Use `allow_overlap(...)` and `allow_isolated_part(...)` only when the
+3. Add motion with `model.articulation(...)`.
+4. Add prompt-specific `expect_*` assertions in `run_tests()`.
+5. Use `allow_overlap(...)` and `allow_isolated_part(...)` only when the
    intended mechanism genuinely requires those exceptions.
+
+`part.inertial` is optional. Add it only when a downstream simulation or
+export consumer needs explicit mass properties.
 
 ## Authoring Habits
 

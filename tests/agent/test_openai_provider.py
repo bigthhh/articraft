@@ -206,14 +206,14 @@ def test_openai_client_disables_sdk_retries_and_uses_request_timeout(
     }
 
 
-def test_openai_default_request_timeout_is_30_minutes(
+def test_openai_default_request_timeout_is_15_minutes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("OPENAI_REQUEST_TIMEOUT_SECONDS", raising=False)
 
     provider = OpenAILLM(dry_run=True)
 
-    assert provider.request_timeout_seconds == 1800.0
+    assert provider.request_timeout_seconds == 900.0
 
 
 def test_openai_default_compaction_model_is_mini() -> None:

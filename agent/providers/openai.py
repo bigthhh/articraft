@@ -171,7 +171,7 @@ class OpenAILLM:
         self.prompt_cache_retention = _normalize_prompt_cache_retention(prompt_cache_retention)
         self.store = self.transport == "websocket" if store is None else bool(store)
         # Hard timeout for a single OpenAI request. Set to 0/negative to disable.
-        self.request_timeout_seconds = _env_float("OPENAI_REQUEST_TIMEOUT_SECONDS", 1800.0)
+        self.request_timeout_seconds = _env_float("OPENAI_REQUEST_TIMEOUT_SECONDS", 900.0)
         self.max_attempts = max(1, int(_env_float("OPENAI_MAX_ATTEMPTS", 4)))
         self.retry_base_seconds = _env_float("OPENAI_RETRY_BASE_SECONDS", 0.5)
         self.retry_max_seconds = _env_float("OPENAI_RETRY_MAX_SECONDS", 20.0)

@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from agent import runner
-from agent.defaults import DEFAULT_MAX_TURNS
+from agent.defaults import DEFAULT_MAX_TURNS, GEMINI_3_FLASH_DEFAULT_MAX_TURNS
 from cli.workbench import main as workbench_main
 from scripts import git_hooks
 from tests.helpers import FakeAgent
@@ -447,6 +447,36 @@ def test_workbench_init_record_command(
 
     captured = capsys.readouterr().out
     assert f"initialized record_id={record_dir.name}" in captured
+
+
+def test_workbench_init_record_uses_model_specific_default_max_turns(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path
+
+    assert (
+        workbench_main(
+            [
+                "--repo-root",
+                str(repo_root),
+                "init-record",
+                "build a compact camera slider",
+                "--provider",
+                "gemini",
+                "--model-id",
+                "gemini-3-flash-preview",
+            ]
+        )
+        == 0
+    )
+
+    records = sorted((repo_root / "data" / "records").iterdir())
+    assert len(records) == 1
+    record_dir = records[0]
+
+    provenance = json.loads((record_dir / "provenance.json").read_text(encoding="utf-8"))
+    assert provenance["generation"]["model_id"] == "gemini-3-flash-preview"
+    assert provenance["generation"]["max_turns"] == GEMINI_3_FLASH_DEFAULT_MAX_TURNS
 
 
 def test_workbench_rerun_record_command_accepts_design_audit_override(

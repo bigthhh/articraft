@@ -19,7 +19,7 @@ from agent.compiler import (
     persist_compile_success_artifacts,
 )
 from agent.cost import CostTracker, is_flash_model, pricing_for_provider_model
-from agent.defaults import DEFAULT_MAX_TURNS
+from agent.defaults import resolve_max_turns
 from agent.feedback import (
     compile_signal_bundle_from_exception,
     contains_code_in_text,
@@ -313,7 +313,7 @@ class ArticraftAgent:
         model_id: Optional[str] = None,
         openai_transport: str = "http",
         thinking_level: str = "high",
-        max_turns: int = DEFAULT_MAX_TURNS,
+        max_turns: int | None = None,
         system_prompt_path: str = "designer_system_prompt.txt",
         trace_dir: Optional[str] = None,
         display_enabled: Optional[bool] = None,
@@ -330,7 +330,6 @@ class ArticraftAgent:
         runtime_limits: BatchRuntimeLimits | None = None,
     ):
         self.file_path = file_path
-        self.max_turns = max_turns
         self.sdk_package = _normalize_sdk_package(sdk_package)
         self.scaffold_mode = _normalize_scaffold_mode(scaffold_mode)
         self.sdk_docs_mode = _normalize_sdk_docs_mode(sdk_docs_mode)
@@ -380,6 +379,7 @@ class ArticraftAgent:
             raise ValueError(f"Unsupported provider: {provider}")
 
         actual_model_id = self.llm.model_id
+        self.max_turns = resolve_max_turns(model_id=actual_model_id, max_turns=max_turns)
         self._post_success_design_audit_enabled = _resolve_post_success_design_audit(
             provider=provider_norm,
             model_id=actual_model_id,
@@ -406,7 +406,7 @@ class ArticraftAgent:
             console=CONSOLE,
             model_id=actual_model_id,
             thinking_level=thinking_level,
-            max_turns=max_turns,
+            max_turns=self.max_turns,
             scaffold_mode=self.scaffold_mode,
             enabled=display_enabled,
         )

@@ -16,6 +16,11 @@ export interface UrdfJoint {
     effort?: number;
     velocity?: number;
   };
+  mimic?: {
+    joint: string;
+    multiplier: number;
+    offset: number;
+  };
 }
 
 export interface UrdfVisualGeometry {
@@ -330,6 +335,7 @@ function parseJoint(jointEl: Element): UrdfJoint {
   const originEl = jointEl.querySelector('origin');
   const axisEl = jointEl.querySelector('axis');
   const limitEl = jointEl.querySelector('limit');
+  const mimicEl = jointEl.querySelector('mimic');
 
   const joint: UrdfJoint = {
     name,
@@ -354,6 +360,17 @@ function parseJoint(jointEl: Element): UrdfJoint {
       effort: parseFloat(limitEl.getAttribute('effort') || '0'),
       velocity: parseFloat(limitEl.getAttribute('velocity') || '0'),
     };
+  }
+
+  if (mimicEl) {
+    const mimicJoint = mimicEl.getAttribute('joint') || '';
+    if (mimicJoint) {
+      joint.mimic = {
+        joint: mimicJoint,
+        multiplier: parseFloat(mimicEl.getAttribute('multiplier') || '1'),
+        offset: parseFloat(mimicEl.getAttribute('offset') || '0'),
+      };
+    }
   }
 
   return joint;

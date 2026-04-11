@@ -29,7 +29,7 @@ type InspectPanelProps = {
 };
 
 function isMovableJoint(joint: UrdfJoint): boolean {
-  return joint.type !== "fixed";
+  return joint.type !== "fixed" && !joint.mimic;
 }
 
 function jointRange(joint: UrdfJoint): [number, number] {
@@ -284,6 +284,11 @@ function LinkBranch({ linkName, jointsByParent, jointValues, onJointChange, seen
                       <p className="truncate font-mono text-[11px] text-[var(--text-primary)]" title={joint.name}>
                         {joint.name}
                       </p>
+                      {joint.mimic ? (
+                        <p className="mt-0.5 text-[10px] text-[var(--text-quaternary)]">
+                          Mimics {joint.mimic.joint}
+                        </p>
+                      ) : null}
                     </div>
                     <Badge variant={jointBadgeVariant(joint)}>{joint.type}</Badge>
                   </div>

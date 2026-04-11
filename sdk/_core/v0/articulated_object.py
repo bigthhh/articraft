@@ -16,6 +16,7 @@ from .types import (
     Inertial,
     Material,
     Mesh,
+    Mimic,
     MotionLimits,
     MotionProperties,
     Origin,
@@ -26,6 +27,15 @@ from .types import (
 )
 
 _ALLOW_EXPLICIT_COLLISIONS_ATTR = "_sdk_allow_explicit_collisions"
+_SCALAR_ARTICULATION_TYPES = {
+    ArticulationType.REVOLUTE,
+    ArticulationType.PRISMATIC,
+    ArticulationType.CONTINUOUS,
+}
+_ANGULAR_ARTICULATION_TYPES = {
+    ArticulationType.REVOLUTE,
+    ArticulationType.CONTINUOUS,
+}
 
 
 def _part_name_ref(value: Union[str, Part], *, field_name: str) -> str:
@@ -138,6 +148,7 @@ class ArticulatedObject:
         axis: Optional[Vec3] = None,
         motion_limits: Optional[MotionLimits] = None,
         motion_properties: Optional[MotionProperties] = None,
+        mimic: Optional[Mimic] = None,
         meta: Optional[Dict[str, object]] = None,
     ) -> Articulation:
         try:
@@ -158,6 +169,7 @@ class ArticulatedObject:
             axis=axis or (0.0, 0.0, 1.0),
             motion_limits=motion_limits,
             motion_properties=motion_properties,
+            mimic=mimic,
             meta=dict(meta or {}),
         )
         self.articulations.append(articulation)
@@ -175,6 +187,7 @@ class ArticulatedObject:
         axis: Optional[Vec3] = None,
         limit: Optional[MotionLimits] = None,
         dynamics: Optional[MotionProperties] = None,
+        mimic: Optional[Mimic] = None,
         meta: Optional[Dict[str, object]] = None,
     ) -> Articulation:
         return self.articulation(
@@ -186,6 +199,7 @@ class ArticulatedObject:
             axis=axis,
             motion_limits=limit,
             motion_properties=dynamics,
+            mimic=mimic,
             meta=meta,
         )
 
@@ -278,6 +292,9 @@ class ArticulatedObject:
         articulation_names = [articulation.name for articulation in self.articulations]
         if len(set(articulation_names)) != len(articulation_names):
             raise ValidationError("Articulation names must be unique")
+        articulation_lookup = {
+            articulation.name: articulation for articulation in self.articulations
+        }
 
         material_names = [material.name for material in self.materials]
         if len(set(material_names)) != len(material_names):
@@ -308,11 +325,7 @@ class ArticulatedObject:
                 )
             child_to_articulation[articulation.child] = articulation
 
-            if strict and articulation.articulation_type in {
-                ArticulationType.REVOLUTE,
-                ArticulationType.PRISMATIC,
-                ArticulationType.CONTINUOUS,
-            }:
+            if strict and articulation.articulation_type in _SCALAR_ARTICULATION_TYPES:
                 if len(articulation.axis) != 3:
                     raise ValidationError(
                         f"Articulation {articulation.name!r} axis must have 3 values"
@@ -353,11 +366,10 @@ class ArticulatedObject:
                         f"Articulation {articulation.name!r} cannot include lower/upper limits"
                     )
 
-            if articulation.motion_limits and articulation.articulation_type not in {
-                ArticulationType.REVOLUTE,
-                ArticulationType.PRISMATIC,
-                ArticulationType.CONTINUOUS,
-            }:
+            if (
+                articulation.motion_limits
+                and articulation.articulation_type not in _SCALAR_ARTICULATION_TYPES
+            ):
                 raise ValidationError(
                     f"Articulation {articulation.name!r} does not support motion limits"
                 )
@@ -378,6 +390,38 @@ class ArticulatedObject:
                     raise ValidationError(
                         f"Articulation {articulation.name!r} lower limit exceeds upper limit"
                     )
+
+        for articulation in self.articulations:
+            mimic = articulation.mimic
+            if mimic is None:
+                continue
+            if _motion_domain(articulation.articulation_type) is None:
+                raise ValidationError(
+                    f"Articulation {articulation.name!r} only supports mimic on "
+                    "revolute, continuous, or prismatic articulations"
+                )
+            source = articulation_lookup.get(mimic.joint)
+            if source is None:
+                raise ValidationError(
+                    f"Articulation {articulation.name!r} mimic references missing articulation "
+                    f"{mimic.joint!r}"
+                )
+            if source.name == articulation.name:
+                raise ValidationError(f"Articulation {articulation.name!r} cannot mimic itself")
+            if _motion_domain(source.articulation_type) is None:
+                raise ValidationError(
+                    f"Articulation {articulation.name!r} mimic source {source.name!r} must be "
+                    "revolute, continuous, or prismatic"
+                )
+            if _motion_domain(source.articulation_type) != _motion_domain(
+                articulation.articulation_type
+            ):
+                raise ValidationError(
+                    f"Articulation {articulation.name!r} mimic source {source.name!r} must have "
+                    "a compatible motion domain"
+                )
+
+        _validate_mimic_cycles(articulation_lookup)
 
         for part in self.parts:
             if part.inertial and part.inertial.mass <= 0:
@@ -476,6 +520,40 @@ class ArticulatedObject:
 
 def _norm(values: Sequence[float]) -> float:
     return sum(float(v) ** 2 for v in values) ** 0.5
+
+
+def _motion_domain(articulation_type: ArticulationType) -> str | None:
+    if articulation_type in _ANGULAR_ARTICULATION_TYPES:
+        return "angular"
+    if articulation_type == ArticulationType.PRISMATIC:
+        return "linear"
+    return None
+
+
+def _validate_mimic_cycles(articulation_lookup: Dict[str, Articulation]) -> None:
+    visiting: set[str] = set()
+    visited: set[str] = set()
+    path: list[str] = []
+
+    def visit(name: str) -> None:
+        if name in visited:
+            return
+        if name in visiting:
+            cycle_start = path.index(name)
+            cycle = path[cycle_start:] + [name]
+            raise ValidationError(f"Mimic cycle detected: {' -> '.join(cycle)}")
+
+        visiting.add(name)
+        path.append(name)
+        mimic = articulation_lookup[name].mimic
+        if mimic is not None and mimic.joint in articulation_lookup:
+            visit(mimic.joint)
+        path.pop()
+        visiting.remove(name)
+        visited.add(name)
+
+    for name in articulation_lookup:
+        visit(name)
 
 
 def _validate_geometry(

@@ -812,6 +812,7 @@ def compute_part_world_transforms(
 
     root = roots[0]
     world: Dict[str, Mat4] = {root: _identity4()}
+    resolved_joint_positions = _resolve_joint_positions(model, joint_positions)
     visited: set[str] = set()
     queue: List[str] = [root]
 
@@ -831,9 +832,8 @@ def compute_part_world_transforms(
             motion_tf = _identity4()
             joint_type = getattr(joint, "articulation_type", None)
             axis = getattr(joint, "axis", (0.0, 0.0, 1.0))
-            pose_value = _coerce_joint_pose_value(
-                joint,
-                joint_positions.get(getattr(joint, "name", ""), _joint_zero_pose_value(joint)),
+            pose_value = resolved_joint_positions.get(
+                getattr(joint, "name", ""), _joint_zero_pose_value(joint)
             )
 
             if joint_type in (ArticulationType.REVOLUTE, ArticulationType.CONTINUOUS):
@@ -888,6 +888,62 @@ def _joint_zero_pose_value(joint: object) -> object:
     if getattr(joint, "articulation_type", None) == ArticulationType.FLOATING:
         return Origin()
     return 0.0
+
+
+def _resolve_joint_positions(
+    model: object, joint_positions: Dict[str, object]
+) -> Dict[str, object]:
+    joints = getattr(model, "articulations", None)
+    if not isinstance(joints, list):
+        joints = getattr(model, "joints", None)
+    if not isinstance(joints, list):
+        raise ValidationError("model must have an .articulations list")
+
+    joint_lookup = {
+        name: joint for joint in joints if isinstance((name := getattr(joint, "name", None)), str)
+    }
+    resolved: Dict[str, object] = {}
+    resolving: list[str] = []
+
+    def resolve_joint(name: str) -> object:
+        if name in resolved:
+            return resolved[name]
+        joint = joint_lookup.get(name)
+        if joint is None:
+            raise ValidationError(f"Unknown articulation: {name!r}")
+        if name in resolving:
+            cycle_start = resolving.index(name)
+            cycle = resolving[cycle_start:] + [name]
+            raise ValidationError(f"Mimic cycle detected: {' -> '.join(cycle)}")
+
+        resolving.append(name)
+        mimic = getattr(joint, "mimic", None)
+        if mimic is not None:
+            if name in joint_positions:
+                raise ValidationError(
+                    f"Articulation {name!r} is mimic-driven and cannot be posed directly"
+                )
+            source_name = str(getattr(mimic, "joint", "")).strip()
+            source_value = resolve_joint(source_name)
+            if isinstance(source_value, Origin):
+                raise ValidationError(
+                    f"Articulation {name!r} mimic source {source_name!r} must use scalar poses"
+                )
+            value = float(source_value) * float(getattr(mimic, "multiplier", 1.0)) + float(
+                getattr(mimic, "offset", 0.0)
+            )
+        else:
+            value = _coerce_joint_pose_value(
+                joint,
+                joint_positions.get(name, _joint_zero_pose_value(joint)),
+            )
+        resolving.pop()
+        resolved[name] = value
+        return value
+
+    for name in joint_lookup:
+        resolve_joint(name)
+    return resolved
 
 
 def _coerce_joint_pose_value(joint: object, value: object) -> object:
@@ -996,6 +1052,8 @@ def generate_pose_samples(
     for j in joints:
         name = getattr(j, "name", None)
         if not isinstance(name, str):
+            continue
+        if getattr(j, "mimic", None) is not None:
             continue
         joint_names.append(name)
         per_joint.append(_joint_sample_values(j))

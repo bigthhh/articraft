@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from sdk import ArticulatedObject, MotionLimits, ValidationError
+from sdk import ArticulatedObject, Mimic, MotionLimits, ValidationError
 from sdk._core.v0._urdf_export import _articulation_element
 
 
@@ -79,6 +79,74 @@ def test_floating_forbids_motion_limits() -> None:
         model.validate(strict=True)
 
 
+def test_mimic_requires_existing_source() -> None:
+    model = ArticulatedObject(name="mimic_missing_source")
+    base = model.part("base")
+    finger = model.part("finger")
+    model.articulation(
+        "base_to_finger",
+        "revolute",
+        parent=base,
+        child=finger,
+        motion_limits=MotionLimits(effort=1.0, velocity=1.0, lower=0.0, upper=1.0),
+        mimic=Mimic(joint="missing_joint"),
+    )
+
+    with pytest.raises(ValidationError, match="mimic references missing articulation"):
+        model.validate(strict=True)
+
+
+def test_mimic_rejects_incompatible_motion_domain() -> None:
+    model = ArticulatedObject(name="mimic_incompatible_domain")
+    base = model.part("base")
+    slider = model.part("slider")
+    arm = model.part("arm")
+    model.articulation(
+        "base_to_slider",
+        "prismatic",
+        parent=base,
+        child=slider,
+        motion_limits=MotionLimits(effort=1.0, velocity=1.0, lower=0.0, upper=0.2),
+    )
+    model.articulation(
+        "slider_to_arm",
+        "revolute",
+        parent=slider,
+        child=arm,
+        motion_limits=MotionLimits(effort=1.0, velocity=1.0, lower=-0.5, upper=0.5),
+        mimic=Mimic(joint="base_to_slider"),
+    )
+
+    with pytest.raises(ValidationError, match="compatible motion domain"):
+        model.validate(strict=True)
+
+
+def test_mimic_rejects_cycles() -> None:
+    model = ArticulatedObject(name="mimic_cycle")
+    base = model.part("base")
+    left = model.part("left")
+    right = model.part("right")
+    model.articulation(
+        "base_to_left",
+        "revolute",
+        parent=base,
+        child=left,
+        motion_limits=MotionLimits(effort=1.0, velocity=1.0, lower=-1.0, upper=1.0),
+        mimic=Mimic(joint="left_to_right"),
+    )
+    model.articulation(
+        "left_to_right",
+        "revolute",
+        parent=left,
+        child=right,
+        motion_limits=MotionLimits(effort=1.0, velocity=1.0, lower=-1.0, upper=1.0),
+        mimic=Mimic(joint="base_to_left"),
+    )
+
+    with pytest.raises(ValidationError, match="Mimic cycle detected"):
+        model.validate(strict=True)
+
+
 def test_strict_validation_rejects_multiple_root_parts() -> None:
     model = ArticulatedObject(name="multiple_roots")
     model.part("base")
@@ -105,3 +173,34 @@ def test_urdf_export_normalizes_motion_axis() -> None:
     axis_elem = elem.find("axis")
     assert axis_elem is not None
     assert axis_elem.attrib["xyz"] == "0 0 1"
+
+
+def test_urdf_export_emits_mimic_element() -> None:
+    model = ArticulatedObject(name="mimic_export")
+    base = model.part("base")
+    left = model.part("left")
+    right = model.part("right")
+    model.articulation(
+        "base_to_left",
+        "revolute",
+        parent=base,
+        child=left,
+        motion_limits=MotionLimits(effort=1.0, velocity=1.0, lower=0.0, upper=0.6),
+    )
+    joint = model.articulation(
+        "base_to_right",
+        "revolute",
+        parent=base,
+        child=right,
+        motion_limits=MotionLimits(effort=1.0, velocity=1.0, lower=-0.6, upper=0.0),
+        mimic=Mimic(joint="base_to_left", multiplier=-1.0, offset=0.05),
+    )
+
+    elem = _articulation_element(joint)
+    mimic_elem = elem.find("mimic")
+    assert mimic_elem is not None
+    assert mimic_elem.attrib == {
+        "joint": "base_to_left",
+        "multiplier": "-1",
+        "offset": "0.05",
+    }

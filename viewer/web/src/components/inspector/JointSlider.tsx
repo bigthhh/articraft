@@ -10,6 +10,7 @@ export type UrdfJoint = {
   origin?: { xyz?: [number, number, number]; rpy?: [number, number, number] };
   axis?: [number, number, number];
   limit?: { lower?: number; upper?: number; effort?: number; velocity?: number };
+  mimic?: { joint: string; multiplier: number; offset: number };
 };
 
 type JointSliderProps = {

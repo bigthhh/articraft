@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from sdk import ArticulatedObject, ArticulationType, Box, Mesh, Origin
+from sdk import ArticulatedObject, ArticulationType, Box, Mesh, Mimic, MotionLimits, Origin
 from sdk._core.v0 import geometry_qc
 
 
@@ -438,3 +438,68 @@ def test_generate_pose_samples_keeps_floating_origin_values() -> None:
     assert poses[0][joint.name] == Origin()
     assert any(pose[joint.name] == Origin(xyz=(0.1, 0.2, 0.3)) for pose in poses)
     assert any(pose[joint.name] == Origin(rpy=(0.0, 0.0, 0.4)) for pose in poses)
+
+
+def test_compute_part_world_transforms_applies_mimic_pose() -> None:
+    model = ArticulatedObject(name="mimic_pose_world_tf")
+
+    base = model.part("base")
+    base.visual(Box((0.2, 0.2, 0.2)), origin=Origin(xyz=(0.0, 0.0, 0.1)))
+
+    carriage = model.part("carriage")
+    carriage.visual(Box((0.1, 0.1, 0.1)), origin=Origin(xyz=(0.0, 0.0, 0.05)))
+
+    tool = model.part("tool")
+    tool.visual(Box((0.08, 0.08, 0.08)), origin=Origin(xyz=(0.0, 0.0, 0.04)))
+
+    driver = model.articulation(
+        "base_to_carriage",
+        ArticulationType.PRISMATIC,
+        parent=base,
+        child=carriage,
+        axis=(1.0, 0.0, 0.0),
+        motion_limits=MotionLimits(effort=5.0, velocity=1.0, lower=0.0, upper=0.4),
+    )
+    model.articulation(
+        "carriage_to_tool",
+        ArticulationType.PRISMATIC,
+        parent=carriage,
+        child=tool,
+        axis=(1.0, 0.0, 0.0),
+        motion_limits=MotionLimits(effort=5.0, velocity=1.0, lower=0.0, upper=0.4),
+        mimic=Mimic(joint=driver.name, multiplier=0.5, offset=0.05),
+    )
+
+    world = geometry_qc.compute_part_world_transforms(model, {driver.name: 0.2})
+
+    carriage_tf = world["carriage"]
+    tool_tf = world["tool"]
+    assert carriage_tf[0][3] == pytest.approx(0.2)
+    assert tool_tf[0][3] == pytest.approx(0.35)
+
+
+def test_compute_part_world_transforms_rejects_direct_mimic_pose() -> None:
+    model = ArticulatedObject(name="mimic_direct_pose_rejected")
+    base = model.part("base")
+    carriage = model.part("carriage")
+    tool = model.part("tool")
+    driver = model.articulation(
+        "base_to_carriage",
+        ArticulationType.PRISMATIC,
+        parent=base,
+        child=carriage,
+        axis=(1.0, 0.0, 0.0),
+        motion_limits=MotionLimits(effort=5.0, velocity=1.0, lower=0.0, upper=0.4),
+    )
+    follower = model.articulation(
+        "carriage_to_tool",
+        ArticulationType.PRISMATIC,
+        parent=carriage,
+        child=tool,
+        axis=(1.0, 0.0, 0.0),
+        motion_limits=MotionLimits(effort=5.0, velocity=1.0, lower=0.0, upper=0.4),
+        mimic=Mimic(joint=driver.name),
+    )
+
+    with pytest.raises(geometry_qc.ValidationError, match="cannot be posed directly"):
+        geometry_qc.compute_part_world_transforms(model, {follower.name: 0.1})

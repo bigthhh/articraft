@@ -10,6 +10,7 @@ from sdk import (
     ArticulationType,
     Box,
     Mesh,
+    Mimic,
     MotionLimits,
     Origin,
     Sphere,
@@ -1386,6 +1387,35 @@ def test_pose_kwargs_accept_origin_for_floating_joint() -> None:
         pos = ctx.part_world_position("payload")
         assert pos is not None
         assert pos == pytest.approx((0.4, -0.2, 0.15))
+
+
+def test_pose_rejects_direct_mimic_joint_override() -> None:
+    model = ArticulatedObject(name="mimic_pose_override")
+    base = model.part("base")
+    carriage = model.part("carriage")
+    tool = model.part("tool")
+    driver = model.articulation(
+        "base_to_carriage",
+        ArticulationType.PRISMATIC,
+        parent=base,
+        child=carriage,
+        axis=(1.0, 0.0, 0.0),
+        motion_limits=MotionLimits(effort=2.0, velocity=1.0, lower=0.0, upper=0.2),
+    )
+    follower = model.articulation(
+        "carriage_to_tool",
+        ArticulationType.PRISMATIC,
+        parent=carriage,
+        child=tool,
+        axis=(1.0, 0.0, 0.0),
+        motion_limits=MotionLimits(effort=2.0, velocity=1.0, lower=0.0, upper=0.2),
+        mimic=Mimic(joint=driver.name, multiplier=0.5),
+    )
+    ctx = SDKTestContext(model)
+
+    with pytest.raises(Exception, match="mimic-driven and cannot be posed directly"):
+        with ctx.pose({follower: 0.1}):
+            pass
 
 
 def test_part_world_position_rejects_multiple_root_parts() -> None:

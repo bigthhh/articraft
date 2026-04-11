@@ -28,6 +28,7 @@ from .types import (
     Inertial,
     Material,
     Mesh,
+    Mimic,
     MotionLimits,
     MotionProperties,
     Origin,

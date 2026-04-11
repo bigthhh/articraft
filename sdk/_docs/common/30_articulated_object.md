@@ -77,6 +77,7 @@ model.articulation(
     axis: tuple[float, float, float] | None = None,
     motion_limits: MotionLimits | None = None,
     motion_properties: MotionProperties | None = None,
+    mimic: Mimic | None = None,
     meta: dict[str, object] | None = None,
 ) -> Articulation
 ```
@@ -88,6 +89,12 @@ model.articulation(
   `(0.0, 0.0, 1.0)`.
 - `motion_limits`: joint limits where required.
 - `motion_properties`: optional damping and friction.
+- `mimic`: optional derived-motion relationship to another scalar articulation.
+
+Use `mimic` for simple linear couplings such as opposing gripper fingers,
+paired doors, belt-linked sliders, or other mechanisms where one scalar joint
+should follow another as `q_follower = multiplier * q_source + offset`.
+Do not use it to represent non-linear couplings or true closed-loop mechanics.
 
 ## Frame And Direction Conventions
 
@@ -270,6 +277,9 @@ Use these rules when calling `model.articulation(...)`:
   `MotionLimits(effort=..., velocity=...)` and must not set `lower` or `upper`.
 - `ArticulationType.FIXED` and `ArticulationType.FLOATING` must not use
   `motion_limits`.
+- `mimic=Mimic(...)` is allowed only on scalar articulations (`REVOLUTE`,
+  `CONTINUOUS`, `PRISMATIC`). The source articulation must use a compatible
+  motion domain, and mimic cycles are invalid.
 - In strict mode, articulated motion axes must be non-zero 3-vectors.
 
 ## Example

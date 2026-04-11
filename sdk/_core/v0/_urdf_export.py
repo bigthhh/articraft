@@ -252,4 +252,12 @@ def _articulation_element(articulation: Articulation) -> ET.Element:
             dyn_attrs["friction"] = _format_float(articulation.motion_properties.friction)
         ET.SubElement(elem, "dynamics", dyn_attrs)
 
+    if articulation.mimic is not None:
+        mimic_attrs = {"joint": articulation.mimic.joint}
+        if abs(float(articulation.mimic.multiplier) - 1.0) > 1e-12:
+            mimic_attrs["multiplier"] = _format_float(articulation.mimic.multiplier)
+        if abs(float(articulation.mimic.offset)) > 1e-12:
+            mimic_attrs["offset"] = _format_float(articulation.mimic.offset)
+        ET.SubElement(elem, "mimic", mimic_attrs)
+
     return elem

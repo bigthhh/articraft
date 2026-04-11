@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 _COMPILED_MODEL_CACHE_ATTR = "_sdk_exact_collision_model_cache"
 _ALLOW_EXPLICIT_COLLISIONS_ATTR = "_sdk_allow_explicit_collisions"
-_CACHE_VERSION = 6
+_CACHE_VERSION = 7
 
 
 def compile_object_model_with_exact_collisions(
@@ -216,6 +216,15 @@ def _serialize_object_model(object_model: "ArticulatedObject") -> dict[str, obje
                     else {
                         "damping": articulation.motion_properties.damping,
                         "friction": articulation.motion_properties.friction,
+                    }
+                ),
+                "mimic": (
+                    None
+                    if getattr(articulation, "mimic", None) is None
+                    else {
+                        "joint": articulation.mimic.joint,
+                        "multiplier": articulation.mimic.multiplier,
+                        "offset": articulation.mimic.offset,
                     }
                 ),
                 "meta": articulation.meta,

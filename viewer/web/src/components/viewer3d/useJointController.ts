@@ -18,23 +18,77 @@ const DEFAULT_AXIS: [number, number, number] = [0, 0, 1];
 const tempQuaternion = new THREE.Quaternion();
 const tempOffset = new THREE.Vector3();
 
+function resolveJointValues(
+  explicitValues: Map<string, number>,
+  runtimeMap: Map<string, JointRuntime>,
+): Map<string, number> {
+  const resolved = new Map<string, number>();
+  const resolving = new Set<string>();
+
+  const resolveJoint = (name: string): number => {
+    const cached = resolved.get(name);
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    const runtime = runtimeMap.get(name);
+    if (!runtime) {
+      return explicitValues.get(name) ?? 0;
+    }
+    if (resolving.has(name)) {
+      return 0;
+    }
+
+    resolving.add(name);
+    const mimic = runtime.spec.mimic;
+    let value = explicitValues.get(name) ?? 0;
+    if (mimic) {
+      value = resolveJoint(mimic.joint) * mimic.multiplier + mimic.offset;
+    }
+    resolving.delete(name);
+    resolved.set(name, value);
+    return value;
+  };
+
+  for (const name of runtimeMap.keys()) {
+    resolveJoint(name);
+  }
+
+  return resolved;
+}
+
+function applyResolvedJointValues(
+  jointNodes: Map<string, THREE.Object3D> | null,
+  runtimeMap: Map<string, JointRuntime>,
+  values: Map<string, number>,
+): void {
+  if (!jointNodes) {
+    return;
+  }
+
+  for (const [name, node] of jointNodes) {
+    const runtime = runtimeMap.get(name);
+    if (!runtime) {
+      continue;
+    }
+    applyJointValue(node, runtime.spec, runtime.axis, values.get(name) ?? 0);
+  }
+}
+
 /**
  * Hook for managing joint values and applying them to the Three.js scene graph.
  *
- * Maintains a Map<string, number> of joint name to current value.
- * setJointValue applies the appropriate rotation (revolute/continuous) or
- * translation (prismatic) to the joint node based on the URDF axis definition.
+ * Maintains a Map<string, number> of resolved joint values. Mimic joints are
+ * derived from their source joint and are not independently controllable.
  */
 export function useJointController(
   jointNodes: Map<string, THREE.Object3D> | null,
   urdfSpec: UrdfSpec | null,
 ): JointControllerState {
   const [jointValues, setJointValues] = useState<Map<string, number>>(new Map());
-
-  // Cache the normalized joint axis and spec so animation does not allocate per frame.
   const jointRuntimeMap = useRef<Map<string, JointRuntime>>(new Map());
+  const explicitJointValuesRef = useRef<Map<string, number>>(new Map());
 
-  // Rebuild the runtime cache whenever the urdfSpec changes.
   useEffect(() => {
     const map = new Map<string, JointRuntime>();
     if (urdfSpec) {
@@ -46,53 +100,59 @@ export function useJointController(
       }
     }
     jointRuntimeMap.current = map;
-
-    // Reset values when the spec changes (new model loaded).
-    setJointValues(new Map());
+    explicitJointValuesRef.current = new Map();
+    setJointValues(resolveJointValues(new Map(), map));
   }, [urdfSpec]);
 
   const setJointValue = useCallback(
     (name: string, value: number) => {
-      if (!jointNodes) return;
-
-      const node = jointNodes.get(name);
       const runtime = jointRuntimeMap.current.get(name);
-      if (!node || !runtime) return;
+      if (!runtime || runtime.spec.mimic) {
+        return;
+      }
 
-      applyJointValue(node, runtime.spec, runtime.axis, value);
+      const nextExplicit = new Map(explicitJointValuesRef.current);
+      nextExplicit.set(name, value);
+      explicitJointValuesRef.current = nextExplicit;
 
-      setJointValues((prev) => {
-        const next = new Map(prev);
-        next.set(name, value);
-        return next;
-      });
+      const resolved = resolveJointValues(nextExplicit, jointRuntimeMap.current);
+      applyResolvedJointValues(jointNodes, jointRuntimeMap.current, resolved);
+      setJointValues(resolved);
     },
     [jointNodes],
   );
 
   const applyJointValues = useCallback(
     (values: Map<string, number>, options?: { commit?: boolean }) => {
-      if (!jointNodes) return;
-
-      for (const [name, node] of jointNodes) {
-        const runtime = jointRuntimeMap.current.get(name);
-        if (!runtime) {
+      const nextExplicit = new Map<string, number>();
+      for (const [name, value] of values) {
+        if (!Number.isFinite(value)) {
           continue;
         }
-
-        applyJointValue(node, runtime.spec, runtime.axis, values.get(name) ?? 0);
+        const runtime = jointRuntimeMap.current.get(name);
+        if (runtime?.spec.mimic) {
+          continue;
+        }
+        nextExplicit.set(name, value);
       }
 
+      explicitJointValuesRef.current = nextExplicit;
+      const resolved = resolveJointValues(nextExplicit, jointRuntimeMap.current);
+      applyResolvedJointValues(jointNodes, jointRuntimeMap.current, resolved);
+
       if (options?.commit) {
-        setJointValues(new Map(values));
+        setJointValues(new Map(resolved));
       }
     },
     [jointNodes],
   );
 
   const resetAll = useCallback(() => {
-    applyJointValues(new Map(), { commit: true });
-  }, [applyJointValues]);
+    explicitJointValuesRef.current = new Map();
+    const resolved = resolveJointValues(new Map(), jointRuntimeMap.current);
+    applyResolvedJointValues(jointNodes, jointRuntimeMap.current, resolved);
+    setJointValues(resolved);
+  }, [jointNodes]);
 
   return { jointValues, setJointValue, applyJointValues, resetAll };
 }
@@ -117,13 +177,11 @@ function applyJointValue(
       break;
     }
     case 'prismatic': {
-      // Reset to origin translation then apply offset along axis.
       tempOffset.copy(axis).multiplyScalar(value);
       node.position.copy(tempOffset);
       break;
     }
     default:
-      // Fixed/floating/planar joints are not user-controllable.
       break;
   }
 }

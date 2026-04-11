@@ -275,6 +275,7 @@ with ctx.pose(hinge=0.5):
 - `**kwargs`: joint-name shorthand.
 - Revolute and continuous positions are radians; prismatic positions are meters. Floating poses use `Origin.xyz` in meters and `Origin.rpy` in radians.
 - Positive scalar values follow the configured joint convention: right-hand rule for revolute/continuous, translation along `+axis` for prismatic. Floating articulations do not use `axis`.
+- Mimic followers are derived automatically from their source articulation. Pose the source joint, not the mimic follower.
 - Restores the previous pose on exit.
 
 When debugging a reversed hinge or slider, compare the closed pose and an
@@ -404,4 +405,5 @@ inserted at full extension.
 
 - `ctx.pose(...)` accepts mixed values: scalar `float` for scalar articulations and `Origin(...)` for `FLOATING`. Passing the wrong value kind is a validation error.
 - For floating articulations, `Origin.xyz` is relative translation in the articulation frame and `Origin.rpy` is relative rotation in that same frame. Zero floating pose is `Origin()`.
+- Mimic followers cannot be overridden directly in `ctx.pose(...)`; drive the source articulation instead.
 - `sample_poses(...)` and pose-sampled QC use only `Origin()` for floating joints by default. To test additional floating poses, provide `joint.meta["qc_samples"] = [Origin(...), ...]`.

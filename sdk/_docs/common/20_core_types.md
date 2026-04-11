@@ -21,6 +21,7 @@ from sdk import (
     Inertial,
     MotionLimits,
     MotionProperties,
+    Mimic,
     Part,
     Articulation,
     ArticulationType,
@@ -43,7 +44,7 @@ from sdk import (
 - `Box`, `Cylinder`, `Sphere`, `Mesh`
 - `Material`, `Visual`
 - `Inertia`, `Inertial.from_geometry(...)`
-- `MotionLimits`, `MotionProperties`
+- `MotionLimits`, `MotionProperties`, `Mimic`
 - `Part.visual(...)`, `Part.get_visual(...)`
 - `Articulation`, `ArticulationType`
 - `scale_geometry_to_size(...)`
@@ -221,6 +222,20 @@ MotionProperties(
 
 Both fields are optional.
 
+### `Mimic`
+
+```python
+Mimic(
+    joint: str,
+    multiplier: float = 1.0,
+    offset: float = 0.0,
+)
+```
+
+- `joint`: source articulation name.
+- `multiplier`: linear scale applied to the source pose.
+- `offset`: additive offset applied after scaling.
+
 ### `ArticulationType`
 
 ```python
@@ -277,6 +292,7 @@ Articulation(
     axis: tuple[float, float, float] = (0.0, 0.0, 1.0),
     motion_limits: MotionLimits | None = None,
     motion_properties: MotionProperties | None = None,
+    mimic: Mimic | None = None,
     meta: dict[str, object] = {},
 )
 ```
@@ -287,6 +303,7 @@ Articulation(
   expressed in the articulation frame.
 - `origin.rpy` rotates the articulation frame relative to the parent, so it
   also rotates the meaning of `axis`.
+- `mimic`: optional derived-motion relationship to another scalar articulation.
 - Direction conventions and joint-limit rules live in `30_articulated_object.md`.
 
 For authored models, prefer `model.articulation(...)` rather than constructing
@@ -327,6 +344,7 @@ other authored code, reading the following fields and aliases is supported.
 - `joint.limit`
 - `joint.motion_properties`
 - `joint.dynamics`
+- `joint.mimic`
 - `joint.meta`
 
 ### `MotionLimits`
@@ -414,3 +432,4 @@ scaled = scale_geometry_to_size(
 - `Part.collisions` is not part of the authored source-model path for agent use. Author visuals; derived collision geometry is handled by validation/materialization.
 - `ArticulationType.FLOATING` is supported but advanced. Its authored/test pose value is `Origin(...)`, where `xyz` is relative translation in the joint frame and `rpy` is relative rotation in that same frame.
 - For `REVOLUTE`, `CONTINUOUS`, and `PRISMATIC`, author `axis` as a unit vector in the articulation frame. Positive revolute motion follows the right-hand rule around `+axis`; positive prismatic motion translates along `+axis`.
+- `Mimic(...)` is supported for scalar articulations. Mimic followers are derived from their source joint as `q_follower = multiplier * q_source + offset` and should not be posed directly in testing or probe code.

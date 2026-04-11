@@ -980,12 +980,20 @@ class TestContext:
                 joint = joint_lookup.get(joint_name)
                 if joint is None:
                     raise ValidationError(f"Unknown joint: {joint_name!r}")
+                if getattr(joint, "mimic", None) is not None:
+                    raise ValidationError(
+                        f"Articulation {joint_name!r} is mimic-driven and cannot be posed directly"
+                    )
                 merged[joint_name] = _coerce_joint_pose_value(joint, value)
         for key, value in kwargs.items():
             joint_name = str(key)
             joint = joint_lookup.get(joint_name)
             if joint is None:
                 raise ValidationError(f"Unknown joint: {joint_name!r}")
+            if getattr(joint, "mimic", None) is not None:
+                raise ValidationError(
+                    f"Articulation {joint_name!r} is mimic-driven and cannot be posed directly"
+                )
             merged[joint_name] = _coerce_joint_pose_value(joint, value)
         self._pose = merged
         self._world_tfs_cache = None
@@ -2656,6 +2664,14 @@ class TestContext:
                         break
         if joint_obj is None:
             return self._record(check_name, False, f"joint {j_name!r} not found")
+        mimic = getattr(joint_obj, "mimic", None)
+        if mimic is not None:
+            source_name = getattr(mimic, "joint", None)
+            return self._record(
+                check_name,
+                False,
+                f"joint {j_name!r} is mimic-driven; drive source joint {source_name!r} instead",
+            )
 
         if q0 is None or q1 is None:
             jt = getattr(joint_obj, "joint_type", None)

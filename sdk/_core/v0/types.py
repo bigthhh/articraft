@@ -263,6 +263,21 @@ class MotionProperties:
     friction: Optional[float] = None
 
 
+@dataclass(frozen=True)
+class Mimic:
+    joint: str
+    multiplier: float = 1.0
+    offset: float = 0.0
+
+    def __post_init__(self) -> None:
+        joint_name = str(self.joint).strip()
+        if not joint_name:
+            raise ValidationError("mimic.joint is required")
+        object.__setattr__(self, "joint", joint_name)
+        object.__setattr__(self, "multiplier", float(self.multiplier))
+        object.__setattr__(self, "offset", float(self.offset))
+
+
 @dataclass
 class Part:
     name: str
@@ -313,11 +328,24 @@ class Articulation:
     axis: Vec3 = (0.0, 0.0, 1.0)
     motion_limits: Optional[MotionLimits] = None
     motion_properties: Optional[MotionProperties] = None
+    mimic: Optional[Mimic] = None
     meta: Dict[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.articulation_type = _coerce_articulation_type(self.articulation_type)
         self.axis = _as_vec3(self.axis, name="articulation.axis")
+        if self.mimic is not None and not isinstance(self.mimic, Mimic):
+            if isinstance(self.mimic, str):
+                self.mimic = Mimic(joint=self.mimic)
+            else:
+                joint = getattr(self.mimic, "joint", None)
+                if joint is None:
+                    raise ValidationError("articulation.mimic must be a Mimic or mimic-like object")
+                self.mimic = Mimic(
+                    joint=joint,
+                    multiplier=getattr(self.mimic, "multiplier", 1.0),
+                    offset=getattr(self.mimic, "offset", 0.0),
+                )
 
     @property
     def joint_type(self) -> ArticulationType:

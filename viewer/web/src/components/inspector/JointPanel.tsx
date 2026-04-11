@@ -13,7 +13,7 @@ type JointPanelProps = {
 };
 
 export function JointPanel({ urdfSpec, jointValues, onJointChange, onResetAll }: JointPanelProps): JSX.Element {
-  const movableJoints = (urdfSpec?.joints ?? []).filter((j) => j.type !== "fixed");
+  const movableJoints = (urdfSpec?.joints ?? []).filter((j) => j.type !== "fixed" && !j.mimic);
 
   if (!urdfSpec || movableJoints.length === 0) {
     return (

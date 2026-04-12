@@ -126,7 +126,6 @@ def test_harness_cost_limit_trips_and_persists_cost_json(tmp_path: Path) -> None
     agent.file_path = str(tmp_path / "model.py")
     agent.max_turns = 3
     agent.sdk_package = "sdk"
-    agent.scaffold_mode = "lite"
     agent.sdk_docs_mode = "full"
     agent.runtime_limits = None
     agent._seen_compile_signal_sigs = set()
@@ -172,7 +171,6 @@ def test_harness_persists_compaction_maintenance_cost_and_trace(tmp_path: Path) 
     agent.file_path = str(tmp_path / "model.py")
     agent.max_turns = 3
     agent.sdk_package = "sdk"
-    agent.scaffold_mode = "lite"
     agent.sdk_docs_mode = "full"
     agent.runtime_limits = None
     agent._seen_compile_signal_sigs = set()

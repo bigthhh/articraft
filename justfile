@@ -5,7 +5,6 @@ host := "127.0.0.1"
 port := "8765"
 model := ""
 thinking := ""
-scaffold_mode := ""
 image := ""
 dataset_id := ""
 category := ""
@@ -64,7 +63,6 @@ wb prompt:
     set -euo pipefail
     model={{ quote(model) }}
     thinking={{ quote(thinking) }}
-    scaffold_mode_value={{ quote(scaffold_mode) }}
     image={{ quote(image) }}
     design_audit={{ quote(design_audit) }}
     max_cost_usd_value={{ quote(max_cost_usd) }}
@@ -94,9 +92,6 @@ wb prompt:
       --model "$model"
       --thinking "$thinking"
     )
-    if [ -n "$scaffold_mode_value" ]; then
-      cmd+=(--scaffold-mode "$scaffold_mode_value")
-    fi
     if [ "$design_audit" = "false" ]; then
       cmd+=(--no-design-audit)
     elif [ "$design_audit" = "true" ]; then
@@ -115,7 +110,6 @@ wb-init prompt:
     set -euo pipefail
     model={{ quote(model) }}
     thinking={{ quote(thinking) }}
-    scaffold_mode_value={{ quote(scaffold_mode) }}
     image={{ quote(image) }}
     design_audit={{ quote(design_audit) }}
     max_cost_usd_value={{ quote(max_cost_usd) }}
@@ -146,9 +140,6 @@ wb-init prompt:
       --model-id "$model"
       --thinking-level "$thinking"
     )
-    if [ -n "$scaffold_mode_value" ]; then
-      cmd+=(--scaffold-mode "$scaffold_mode_value")
-    fi
     if [ -n "$image" ]; then
       cmd+=(--image "$image")
     fi
@@ -167,7 +158,6 @@ wb-category prompt:
     set -euo pipefail
     model={{ quote(model) }}
     thinking={{ quote(thinking) }}
-    scaffold_mode_value={{ quote(scaffold_mode) }}
     image={{ quote(image) }}
     design_audit={{ quote(design_audit) }}
     max_cost_usd_value={{ quote(max_cost_usd) }}
@@ -205,9 +195,6 @@ wb-category prompt:
       --model-id "$model"
       --thinking-level "$thinking"
     )
-    if [ -n "$scaffold_mode_value" ]; then
-      cmd+=(--scaffold-mode "$scaffold_mode_value")
-    fi
     if [ -n "$dataset_id" ]; then
       cmd+=(--dataset-id "$dataset_id")
     fi
@@ -382,7 +369,6 @@ dataset-batch spec_path="":
     legacy_concurrency_value={{ quote(concurrency) }}
     design_audit_value={{ quote(design_audit) }}
     max_cost_usd_value={{ quote(max_cost_usd) }}
-    scaffold_mode_value={{ quote(scaffold_mode) }}
     subprocess_concurrency_value={{ quote(subprocess_concurrency) }}
     legacy_local_work_value={{ quote(local_work_concurrency) }}
     resume_value={{ quote(resume) }}
@@ -402,9 +388,6 @@ dataset-batch spec_path="":
       subprocess_concurrency_value="$legacy_local_work_value"
     fi
     extra_args=(--row-concurrency "$row_concurrency_value")
-    if [ -n "$scaffold_mode_value" ]; then
-      extra_args+=(--scaffold-mode "$scaffold_mode_value")
-    fi
     if [ -n "$max_cost_usd_value" ]; then
       extra_args+=(--max-cost-usd "$max_cost_usd_value")
     fi
@@ -443,7 +426,7 @@ batch-spec-new:
       exit 1
     fi
     mkdir -p "$(dirname "$spec_path")"
-    printf '%s\n' 'row_id,category_slug,category_title,prompt,provider,model_id,thinking_level,max_turns,max_cost_usd,scaffold_mode,label,design_audit' >"$spec_path"
+    printf '%s\n' 'row_id,category_slug,category_title,prompt,provider,model_id,thinking_level,max_turns,max_cost_usd,label,design_audit' >"$spec_path"
     echo "Created $spec_path"
 
 search-index:
@@ -456,7 +439,6 @@ rerun record:
     model_override={{ quote(model) }}
     thinking_override={{ quote(thinking) }}
     max_cost_usd_value={{ quote(max_cost_usd) }}
-    scaffold_mode_value={{ quote(scaffold_mode) }}
     cmd=(
       uv run articraft-workbench
       --repo-root .
@@ -471,9 +453,6 @@ rerun record:
     fi
     if [ -n "$max_cost_usd_value" ]; then
       cmd+=(--max-cost-usd "$max_cost_usd_value")
-    fi
-    if [ -n "$scaffold_mode_value" ]; then
-      cmd+=(--scaffold-mode "$scaffold_mode_value")
     fi
     exec "${cmd[@]}"
 

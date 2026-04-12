@@ -58,7 +58,6 @@ from agent.tools import (
     resolve_image_path as _resolve_image_path,
 )
 from agent.tui.single_run import LLMWaitAwareStreamHandler
-from sdk._profiles import DEFAULT_SCAFFOLD_MODE, LEGACY_SCAFFOLD_MODE, normalize_scaffold_mode
 from storage.collections import CollectionStore
 from storage.dataset_workflow import (
     parse_canonical_dataset_sequence,
@@ -103,12 +102,6 @@ logger.setLevel(logging.INFO)
 SDK_DOCS_MODE_FULL = "full"
 
 MAX_SINGLE_RUN_SLUG_LEN = 120
-_DRAFT_MOTION_LIMIT_EXAMPLE_BLOCK = """    # if hinge_limits is not None and hinge_limits.lower is not None and hinge_limits.upper is not None:
-    #     with ctx.pose({lid_hinge: hinge_limits.lower}):
-    #         ctx.expect_gap(lid, body, axis="z", max_gap=0.001, max_penetration=0.0)
-    #     with ctx.pose({lid_hinge: hinge_limits.upper}):
-    #         ctx.expect_contact(lid, body, elem_a=hinge_leaf, elem_b=body_leaf)
-"""
 
 
 def _read_logged_cost_totals(cost_path: Path) -> tuple[dict[str, int] | None, float | None]:
@@ -161,11 +154,7 @@ def _resolve_post_success_design_audit(
     return bool(enabled)
 
 
-def _draft_model_template(*, sdk_package: str, scaffold_mode: str) -> str:
-    normalized_scaffold_mode = normalize_scaffold_mode(scaffold_mode)
-    strict_motion_limit_block = (
-        _DRAFT_MOTION_LIMIT_EXAMPLE_BLOCK if normalized_scaffold_mode == "strict" else ""
-    )
+def _draft_model_template(*, sdk_package: str) -> str:
     return f"""from __future__ import annotations
 
 # Draft scaffold created by `articraft-workbench init-record`.
@@ -218,7 +207,6 @@ def run_tests() -> TestReport:
     # ctx.expect_contact(lid, body, elem_a=hinge_leaf, elem_b=body_leaf)
     # Keep pose-specific checks lean.
     # Prefer a few decisive exact checks over broad heuristics.
-{strict_motion_limit_block}\
     # Add prompt-specific exact visual checks below; optional warning heuristics are not enough.
     return ctx.report()
 
@@ -450,7 +438,6 @@ def _single_run_settings_summary(
     max_turns: int,
     system_prompt_path: str,
     sdk_package: str,
-    scaffold_mode: str,
     sdk_docs_mode: str,
     openai_transport: str,
     openai_reasoning_summary: str | None,
@@ -465,7 +452,6 @@ def _single_run_settings_summary(
         "max_cost_usd": max_cost_usd,
         "system_prompt_path": system_prompt_path,
         "sdk_package": sdk_package,
-        "scaffold_mode": scaffold_mode,
         "sdk_docs_mode": sdk_docs_mode,
         "post_success_design_audit": post_success_design_audit,
     }
@@ -473,12 +459,6 @@ def _single_run_settings_summary(
         summary["openai_transport"] = openai_transport
         summary["openai_reasoning_summary"] = openai_reasoning_summary
     return summary
-
-
-def _normalize_or_legacy_scaffold_mode(scaffold_mode: str | None) -> str:
-    if scaffold_mode is None:
-        return LEGACY_SCAFFOLD_MODE
-    return normalize_scaffold_mode(scaffold_mode)
 
 
 def _thinking_level_from_run_parameters(
@@ -789,7 +769,6 @@ def create_workbench_draft_record(
     max_turns: int | None = None,
     system_prompt_path: str = "designer_system_prompt.txt",
     sdk_package: str = "sdk",
-    scaffold_mode: str = DEFAULT_SCAFFOLD_MODE,
     sdk_docs_mode: str = "full",
     openai_reasoning_summary: str | None = "auto",
     post_success_design_audit: bool = False,
@@ -832,7 +811,6 @@ def create_workbench_draft_record(
         model_id=selected_model_id,
         enabled=post_success_design_audit,
     )
-    normalized_scaffold_mode = normalize_scaffold_mode(scaffold_mode)
     loaded_system_prompt_path = resolve_system_prompt_path(
         system_prompt_path,
         provider=provider,
@@ -844,11 +822,7 @@ def create_workbench_draft_record(
     record_store.ensure_record_dirs(context.record_id)
     storage_repo.write_text(context.record_prompt_path, normalized_prompt)
     storage_repo.write_text(
-        context.record_model_path,
-        _draft_model_template(
-            sdk_package=sdk_package,
-            scaffold_mode=normalized_scaffold_mode,
-        ),
+        context.record_model_path, _draft_model_template(sdk_package=sdk_package)
     )
     if image_path is not None:
         record_store.copy_input_image(context.record_id, image_path)
@@ -873,7 +847,6 @@ def create_workbench_draft_record(
             system_prompt_sha256=system_prompt_sha,
             sdk_docs_mode=sdk_docs_mode,
             post_success_design_audit=post_success_design_audit,
-            scaffold_mode=normalized_scaffold_mode,
         ),
         sdk=SdkSettings(
             sdk_package=sdk_package,
@@ -955,7 +928,6 @@ def _write_success_record(
     max_turns: int,
     system_prompt_path: Path,
     sdk_package: str,
-    scaffold_mode: str,
     sdk_docs_mode: str,
     openai_reasoning_summary: str | None,
     post_success_design_audit: bool,
@@ -1081,7 +1053,6 @@ def _write_success_record(
             system_prompt_sha256=system_prompt_sha,
             sdk_docs_mode=sdk_docs_mode,
             post_success_design_audit=post_success_design_audit,
-            scaffold_mode=scaffold_mode,
         ),
         sdk=SdkSettings(
             sdk_package=sdk_package,
@@ -1309,7 +1280,6 @@ async def run_from_input(
     on_compaction_event: Optional[Callable[[dict[str, Any], float], None]] = None,
     on_maintenance_event: Optional[Callable[[dict[str, Any], float], None]] = None,
     sdk_package: str = "sdk",
-    scaffold_mode: str = DEFAULT_SCAFFOLD_MODE,
     sdk_docs_mode: str = "full",
     openai_reasoning_summary: Optional[str] = "auto",
     post_success_design_audit: bool = False,
@@ -1340,7 +1310,6 @@ async def run_from_input(
         display_enabled=display_enabled,
         on_turn_start=on_turn_start,
         sdk_package=sdk_package,
-        scaffold_mode=scaffold_mode,
         sdk_docs_mode=sdk_docs_mode,
         openai_reasoning_summary=openai_reasoning_summary,
         post_success_design_audit=post_success_design_audit,
@@ -1382,7 +1351,6 @@ async def _execute_single_run(
     on_compaction_event: Optional[Callable[[dict[str, Any], float], None]] = None,
     on_maintenance_event: Optional[Callable[[dict[str, Any], float], None]] = None,
     sdk_package: str = "sdk",
-    scaffold_mode: str = DEFAULT_SCAFFOLD_MODE,
     sdk_docs_mode: str = "full",
     openai_reasoning_summary: Optional[str] = "auto",
     post_success_design_audit: bool = False,
@@ -1410,7 +1378,6 @@ async def _execute_single_run(
     runtime_limits: BatchRuntimeLimits | None = None,
     record_author: str | None = None,
 ) -> RunExecutionOutcome:
-    scaffold_mode = normalize_scaffold_mode(scaffold_mode)
     resolved_context = context or await asyncio.to_thread(
         _build_single_run_context,
         repo_root=resolved_repo_root,
@@ -1478,7 +1445,6 @@ async def _execute_single_run(
                         max_turns=resolved_max_turns,
                         system_prompt_path=system_prompt_path,
                         sdk_package=sdk_package,
-                        scaffold_mode=scaffold_mode,
                         sdk_docs_mode=sdk_docs_mode,
                         openai_transport=openai_transport,
                         openai_reasoning_summary=openai_reasoning_summary,
@@ -1527,7 +1493,6 @@ async def _execute_single_run(
                     max_turns=resolved_max_turns,
                     system_prompt_path=system_prompt_path,
                     sdk_package=sdk_package,
-                    scaffold_mode=scaffold_mode,
                     sdk_docs_mode=sdk_docs_mode,
                     openai_transport=openai_transport,
                     openai_reasoning_summary=openai_reasoning_summary,
@@ -1563,7 +1528,6 @@ async def _execute_single_run(
             on_maintenance_event=on_maintenance_event,
             checkpoint_urdf_path=resolved_context.checkpoint_urdf_path,
             sdk_package=sdk_package,
-            scaffold_mode=scaffold_mode,
             sdk_docs_mode=sdk_docs_mode,
             openai_reasoning_summary=openai_reasoning_summary,
             post_success_design_audit=resolved_post_success_design_audit,
@@ -1678,7 +1642,6 @@ async def _execute_single_run(
             max_turns=resolved_max_turns,
             system_prompt_path=loaded_system_prompt_path,
             sdk_package=sdk_package,
-            scaffold_mode=scaffold_mode,
             sdk_docs_mode=sdk_docs_mode,
             openai_reasoning_summary=openai_reasoning_summary,
             post_success_design_audit=resolved_post_success_design_audit,
@@ -1769,7 +1732,6 @@ async def _execute_single_run(
                     max_turns=max_turns,
                     system_prompt_path=system_prompt_path,
                     sdk_package=sdk_package,
-                    scaffold_mode=scaffold_mode,
                     sdk_docs_mode=sdk_docs_mode,
                     openai_transport=openai_transport,
                     openai_reasoning_summary=openai_reasoning_summary,
@@ -1815,7 +1777,6 @@ async def _run_from_input_impl(
     display_enabled: Optional[bool] = None,
     on_turn_start: Optional[Callable[[int], None]] = None,
     sdk_package: str = "sdk",
-    scaffold_mode: str = DEFAULT_SCAFFOLD_MODE,
     sdk_docs_mode: str = "full",
     openai_reasoning_summary: Optional[str] = "auto",
     post_success_design_audit: bool = False,
@@ -1831,7 +1792,6 @@ async def _run_from_input_impl(
     persist_run_metadata: bool = True,
     persist_run_result: bool = True,
 ) -> RunExecutionOutcome:
-    scaffold_mode = normalize_scaffold_mode(scaffold_mode)
     resolved_repo_root = repo_root.resolve()
     storage_repo = StorageRepo(resolved_repo_root)
     await asyncio.to_thread(storage_repo.ensure_layout)
@@ -1891,7 +1851,6 @@ async def _run_from_input_impl(
         display_enabled=display_enabled,
         on_turn_start=on_turn_start,
         sdk_package=sdk_package,
-        scaffold_mode=scaffold_mode,
         sdk_docs_mode=sdk_docs_mode,
         openai_reasoning_summary=openai_reasoning_summary,
         post_success_design_audit=post_success_design_audit,
@@ -1917,7 +1876,6 @@ async def rerun_record_in_place(
     model_id: str | None = None,
     thinking_level: str | None = None,
     sdk_package: str | None = None,
-    scaffold_mode: str | None = None,
     post_success_design_audit: bool | None = None,
     max_cost_usd: float | None = None,
     display_enabled: Optional[bool] = None,
@@ -1988,10 +1946,6 @@ async def rerun_record_in_place(
         sdk_package
         if sdk_package is not None
         else _first_string(sdk.get("sdk_package"), existing_record.get("sdk_package"))
-    )
-    stored_scaffold_mode = _optional_string(prompting.get("scaffold_mode"))
-    scaffold_mode = _normalize_or_legacy_scaffold_mode(
-        scaffold_mode if scaffold_mode is not None else stored_scaffold_mode
     )
     stored_post_success_design_audit = _optional_bool(prompting.get("post_success_design_audit"))
     post_success_design_audit = (
@@ -2091,7 +2045,6 @@ async def rerun_record_in_place(
         system_prompt_path=system_prompt_path,
         display_enabled=display_enabled,
         sdk_package=sdk_package,
-        scaffold_mode=scaffold_mode,
         sdk_docs_mode=sdk_docs_mode,
         openai_reasoning_summary=openai_reasoning_summary,
         post_success_design_audit=post_success_design_audit,
@@ -2257,12 +2210,6 @@ def main(argv: list[str] | None = None) -> int:
         help=argparse.SUPPRESS,
     )
     parser.add_argument(
-        "--scaffold-mode",
-        default=DEFAULT_SCAFFOLD_MODE,
-        choices=["lite", "strict"],
-        help="Scaffold variant to seed for new runs.",
-    )
-    parser.add_argument(
         "--design-audit",
         action=argparse.BooleanOptionalAction,
         default=False,
@@ -2279,7 +2226,6 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         sdk_package = normalize_sdk_package(args.sdk_package)
-        scaffold_mode = normalize_scaffold_mode(args.scaffold_mode)
         max_cost_usd = (
             parse_max_cost_usd(args.max_cost_usd, label="--max-cost-usd")
             if args.max_cost_usd is not None
@@ -2372,7 +2318,6 @@ def main(argv: list[str] | None = None) -> int:
             max_turns=args.max_turns,
             system_prompt_path=args.system_prompt,
             sdk_package=sdk_package,
-            scaffold_mode=scaffold_mode,
             sdk_docs_mode=SDK_DOCS_MODE_FULL,
             openai_reasoning_summary=openai_reasoning_summary,
             post_success_design_audit=args.design_audit,

@@ -51,7 +51,6 @@ from agent.traces import TraceWriter
 from agent.tui.single_run import SingleRunDisplay
 from agent.workspace_docs import build_virtual_workspace
 from sdk._profiles import get_sdk_profile
-from sdk._profiles import normalize_scaffold_mode as _normalize_scaffold_mode
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -157,12 +156,9 @@ def _scan_code_contracts(text: str) -> _CodeContractScan | None:
 def _minimal_scaffold_text(
     *,
     sdk_package: str = "sdk",
-    scaffold_mode: str = "strict",
 ) -> str:
     repo_root = Path(__file__).resolve().parents[1]
-    scaffold_path = repo_root / get_sdk_profile(sdk_package).scaffold_path_for_mode(
-        _normalize_scaffold_mode(scaffold_mode)
-    )
+    scaffold_path = repo_root / get_sdk_profile(sdk_package).scaffold_path
     if not scaffold_path.exists():
         raise FileNotFoundError(f"Missing scaffold source of truth: {scaffold_path}")
     return scaffold_path.read_text(encoding="utf-8")
@@ -323,7 +319,6 @@ class ArticraftAgent:
         on_maintenance_event: Optional[Callable[[dict[str, Any], float], None]] = None,
         checkpoint_urdf_path: Optional[Path] = None,
         sdk_package: str = "sdk",
-        scaffold_mode: str = "lite",
         sdk_docs_mode: str = "full",
         openai_reasoning_summary: Optional[str] = "auto",
         post_success_design_audit: bool = False,
@@ -332,7 +327,6 @@ class ArticraftAgent:
     ):
         self.file_path = file_path
         self.sdk_package = _normalize_sdk_package(sdk_package)
-        self.scaffold_mode = _normalize_scaffold_mode(scaffold_mode)
         self.sdk_docs_mode = _normalize_sdk_docs_mode(sdk_docs_mode)
         self.runtime_limits = runtime_limits
         self._seen_compile_signal_sigs: set[str] = set()
@@ -408,7 +402,6 @@ class ArticraftAgent:
             model_id=actual_model_id,
             thinking_level=thinking_level,
             max_turns=self.max_turns,
-            scaffold_mode=self.scaffold_mode,
             enabled=display_enabled,
         )
 
@@ -951,10 +944,7 @@ class ArticraftAgent:
                 return
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
-            _minimal_scaffold_text(
-                sdk_package=self.sdk_package,
-                scaffold_mode=self.scaffold_mode,
-            ),
+            _minimal_scaffold_text(sdk_package=self.sdk_package),
             encoding="utf-8",
         )
 

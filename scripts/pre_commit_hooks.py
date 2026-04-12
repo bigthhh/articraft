@@ -81,19 +81,12 @@ def detect_secrets(paths: list[str]) -> int:
 
 
 def run_smoke_tests() -> int:
-    test_paths = sorted(REPO_ROOT.glob("tests/**/test_*.py"))
-    if not test_paths:
-        return 0
-    for test_path in test_paths:
-        relative_path = test_path.relative_to(REPO_ROOT)
-        result = subprocess.run(
-            ["uv", "run", "python", str(relative_path)],
-            cwd=REPO_ROOT,
-            check=False,
-        )
-        if result.returncode != 0:
-            return result.returncode
-    return 0
+    result = subprocess.run(
+        ["uv", "run", "--group", "dev", "pytest", "-q"],
+        cwd=REPO_ROOT,
+        check=False,
+    )
+    return result.returncode
 
 
 def main(argv: list[str]) -> int:

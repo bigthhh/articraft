@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+
 import pytest
 
 from scripts import pre_commit_hooks
@@ -41,3 +43,24 @@ def test_detect_secrets_ignores_files_without_matches(
 
     assert exit_code == 0
     assert capsys.readouterr().out == ""
+
+
+def test_run_smoke_tests_invokes_pytest(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[list[str], object, bool]] = []
+
+    def _fake_run(cmd: list[str], cwd, check: bool) -> subprocess.CompletedProcess[str]:
+        calls.append((cmd, cwd, check))
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(pre_commit_hooks.subprocess, "run", _fake_run)
+
+    exit_code = pre_commit_hooks.run_smoke_tests()
+
+    assert exit_code == 0
+    assert calls == [
+        (
+            ["uv", "run", "--group", "dev", "pytest", "-q"],
+            pre_commit_hooks.REPO_ROOT,
+            False,
+        )
+    ]

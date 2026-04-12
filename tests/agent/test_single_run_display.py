@@ -17,20 +17,18 @@ def _make_display() -> tuple[SingleRunDisplay, StringIO]:
         model_id="gpt-5.4",
         thinking_level="high",
         max_turns=30,
-        scaffold_mode="lite",
         enabled=True,
     )
     return display, buffer
 
 
-def test_start_shows_scaffold_mode() -> None:
+def test_start_shows_run_header() -> None:
     display, buffer = _make_display()
 
     display.start()
 
     output = buffer.getvalue()
     assert "run gpt-5.4" in output
-    assert "scaffold=lite" in output
 
 
 def test_add_tool_call_shows_success_result_and_compilation() -> None:
@@ -306,7 +304,6 @@ def test_logging_clears_live_wait_line_before_emitting() -> None:
         model_id="gpt-5.4",
         thinking_level="high",
         max_turns=30,
-        scaffold_mode="lite",
         enabled=True,
     )
     logger = logging.getLogger("tests.single_run_display.wait_line")

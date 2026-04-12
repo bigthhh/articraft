@@ -158,9 +158,7 @@ class RecordingBatchDisplay:
     events: list[str] = []
 
     def __init__(self, **kwargs: object) -> None:
-        scaffold_summary = kwargs.get("scaffold_summary")
-        show_row_scaffold_mode = kwargs.get("show_row_scaffold_mode")
-        type(self).events.append(f"init:{scaffold_summary}:{show_row_scaffold_mode}")
+        type(self).events.append("init")
         return None
 
     def add_run(self, slug: str, prompt: str) -> None:
@@ -172,9 +170,8 @@ class RecordingBatchDisplay:
     def stop(self) -> None:
         type(self).events.append("stop")
 
-    def start_run(self, slug: str, *, scaffold_mode: str | None = None) -> None:
-        suffix = f":{scaffold_mode}" if scaffold_mode is not None else ""
-        type(self).events.append(f"start_run:{slug}{suffix}")
+    def start_run(self, slug: str) -> None:
+        type(self).events.append(f"start_run:{slug}")
 
     def update_run_progress(self, slug: str, turn: int, cost: float) -> None:
         return None
@@ -642,75 +639,14 @@ def test_build_batch_config_rejects_invalid_design_audit_value(tmp_path: Path) -
         )
 
 
-def test_build_batch_config_supports_scaffold_mode_default_and_row_overrides(
-    tmp_path: Path,
-) -> None:
+def test_build_batch_config_rejects_legacy_scaffold_mode_column(tmp_path: Path) -> None:
     repo = StorageRepo(tmp_path)
     repo.ensure_layout()
     CategoryStore(repo).save(
         CategoryRecord(schema_version=1, slug="hinge", title="Hinge", description="")
     )
 
-    spec_path = tmp_path / "source_specs" / "scaffold_mode_batch.csv"
-    _write_csv(
-        spec_path,
-        [
-            {
-                "row_id": "strict_row",
-                "category_slug": "hinge",
-                "category_title": "Hinge",
-                "prompt": "make hinge",
-                "provider": "openai",
-                "model_id": "gpt-5.4",
-                "thinking_level": "high",
-                "max_turns": "10",
-                "sdk_package": "sdk",
-                "scaffold_mode": "strict",
-            },
-            {
-                "row_id": "defaulted_row",
-                "category_slug": "hinge",
-                "category_title": "Hinge",
-                "prompt": "make another hinge",
-                "provider": "openai",
-                "model_id": "gpt-5.4",
-                "thinking_level": "high",
-                "max_turns": "10",
-                "sdk_package": "sdk",
-            },
-        ],
-    )
-
-    config = batch_runner.build_batch_config(
-        repo_root=tmp_path,
-        spec_arg=str(spec_path),
-        concurrency=1,
-        system_prompt_path="designer_system_prompt.txt",
-        scaffold_mode="lite",
-        sdk_docs_mode="full",
-        qc_blurb_path=None,
-        resume=False,
-        resume_policy="failed_or_pending",
-        keep_awake=False,
-        pause_file=None,
-        pause_poll_seconds=1.0,
-        keyboard_pause_enabled=False,
-    )
-
-    row_by_id = {row.row_id: row for row in config.rows}
-    assert config.scaffold_mode == "lite"
-    assert row_by_id["strict_row"].scaffold_mode == "strict"
-    assert row_by_id["defaulted_row"].scaffold_mode == "lite"
-
-
-def test_build_batch_config_rejects_invalid_scaffold_mode_value(tmp_path: Path) -> None:
-    repo = StorageRepo(tmp_path)
-    repo.ensure_layout()
-    CategoryStore(repo).save(
-        CategoryRecord(schema_version=1, slug="hinge", title="Hinge", description="")
-    )
-
-    spec_path = tmp_path / "source_specs" / "invalid_scaffold_mode.csv"
+    spec_path = tmp_path / "source_specs" / "legacy_scaffold_mode.csv"
     _write_csv(
         spec_path,
         [
@@ -724,12 +660,12 @@ def test_build_batch_config_rejects_invalid_scaffold_mode_value(tmp_path: Path) 
                 "thinking_level": "high",
                 "max_turns": "10",
                 "sdk_package": "sdk",
-                "scaffold_mode": "heavy",
+                "scaffold_mode": "strict",
             }
         ],
     )
 
-    with pytest.raises(ValueError, match="invalid scaffold_mode"):
+    with pytest.raises(ValueError, match="Unsupported CSV columns: scaffold_mode"):
         batch_runner.build_batch_config(
             repo_root=tmp_path,
             spec_arg=str(spec_path),
@@ -813,76 +749,6 @@ def test_run_batch_design_audit_cli_override(
     )
     assert exit_code == 0
     assert captured == [True, False]
-
-
-def test_run_batch_scaffold_mode_cli_override(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    repo = StorageRepo(tmp_path)
-    repo.ensure_layout()
-    CategoryStore(repo).save(
-        CategoryRecord(schema_version=1, slug="hinge", title="Hinge", description="")
-    )
-    spec_path = tmp_path / "source_specs" / "scaffold_mode_cli.csv"
-    _write_csv(
-        spec_path,
-        [
-            {
-                "row_id": "row_1",
-                "category_slug": "hinge",
-                "category_title": "Hinge",
-                "prompt": "make a hinge",
-                "provider": "openai",
-                "model_id": "gpt-5.4",
-                "thinking_level": "high",
-                "max_turns": "12",
-                "sdk_package": "sdk",
-                "scaffold_mode": "strict",
-            },
-            {
-                "row_id": "row_2",
-                "category_slug": "hinge",
-                "category_title": "Hinge",
-                "prompt": "make another hinge",
-                "provider": "openai",
-                "model_id": "gpt-5.4",
-                "thinking_level": "high",
-                "max_turns": "12",
-                "sdk_package": "sdk",
-            },
-        ],
-    )
-
-    captured: list[str] = []
-
-    async def fake_run_dataset_batch(config: object) -> dict[str, object]:
-        if hasattr(config, "rows"):
-            for row in getattr(config, "rows"):
-                captured.append(str(getattr(row, "scaffold_mode", "")))
-        return {
-            "run_id": "run_mocked",
-            "status": "success",
-            "prompt_count": 2,
-            "success_count": 2,
-            "failed_count": 0,
-        }
-
-    monkeypatch.setattr(batch_runner, "run_dataset_batch", fake_run_dataset_batch)
-
-    exit_code = dataset_main(
-        [
-            "--repo-root",
-            str(tmp_path),
-            "run-batch",
-            str(spec_path),
-            "--concurrency",
-            "1",
-            "--scaffold-mode",
-            "lite",
-        ]
-    )
-    assert exit_code == 0
-    assert captured == ["strict", "lite"]
 
 
 def test_run_batch_max_cost_cli_override_and_csv_override(
@@ -1169,8 +1035,6 @@ def test_run_batch_persists_records_and_batch_metadata(
     assert run_payload["batch_spec_id"] == "mixed_batch"
     assert sorted(run_payload["category_slugs"]) == ["fan", "hinge"]
     assert run_payload["status"] == "success"
-    assert run_payload["settings_summary"]["scaffold_mode"] == "lite"
-    assert run_payload["settings_summary"]["scaffold_modes"] == ["lite"]
 
     result_rows = [
         json.loads(line)
@@ -1189,8 +1053,8 @@ def test_run_batch_persists_records_and_batch_metadata(
     assert fan_record["sdk_package"] == "sdk"
     hinge_provenance = repo.read_json(repo.layout.record_dir("rec_hinge_0001") / "provenance.json")
     fan_provenance = repo.read_json(repo.layout.record_dir("rec_fan_0001") / "provenance.json")
-    assert hinge_provenance["prompting"]["scaffold_mode"] == "lite"
-    assert fan_provenance["prompting"]["scaffold_mode"] == "lite"
+    assert "scaffold_mode" not in hinge_provenance["prompting"]
+    assert "scaffold_mode" not in fan_provenance["prompting"]
 
     queries = StorageQueries(repo)
     assert run_id in queries.list_run_ids_for_category("hinge")
@@ -1506,71 +1370,6 @@ def test_run_batch_resume_reconciles_durable_success_without_rerunning(
     assert repaired_rows[0]["record_dir"] == "data/records/rec_hinge_0001"
 
 
-def test_build_batch_config_resume_treats_missing_legacy_scaffold_mode_as_strict(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(runner, "ArticraftAgent", SuccessBatchAgent)
-    _patch_dataset_tokens(monkeypatch, "0001")
-
-    spec_path = tmp_path / "source_specs" / "legacy_scaffold_resume.csv"
-    _write_csv(
-        spec_path,
-        [
-            {
-                "row_id": "legacy_row",
-                "category_slug": "hinge",
-                "category_title": "Hinge",
-                "prompt": "make a hinge",
-                "provider": "openai",
-                "model_id": "gpt-5.4",
-                "thinking_level": "high",
-                "max_turns": "12",
-                "sdk_package": "sdk",
-            },
-        ],
-    )
-
-    first_exit_code = dataset_main(
-        [
-            "--repo-root",
-            str(tmp_path),
-            "run-batch",
-            str(spec_path),
-            "--concurrency",
-            "1",
-            "--scaffold-mode",
-            "strict",
-        ]
-    )
-    assert first_exit_code == 0
-
-    repo = StorageRepo(tmp_path)
-    run_id = next(path.name for path in repo.layout.runs_root.iterdir() if path.is_dir())
-    allocations = repo.read_json(repo.layout.run_allocations_path(run_id))
-    for row in allocations["rows"]:
-        row.pop("scaffold_mode", None)
-    repo.write_json(repo.layout.run_allocations_path(run_id), allocations)
-
-    config = batch_runner.build_batch_config(
-        repo_root=tmp_path,
-        spec_arg=str(spec_path),
-        concurrency=1,
-        system_prompt_path="designer_system_prompt.txt",
-        scaffold_mode="lite",
-        sdk_docs_mode="full",
-        qc_blurb_path=None,
-        resume=True,
-        resume_policy="failed_or_pending",
-        keep_awake=False,
-        pause_file=None,
-        pause_poll_seconds=1.0,
-        keyboard_pause_enabled=False,
-    )
-
-    assert config.rows[0].scaffold_mode == "strict"
-
-
 def test_run_batch_resume_reruns_interrupted_running_rows(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1777,7 +1576,7 @@ def test_run_batch_display_stops_after_finalization(
     assert stop_index > max(finalize_indices)
 
 
-def test_run_batch_display_reports_mixed_scaffold_modes(
+def test_run_batch_display_uses_single_start_path(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1785,12 +1584,12 @@ def test_run_batch_display_reports_mixed_scaffold_modes(
     monkeypatch.setattr(batch_runner, "BatchRunDisplay", RecordingBatchDisplay)
     _patch_dataset_tokens(monkeypatch, "0001", "0002")
 
-    spec_path = tmp_path / "source_specs" / "display_scaffold_modes.csv"
+    spec_path = tmp_path / "source_specs" / "display_rows.csv"
     _write_csv(
         spec_path,
         [
             {
-                "row_id": "strict_row",
+                "row_id": "row_1",
                 "category_slug": "hinge",
                 "category_title": "Hinge",
                 "prompt": "make a hinge",
@@ -1799,10 +1598,9 @@ def test_run_batch_display_reports_mixed_scaffold_modes(
                 "thinking_level": "high",
                 "max_turns": "12",
                 "sdk_package": "sdk",
-                "scaffold_mode": "strict",
             },
             {
-                "row_id": "lite_row",
+                "row_id": "row_2",
                 "category_slug": "hinge",
                 "category_title": "Hinge",
                 "prompt": "make another hinge",
@@ -1823,17 +1621,11 @@ def test_run_batch_display_reports_mixed_scaffold_modes(
             str(spec_path),
             "--concurrency",
             "1",
-            "--scaffold-mode",
-            "lite",
         ]
     )
     assert exit_code == 0
 
+    assert "init" in RecordingBatchDisplay.events
     assert any(
-        "init:default=lite rows=mixed(lite,strict):True" == event
-        for event in RecordingBatchDisplay.events
-    )
-    assert any(
-        event.startswith("start_run:rec_hinge_0001:strict")
-        for event in RecordingBatchDisplay.events
+        event.startswith("start_run:rec_hinge_0001") for event in RecordingBatchDisplay.events
     )

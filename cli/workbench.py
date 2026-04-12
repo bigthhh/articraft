@@ -10,7 +10,6 @@ from agent.prompts import normalize_sdk_package
 from agent.runner import create_workbench_draft_record, rerun_record_in_place
 from agent.tools import resolve_image_path
 from cli.common import add_data_root_argument, warn_if_post_commit_hook_missing
-from sdk._profiles import DEFAULT_SCAFFOLD_MODE, normalize_scaffold_mode
 from storage.collections import CollectionStore
 from storage.models import WorkbenchCollection
 from storage.queries import StorageQueries
@@ -108,12 +107,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help=argparse.SUPPRESS,
     )
     init_record.add_argument(
-        "--scaffold-mode",
-        default=DEFAULT_SCAFFOLD_MODE,
-        choices=("lite", "strict"),
-        help="Scaffold variant to store in the draft and use for later reruns.",
-    )
-    init_record.add_argument(
         "--design-audit",
         action=argparse.BooleanOptionalAction,
         default=False,
@@ -165,12 +158,6 @@ def _build_parser() -> argparse.ArgumentParser:
         "--sdk-package",
         default=None,
         help=argparse.SUPPRESS,
-    )
-    rerun.add_argument(
-        "--scaffold-mode",
-        default=None,
-        choices=("lite", "strict"),
-        help="Optional scaffold-mode override for this rerun.",
     )
     rerun.add_argument(
         "--design-audit",
@@ -239,7 +226,6 @@ def main(argv: list[str] | None = None) -> int:
                 max_cost_usd=max_cost_usd,
                 system_prompt_path=args.system_prompt_path,
                 sdk_package=args.sdk_package,
-                scaffold_mode=args.scaffold_mode,
                 openai_reasoning_summary=args.openai_reasoning_summary,
                 post_success_design_audit=args.design_audit,
                 label=args.label,
@@ -279,11 +265,6 @@ def main(argv: list[str] | None = None) -> int:
             sdk_package = (
                 normalize_sdk_package(args.sdk_package) if args.sdk_package is not None else None
             )
-            scaffold_mode = (
-                normalize_scaffold_mode(args.scaffold_mode)
-                if args.scaffold_mode is not None
-                else None
-            )
             max_cost_usd = (
                 parse_max_cost_usd(args.max_cost_usd, label="--max-cost-usd")
                 if args.max_cost_usd is not None
@@ -301,7 +282,6 @@ def main(argv: list[str] | None = None) -> int:
                 thinking_level=args.thinking_level,
                 max_cost_usd=max_cost_usd,
                 sdk_package=sdk_package,
-                scaffold_mode=scaffold_mode,
                 post_success_design_audit=args.design_audit,
             )
         )

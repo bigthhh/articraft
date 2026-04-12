@@ -173,7 +173,7 @@ data/batch_specs/<batch-id>.csv
 with the current v1 header:
 
 ```csv
-row_id,category_slug,category_title,prompt,provider,model_id,thinking_level,max_turns,max_cost_usd,scaffold_mode,label,design_audit
+row_id,category_slug,category_title,prompt,provider,model_id,thinking_level,max_turns,max_cost_usd,label,design_audit
 ```
 
 ### 6.2 Fill the CSV
@@ -191,7 +191,6 @@ Each row is one dataset generation job.
 | `thinking_level` | Yes | Must be `low`, `med`, or `high`. |
 | `max_turns` | Yes | Positive integer turn cap for the row. |
 | `max_cost_usd` | No | Optional positive per-row USD budget. If blank, the row inherits the batch CLI flag or `ARTICRAFT_MAX_COST_USD`. |
-| `scaffold_mode` | No | Optional `lite` or `strict`. If blank, the row inherits the batch CLI default. |
 | `label` | No | Optional free-form label for your own tracking. |
 | `design_audit` | No | `true` or `false`. If blank, the row inherits the CLI default for the batch. |
 
@@ -204,9 +203,9 @@ Batch CSV v1 notes:
 Example:
 
 ```csv
-row_id,category_slug,category_title,prompt,provider,model_id,thinking_level,max_turns,max_cost_usd,scaffold_mode,label,design_audit
-hinge_01,hinge,Hinge,"Create a steel door hinge with two rectangular leaves and a center pin.",openai,gpt-5.4,high,12,1.5,lite,baseline,true
-hinge_02,hinge,Hinge,"Create a compact cabinet hinge with offset leaves and a short pin.",gemini,gemini-3-flash-preview,med,10,,strict,compact,false
+row_id,category_slug,category_title,prompt,provider,model_id,thinking_level,max_turns,max_cost_usd,label,design_audit
+hinge_01,hinge,Hinge,"Create a steel door hinge with two rectangular leaves and a center pin.",openai,gpt-5.4,high,12,1.5,baseline,true
+hinge_02,hinge,Hinge,"Create a compact cabinet hinge with offset leaves and a short pin.",gemini,gemini-3-flash-preview,med,10,,compact,false
 ```
 
 ### 6.3 Run the first pass
@@ -272,7 +271,7 @@ Important resume rules:
 
 - keep the CSV filename stable so the `batch_spec_id` stays the same
 - keep `row_id` stable; changing or reordering implicit row ids can break resume matching
-- by default, resume rejects spec changes for `category_slug`, `prompt`, `provider`, `model_id`, `thinking_level`, `max_turns`, `max_cost_usd`, `scaffold_mode`, and `design_audit`
+- by default, resume rejects spec changes for `category_slug`, `prompt`, `provider`, `model_id`, `thinking_level`, `max_turns`, `max_cost_usd`, and `design_audit`
 - if a row already produced a durable record but the cached state says `running`, resume reconciles that success instead of rerunning it
 
 You can bypass the spec-compatibility check:
@@ -289,7 +288,7 @@ just resume=true allow_resume_spec_mismatch=true dataset-batch data/batch_specs/
 
 Use `--allow-resume-spec-mismatch` only for deliberate recovery work. It forces the current CSV to reuse the prior run's row allocations even though the row definitions no longer match.
 
-This is the escape hatch for "retry the same row, but with different execution settings." A common example is raising `max_turns` or `max_cost_usd` for failed rows, or switching a failed row to a different `provider`, `model_id`, `thinking_level`, `scaffold_mode`, `prompt`, or `design_audit` setting before resuming.
+This is the escape hatch for "retry the same row, but with different execution settings." A common example is raising `max_turns` or `max_cost_usd` for failed rows, or switching a failed row to a different `provider`, `model_id`, `thinking_level`, `prompt`, or `design_audit` setting before resuming.
 
 Typical override workflow:
 

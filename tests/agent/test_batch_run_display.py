@@ -16,8 +16,6 @@ def _make_display() -> tuple[BatchRunDisplay, StringIO]:
         total_runs=20,
         concurrency=4,
         model_id="gpt-5.4",
-        scaffold_summary="scaffold=lite",
-        show_row_scaffold_mode=False,
         enabled=True,
     )
     return display, buffer

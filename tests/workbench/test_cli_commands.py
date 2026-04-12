@@ -433,7 +433,6 @@ def test_workbench_init_record_command(
     assert provenance["generation"]["model_id"] == "gpt-5.4"
     assert provenance["generation"]["max_turns"] == DEFAULT_MAX_TURNS
     assert provenance["generation"]["max_cost_usd"] == 2.5
-    assert provenance["prompting"]["scaffold_mode"] == "lite"
     assert provenance["run_summary"]["final_status"] == "draft"
 
     workbench = json.loads(
@@ -620,55 +619,7 @@ def test_workbench_init_record_command_accepts_design_audit_override(
     assert f"initialized record_id={record_dir.name}" in capsys.readouterr().out
 
 
-def test_workbench_rerun_record_command_accepts_scaffold_mode_override(
-    fake_agent: None,
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    repo_root = tmp_path
-    exit_code = asyncio.run(
-        runner.run_from_input(
-            "make a coffee machine",
-            prompt_text="make a coffee machine",
-            display_prompt="make a coffee machine",
-            repo_root=repo_root,
-            image_path=None,
-            provider="openai",
-            thinking_level="high",
-            max_turns=30,
-            system_prompt_path="designer_system_prompt.txt",
-            sdk_package="sdk",
-            sdk_docs_mode="full",
-            label="coffee rerun",
-            tags=["coffee"],
-        )
-    )
-    assert exit_code == 0
-    capsys.readouterr()
-
-    record_dir = next((repo_root / "data" / "records").iterdir())
-    assert (
-        workbench_main(
-            [
-                "--repo-root",
-                str(repo_root),
-                "rerun-record",
-                str(record_dir),
-                "--scaffold-mode",
-                "strict",
-            ]
-        )
-        == 0
-    )
-
-    provenance = json.loads((record_dir / "provenance.json").read_text(encoding="utf-8"))
-    assert provenance["prompting"]["scaffold_mode"] == "strict"
-    output = capsys.readouterr().out
-    assert f"reran record_id={record_dir.name}" in output
-    assert "search_index=" in output
-
-
-def test_workbench_init_record_command_accepts_scaffold_mode_override(
+def test_workbench_init_record_command_uses_single_scaffold(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -687,8 +638,6 @@ def test_workbench_init_record_command_accepts_scaffold_mode_override(
                 "gpt-5.4",
                 "--thinking-level",
                 "high",
-                "--scaffold-mode",
-                "strict",
             ]
         )
         == 0
@@ -696,10 +645,8 @@ def test_workbench_init_record_command_accepts_scaffold_mode_override(
 
     record_dir = next((repo_root / "data" / "records").iterdir())
     model_text = (record_dir / "model.py").read_text(encoding="utf-8")
-    provenance = json.loads((record_dir / "provenance.json").read_text(encoding="utf-8"))
 
-    assert "with ctx.pose({lid_hinge: hinge_limits.lower}):" in model_text
-    assert provenance["prompting"]["scaffold_mode"] == "strict"
+    assert "with ctx.pose({lid_hinge: hinge_limits.lower}):" not in model_text
     assert f"initialized record_id={record_dir.name}" in capsys.readouterr().out
 
 

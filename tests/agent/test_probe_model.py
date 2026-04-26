@@ -177,6 +177,7 @@ def test_probe_model_returns_structured_measurements(tmp_path: Path) -> None:
     )
 
     assert output["ok"] is True
+    assert "elapsed_ms" not in output
     result = output["result"]
     assert isinstance(result, dict)
     assert result["part_names"] == ["panel", "keys", "arm"]
@@ -199,6 +200,7 @@ def test_probe_model_captures_stdout_when_requested(tmp_path: Path) -> None:
     )
 
     assert output["ok"] is True
+    assert "elapsed_ms" not in output
     assert "debug line" in output["stdout"]
 
 
@@ -460,3 +462,37 @@ def test_probe_model_supports_floating_origin_pose_values(tmp_path: Path) -> Non
     assert result["summary"]["pose_value_kind"] == "origin"
     assert result["before"] == [0.3, 0.0, 0.0]
     assert result["after"] == [0.4, 0.2, 0.3]
+
+
+def test_probe_model_omits_null_placeholders_and_duplicate_mount_offsets(tmp_path: Path) -> None:
+    script_path = tmp_path / "model.py"
+    _write_probe_fixture(script_path)
+
+    output = asyncio.run(
+        _run_probe(
+            script_path,
+            "\n".join(
+                [
+                    "panel = part('panel')",
+                    "knob = visual('panel', 'knob')",
+                    "emit({",
+                    "    'part_summary': summary(panel),",
+                    "    'visual_summary': summary(knob),",
+                    "    'mount': mount_report(knob, panel),",
+                    "})",
+                ]
+            ),
+        )
+    )
+
+    assert output["ok"] is True
+    result = output["result"]
+    part_summary = result["part_summary"]
+    visual_summary = result["visual_summary"]
+    mount = result["mount"]
+
+    assert "parent_part" not in part_summary
+    assert part_summary["visual_names"] == ["panel_body", "knob"]
+    assert visual_summary["parent_part"] == "panel"
+    assert "visual_names" not in visual_summary
+    assert "center_offset_xy" not in mount

@@ -268,19 +268,19 @@ class ProbeSession:
                 summary["pose_value_kind"] = "origin"
             return summary
         target = self._resolve_target(obj)
-        parent_name = None if target["visual"] is None else self.name(target["part"])
-        return {
+        summary = {
             "kind": "visual" if target["visual"] is not None else "part",
             "name": self.name(target["visual"] or target["part"]),
-            "parent_part": parent_name,
             "position": self.position(target["visual"] or target["part"]),
             "center": self.center(target["visual"] or target["part"]),
             "dims": self.dims(target["visual"] or target["part"]),
             "aabb": self.aabb(target["visual"] or target["part"]),
-            "visual_names": [self.name(visual) for visual in self.visuals(target["part"])]
-            if target["visual"] is None
-            else None,
         }
+        if target["visual"] is not None:
+            summary["parent_part"] = self.name(target["part"])
+        else:
+            summary["visual_names"] = [self.name(visual) for visual in self.visuals(target["part"])]
+        return summary
 
     def pair_report(
         self,
@@ -497,14 +497,6 @@ class ProbeSession:
             positive_elem=elem_a,
             negative_elem=elem_b,
         )
-        child_center = self.center(elem_a or child)
-        parent_center = self.center(elem_b or parent)
-        center_offset_xy = None
-        if child_center is not None and parent_center is not None:
-            center_offset_xy = [
-                float(child_center[0] - parent_center[0]),
-                float(child_center[1] - parent_center[1]),
-            ]
         looks_mounted = bool(within_xy["within"]) and float(gap_z["gap"]) <= 0.02
         return {
             "metric_kind": "mount_review",
@@ -514,7 +506,6 @@ class ProbeSession:
             "within_xy": within_xy,
             "gap_z": gap_z,
             "pair": pair,
-            "center_offset_xy": center_offset_xy,
         }
 
     def containment_report(

@@ -502,13 +502,13 @@ function parseProbeModelCode(raw: string): string | null {
 /** Parse probe_model tool result into structured fields. */
 function parseProbeModelResult(
   raw: string,
-): { ok: boolean; elapsedMs: number; result: unknown } | null {
+): { ok: boolean; elapsedMs?: number; result: unknown } | null {
   try {
     const outer = JSON.parse(raw) as Record<string, unknown>;
     const inner = asRecord(outer.result);
     if (!inner) return null;
     const ok = typeof inner.ok === "boolean" ? inner.ok : true;
-    const elapsedMs = typeof inner.elapsed_ms === "number" ? inner.elapsed_ms : 0;
+    const elapsedMs = typeof inner.elapsed_ms === "number" ? inner.elapsed_ms : undefined;
     return { ok, elapsedMs, result: inner.result ?? inner.error ?? null };
   } catch {
     return null;
@@ -890,9 +890,11 @@ function ToolEvent({
             <Badge variant={parsed.ok ? "success" : "destructive"}>
               {parsed.ok ? "ok" : "error"}
             </Badge>
-            <span className="font-mono text-[10px] text-[var(--text-quaternary)]">
-              {parsed.elapsedMs.toFixed(0)}ms
-            </span>
+            {typeof parsed.elapsedMs === "number" ? (
+              <span className="font-mono text-[10px] text-[var(--text-quaternary)]">
+                {parsed.elapsedMs.toFixed(0)}ms
+              </span>
+            ) : null}
           </div>
           <CodeBlock code={resultJson} maxHeight="max-h-80" />
         </div>

@@ -57,7 +57,6 @@ class ProbeModelInvocation(BoundFileToolInvocation[ProbeModelParams, dict[str, o
             "code": self.params.code,
         }
         repo_root = Path(__file__).resolve().parents[3]
-        started = asyncio.get_running_loop().time()
         async with local_work_slot(self.runtime_limits):
             process = await asyncio.create_subprocess_exec(
                 sys.executable,
@@ -76,7 +75,6 @@ class ProbeModelInvocation(BoundFileToolInvocation[ProbeModelParams, dict[str, o
             except asyncio.TimeoutError:
                 process.kill()
                 await process.communicate()
-                elapsed_ms = (asyncio.get_running_loop().time() - started) * 1000.0
                 return ToolResult(
                     output={
                         "ok": False,
@@ -84,13 +82,11 @@ class ProbeModelInvocation(BoundFileToolInvocation[ProbeModelParams, dict[str, o
                             "type": "timeout",
                             "message": f"probe_model timed out after {self.params.timeout_ms} ms",
                         },
-                        "elapsed_ms": float(elapsed_ms),
                     },
                 )
 
         stdout_text = stdout_bytes.decode("utf-8", errors="replace").strip()
         stderr_text = stderr_bytes.decode("utf-8", errors="replace").strip()
-        elapsed_ms = (asyncio.get_running_loop().time() - started) * 1000.0
         if process.returncode not in (0, None):
             payload = {
                 "ok": False,
@@ -144,7 +140,6 @@ class ProbeModelInvocation(BoundFileToolInvocation[ProbeModelParams, dict[str, o
                 "runner_stdout": stdout_text,
                 "runner_stderr": stderr_text,
             }
-        payload.setdefault("elapsed_ms", float(elapsed_ms))
         if stderr_text and "stderr" not in payload:
             payload["stderr"] = stderr_text
         if not self.params.include_stdout:

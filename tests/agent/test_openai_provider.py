@@ -9,6 +9,7 @@ import pytest
 
 from agent.providers.openai import (
     DEFAULT_OPENAI_COMPACTION_MODEL,
+    DEFAULT_OPENAI_MODEL,
     OpenAILLM,
     _OpenAIWebSocketError,
     openai_api_key_from_env,
@@ -214,6 +215,13 @@ def test_openai_default_request_timeout_is_15_minutes(
     provider = OpenAILLM(dry_run=True)
 
     assert provider.request_timeout_seconds == 900.0
+
+
+def test_openai_default_model_is_latest_snapshot() -> None:
+    provider = OpenAILLM(dry_run=True)
+
+    assert DEFAULT_OPENAI_MODEL == "gpt-5.5-2026-04-23"
+    assert provider.model_id == "gpt-5.5-2026-04-23"
 
 
 def test_openai_default_compaction_model_is_mini() -> None:

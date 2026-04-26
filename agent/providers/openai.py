@@ -35,7 +35,8 @@ except Exception:  # pragma: no cover
 logger = logging.getLogger(__name__)
 
 
-_GPT_5_4_DANGER_ZONE_TOKENS = 272_000
+DEFAULT_OPENAI_MODEL = "gpt-5.5-2026-04-23"
+_GPT_5_4_AND_5_5_DANGER_ZONE_TOKENS = 272_000
 _GPT_5_2_AND_5_3_CODEX_DANGER_ZONE_TOKENS = 280_000
 DEFAULT_OPENAI_COMPACTION_MODEL = "gpt-5.4-mini"
 
@@ -155,7 +156,7 @@ class OpenAILLM:
 
     def __init__(
         self,
-        model_id: str = "gpt-5.4",
+        model_id: str = DEFAULT_OPENAI_MODEL,
         *,
         compaction_model_id: Optional[str] = None,
         thinking_level: str = "high",
@@ -1279,8 +1280,8 @@ def _is_user_message_item(item: Any) -> bool:
 
 def _hard_pressure_threshold_for_model(model_id: str) -> int | None:
     normalized = (model_id or "").strip().lower()
-    if normalized.startswith("gpt-5.4"):
-        return _GPT_5_4_DANGER_ZONE_TOKENS
+    if normalized.startswith("gpt-5.4") or normalized.startswith("gpt-5.5"):
+        return _GPT_5_4_AND_5_5_DANGER_ZONE_TOKENS
     if normalized.startswith("gpt-5.2") or normalized.startswith("gpt-5.3-codex"):
         return _GPT_5_2_AND_5_3_CODEX_DANGER_ZONE_TOKENS
     return None

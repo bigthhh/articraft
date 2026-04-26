@@ -679,6 +679,8 @@ def test_workbench_init_record_command_persists_input_image(
     record_dir = records[0]
 
     assert (record_dir / "inputs" / image_path.name).read_bytes() == image_path.read_bytes()
+    record = json.loads((record_dir / "record.json").read_text(encoding="utf-8"))
+    assert record["model_id"] == "gpt-5.5-2026-04-23"
 
     captured = capsys.readouterr().out
     assert f"initialized record_id={record_dir.name}" in captured

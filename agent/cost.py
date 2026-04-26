@@ -271,13 +271,17 @@ def is_gpt_5_4_model(model_id: str) -> bool:
     return model_id.strip().lower().startswith("gpt-5.4")
 
 
+def is_gpt_5_5_model(model_id: str) -> bool:
+    return model_id.strip().lower().startswith("gpt-5.5")
+
+
 def pricing_for_provider_model(provider: str, model_id: str) -> dict[str, float] | None:
     provider_norm = (provider or "").strip().lower()
     if provider_norm == "gemini" and is_flash_model(model_id):
         return GEMINI_FLASH_PRICING
     if provider_norm == "gemini" and is_gemini_3_pro_model(model_id):
         return GEMINI_3_PRO_PRICING
-    if provider_norm == "openai" and is_gpt_5_4_model(model_id):
+    if provider_norm == "openai" and (is_gpt_5_4_model(model_id) or is_gpt_5_5_model(model_id)):
         return OPENAI_GPT_5_4_PRICING
     if provider_norm == "openai" and (
         is_gpt_5_3_codex_model(model_id) or is_gpt_5_2_model(model_id)

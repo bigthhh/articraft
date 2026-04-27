@@ -149,6 +149,8 @@ Visual(
 - `geometry`: visible geometry descriptor.
 - `origin`: local transform of this visual on its part.
 - `material`: either a `Material` object or a registered material name.
+- Material assignment is per visual. Mesh subregions do not receive separate SDK
+  materials unless they are authored as separate visuals.
 - `color`: when adding visuals through `Part.visual(...)`, accepted as a
   compatibility alias for `material`; prefer `material` in new code.
 - `name`: optional visual name. Use this when tests or probe snippets need to

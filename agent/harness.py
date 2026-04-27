@@ -18,7 +18,7 @@ from agent.compiler import (
     compile_urdf_report_maybe_timeout,
     persist_compile_success_artifacts,
 )
-from agent.cost import CostTracker, is_flash_model, pricing_for_provider_model
+from agent.cost import CostTracker, pricing_for_provider_model
 from agent.defaults import resolve_max_turns
 from agent.feedback import (
     compile_signal_bundle_from_exception,
@@ -224,20 +224,6 @@ def _prompt_cache_retention_from_env(*, model_id: str) -> Optional[str]:
     return value
 
 
-def _resolve_post_success_design_audit(
-    *,
-    provider: str,
-    model_id: str,
-    enabled: bool,
-) -> bool:
-    if provider == "gemini" and is_flash_model(model_id):
-        # Gemini Flash tends to turn the extra post-success audit turn into a
-        # redundant verify/probe/compile loop after a clean compile, so keep
-        # the clean-compile exit path direct for Flash runs.
-        return False
-    return bool(enabled)
-
-
 def _log_compile_signals(bundle: CompileSignalBundle) -> None:
     failures = sum(1 for signal in bundle.signals if signal.severity == "failure")
     warnings = sum(1 for signal in bundle.signals if signal.severity == "warning")
@@ -335,7 +321,6 @@ class ArticraftAgent:
         self._seen_baseline_qc_guidance_sigs: set[str] = set()
         self._last_compile_failure_sig: Optional[str] = None
         self._consecutive_compile_failure_count = 0
-        self._post_success_design_audit_sent = False
         self.checkpoint_urdf_path = (
             Path(checkpoint_urdf_path).resolve() if checkpoint_urdf_path else None
         )
@@ -374,11 +359,6 @@ class ArticraftAgent:
 
         actual_model_id = self.llm.model_id
         self.max_turns = resolve_max_turns(model_id=actual_model_id, max_turns=max_turns)
-        self._post_success_design_audit_enabled = _resolve_post_success_design_audit(
-            provider=provider_norm,
-            model_id=actual_model_id,
-            enabled=post_success_design_audit,
-        )
         self.cost_tracker: Optional[CostTracker] = None
         self.max_cost_usd = max_cost_usd
         pricing = pricing_for_provider_model(provider_norm, actual_model_id)
@@ -445,7 +425,6 @@ class ArticraftAgent:
         self._compile_attempt_count = 0
         self._last_compile_failure_sig = None
         self._consecutive_compile_failure_count = 0
-        self._post_success_design_audit_sent = False
         self._seen_exact_geometry_contract_sigs = set()
         self._seen_baseline_qc_guidance_sigs = set()
 
@@ -700,31 +679,6 @@ class ArticraftAgent:
         if self.trace_writer:
             self.trace_writer.write_message(msg)
         return content
-
-    def _maybe_inject_post_success_design_audit(self, conversation: list[dict]) -> bool:
-        if self._post_success_design_audit_sent:
-            return False
-        if not getattr(self, "_post_success_design_audit_enabled", True):
-            return False
-
-        content = (
-            "Compile passed. Do one brief final visual audit before concluding.\n\n"
-            "<design_audit>\n"
-            "- Focus on visual realism first: silhouette, proportions, and the prompt's defining features.\n"
-            "- Upgrade geometry only where an obvious placeholder box/cylinder should read as curved, tapered, or sculpted.\n"
-            "- Check materials and colors only if they still read as placeholder defaults.\n"
-            "- Do not add more tests or `probe_model` calls unless something looks clearly wrong or ambiguous.\n"
-            "</design_audit>\n\n"
-            "<instructions>\n"
-            "If you see a clear visual weakness, revise it now. If the object already looks convincing, conclude immediately.\n"
-            "</instructions>"
-        )
-        msg = {"role": "user", "content": content}
-        conversation.append(msg)
-        self._post_success_design_audit_sent = True
-        if self.trace_writer:
-            self.trace_writer.write_message(msg)
-        return True
 
     async def _compile_urdf_report_async(self) -> CompileReport:
         async with local_work_slot(self.runtime_limits):
@@ -1411,7 +1365,7 @@ class ArticraftAgent:
                         if isinstance(maintenance_event, dict):
                             self._record_maintenance_event(maintenance_event)
                     compaction_event = getattr(prepare_result, "compaction_event", None)
-                    if compaction_event is not None and self.cost_tracker:
+                    if compaction_event is not None:
                         compaction_payload = compaction_event.to_dict()
                         maintenance_cost_usd = self._record_maintenance_event(compaction_payload)
                         usage = compaction_payload.get("usage")

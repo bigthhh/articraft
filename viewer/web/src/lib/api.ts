@@ -70,7 +70,7 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export async function fetchBootstrap(): Promise<ViewerBootstrap> {
-  return fetchJson<ViewerBootstrap>("/api/bootstrap");
+  return fetchJson<ViewerBootstrap>("/api/bootstrap?include_dataset_entries=false");
 }
 
 export async function fetchRepoStats(): Promise<RepoStats> {

@@ -14,7 +14,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { Inspector } from "@/components/layout/Inspector";
 import { ViewportPanel } from "@/components/layout/ViewportPanel";
 import { InspectorTabs } from "@/components/inspector/InspectorTabs";
-import type { RenderOptions as InspectorRenderOptions } from "@/components/inspector/RenderOptionsPanel";
+import type { RenderOptions as InspectorRenderOptions } from "@/components/viewer3d/useRenderOptions";
 import { RecordBrowser } from "@/components/browser/RecordBrowser";
 import { Button } from "@/components/ui/button";
 import { useRenderOptions } from "@/components/viewer3d/useRenderOptions";
@@ -546,6 +546,15 @@ export default function ViewerShell(): JSX.Element {
         detail: hasPartialFailures
           ? "Some collision meshes are unavailable, but partial collision geometry is still loaded."
           : "Collision geometry is available for this asset.",
+        compileCommand: null,
+      };
+    }
+
+    if (meshCount > 0 && failedMeshCount === 0) {
+      return {
+        available: true,
+        summary: `${meshCount} collision ${meshCount === 1 ? "mesh" : "meshes"} available`,
+        detail: "Collision meshes will load when collision rendering is enabled.",
         compileCommand: null,
       };
     }

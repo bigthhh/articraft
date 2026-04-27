@@ -62,7 +62,7 @@ class SuccessBatchAgent:
                 repo_root=Path(__file__).resolve().parents[2],
             )
         )
-        self.llm = type("LLM", (), {"model_id": model_id or "gpt-5.4"})()
+        self.llm = type("LLM", (), {"model_id": model_id or "gpt-5.5-2026-04-23"})()
 
     async def __aenter__(self) -> "SuccessBatchAgent":
         return self

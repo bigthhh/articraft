@@ -6,6 +6,15 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+SMOKE_TEST_TARGETS = (
+    "tests/agent",
+    "tests/storage",
+    "tests/viewer/test_api.py",
+    "tests/workbench",
+    "tests/dataset/test_imports.py",
+    "tests/sdk/test_imports.py",
+    "tests/scripts/test_pre_commit_hooks.py",
+)
 FORBIDDEN_PATHS = (
     re.compile(r"(^|/)\.env(?!\.example)(\..*)?$"),
     re.compile(r"^data/cache/"),
@@ -82,7 +91,7 @@ def detect_secrets(paths: list[str]) -> int:
 
 def run_smoke_tests() -> int:
     result = subprocess.run(
-        ["uv", "run", "--group", "dev", "pytest", "-q"],
+        ["uv", "run", "--group", "dev", "pytest", "-q", *SMOKE_TEST_TARGETS],
         cwd=REPO_ROOT,
         check=False,
     )

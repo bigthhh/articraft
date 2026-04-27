@@ -40,7 +40,7 @@ repos:
         pass_filenames: false
         files: ^viewer/web/
       - id: smoke-tests
-        name: smoke tests
+        name: push smoke tests
         entry: uv run python scripts/pre_commit_hooks.py smoke-tests
         language: system
         pass_filenames: false

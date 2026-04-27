@@ -59,7 +59,15 @@ def test_run_smoke_tests_invokes_pytest(monkeypatch: pytest.MonkeyPatch) -> None
     assert exit_code == 0
     assert calls == [
         (
-            ["uv", "run", "--group", "dev", "pytest", "-q"],
+            [
+                "uv",
+                "run",
+                "--group",
+                "dev",
+                "pytest",
+                "-q",
+                *pre_commit_hooks.SMOKE_TEST_TARGETS,
+            ],
             pre_commit_hooks.REPO_ROOT,
             False,
         )

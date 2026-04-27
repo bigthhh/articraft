@@ -16,7 +16,7 @@ const PREVIEW_STAGING_ENTRY: StagingEntry = {
   collection: "preview",
   category_slug: "furniture",
   provider: "openai",
-  model_id: "gpt-5.4",
+  model_id: "gpt-5.5-2026-04-23",
   thinking_level: "high",
   sdk_package: "sdk",
   turn_count: 7,

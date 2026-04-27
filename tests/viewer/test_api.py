@@ -665,6 +665,10 @@ def test_viewer_api_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
         "dj_dataset_001",
         "hinge_dataset_001",
     ]
+    lean_bootstrap = client.get("/api/bootstrap?include_dataset_entries=false").json()
+    assert lean_bootstrap["repo_root"] == repo_root.resolve().as_posix()
+    assert len(lean_bootstrap["workbench_entries"]) == 3
+    assert lean_bootstrap["dataset_entries"] == []
     assert len(bootstrap["staging_entries"]) == 1
     assert len(bootstrap["runs"]) == 2
     assert bootstrap["staging_entries"][0]["run_id"] == "run_live_001"
@@ -1080,6 +1084,10 @@ def test_viewer_api_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     mesh_file = client.get("/api/records/rec_001/files/assets/meshes/part.obj")
     assert mesh_file.status_code == 200
     assert "v 1 0 0" in mesh_file.text
+    assert mesh_file.headers["cache-control"] == "no-store"
+    revisioned_mesh_file = client.get("/api/records/rec_001/files/assets/meshes/part.obj?rev=test")
+    assert revisioned_mesh_file.status_code == 200
+    assert revisioned_mesh_file.headers["cache-control"] == "public, max-age=31536000, immutable"
 
     staging_urdf = client.get("/api/staging/run_live_001/rec_stage_001/files/model.urdf")
     assert staging_urdf.status_code == 200
@@ -1090,6 +1098,12 @@ def test_viewer_api_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     )
     assert staging_mesh.status_code == 200
     assert "v 1 0 0" in staging_mesh.text
+    assert staging_mesh.headers["cache-control"] == "no-store"
+    revisioned_staging_mesh = client.get(
+        "/api/staging/run_live_001/rec_stage_001/files/assets/meshes/preview.obj?rev=test"
+    )
+    assert revisioned_staging_mesh.status_code == 200
+    assert revisioned_staging_mesh.headers["cache-control"] == "public, max-age=31536000, immutable"
 
     staging_prompt = client.get("/api/staging/run_live_001/rec_stage_001/text/prompt.txt")
     assert staging_prompt.status_code == 200

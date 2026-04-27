@@ -14,9 +14,10 @@ When a `just` recipe supports optional settings, pass them as overrides before t
 - `uv run articraft-dataset --repo-root . run-batch data/batch_specs/<batch-id>.csv --concurrency 8 --resume` resumes the latest prior run for that batch spec.
 - `uv run articraft-workbench --repo-root . status` inspects the workbench store state.
 - `uv run uvicorn viewer.api.app:app --reload --host 127.0.0.1 --port 8765` starts the local API directly.
-- `uv run --group dev pytest -q` runs the current smoke-test suite.
+- `uv run --group dev pytest -q` runs the full Python regression suite.
 - `just setup` handles first-time repo setup and storage initialization.
-- `just smoke-tests` runs the smoke-test suite.
+- `just smoke-tests` runs the fast pre-push smoke suite.
+- `just test-all` runs the full Python regression suite.
 - `just compile-all` is the recommended path before `just viewer`; it now uses the faster visual-only bulk materialization path for viewer assets.
 - `just compile-all-full` runs the non-strict full bulk compile path when you need collision-inclusive URDFs without the validation-heavy strict checks.
 - `just compile-all-strict` runs the validation-heavy full compile path.
@@ -41,7 +42,7 @@ Tests run under `pytest`. Add new coverage under the mirrored package path, name
 Recent commits use short, imperative subjects such as `Move prompt compiler under agent` and `Consolidate SDK around canonical core profiles`. Keep commit titles concise and scoped to one logical change. PRs should describe the affected surface (`agent`, `storage`, `sdk`, or `viewer`), include the exact `uv` commands run, and attach screenshots only when API or viewer behavior changes.
 
 ## Configuration Tips
-Provider code loads environment variables from `.env`. Set `OPENAI_API_KEYS` (preferred) or `OPENAI_API_KEY` for OpenAI flows and `GEMINI_API_KEYS` for Gemini flows before running the agent runtime. Dataset batch specs live under `data/batch_specs/`; each row sets its own `provider`, `model_id`, `thinking_level`, `max_turns`, and `sdk_package`, while `concurrency` is supplied at invocation time.
+Provider code loads environment variables from `.env`. Set `OPENAI_API_KEYS` (preferred) or `OPENAI_API_KEY` for OpenAI flows and `GEMINI_API_KEYS` for Gemini flows before running the agent runtime. Dataset batch specs live under `data/batch_specs/`; each row sets its own `provider`, `model_id`, `thinking_level`, `max_turns`, and `sdk_package`, while `concurrency` is supplied at invocation time. Do not enable design audit in new agent or dataset flows; it is no longer supported. For new dataset batch specs, leave per-row cost caps blank unless explicitly requested and use `max_turns=100` by default.
 
 ## Agent Docs Contract
 The SDK docs under `sdk/_docs/` are part of the agent authoring contract in this repository. Keep them aligned with the intended agent behavior and baseline compile/tooling policy; do not document agent-facing workflows there that the harness is supposed to own automatically.

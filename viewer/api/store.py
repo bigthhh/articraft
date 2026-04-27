@@ -1112,6 +1112,8 @@ class ViewerStore:
     def list_dataset_entries(
         self,
         summary_cache: dict[str, RecordSummaryResponse | None] | None = None,
+        *,
+        include_records: bool = True,
     ) -> list[DatasetEntryResponse]:
         entries: list[DatasetEntryResponse] = []
         for item in self.datasets.list_entries():
@@ -1127,7 +1129,11 @@ class ViewerStore:
                     dataset_id=dataset_id,
                     category_slug=category_slug,
                     promoted_at=promoted_at,
-                    record=self._record_summary(record_id, summary_cache=summary_cache),
+                    record=(
+                        self._record_summary(record_id, summary_cache=summary_cache)
+                        if include_records
+                        else None
+                    ),
                 )
             )
         return entries
@@ -2035,13 +2041,20 @@ class ViewerStore:
             records=records,
         )
 
-    def bootstrap(self) -> ViewerBootstrapResponse:
+    def bootstrap(self, *, include_dataset_entries: bool = True) -> ViewerBootstrapResponse:
         summary_cache: dict[str, RecordSummaryResponse | None] = {}
         return ViewerBootstrapResponse(
             repo_root=self.repo_root.as_posix(),
             generated_at=_utc_now(),
             workbench_entries=self.list_workbench_entries(summary_cache=summary_cache),
-            dataset_entries=self.list_dataset_entries(summary_cache=summary_cache),
+            dataset_entries=(
+                self.list_dataset_entries(
+                    summary_cache=summary_cache,
+                    include_records=False,
+                )
+                if include_dataset_entries
+                else []
+            ),
             staging_entries=self.list_staging_entries(summary_cache=summary_cache),
             runs=self.list_runs(),
             supercategories=self.list_supercategories(),

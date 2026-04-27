@@ -53,6 +53,16 @@ lint:
     uv run ruff check .
 
 smoke-tests:
+    uv run --group dev pytest -q \
+      tests/agent \
+      tests/storage \
+      tests/viewer/test_api.py \
+      tests/workbench \
+      tests/dataset/test_imports.py \
+      tests/sdk/test_imports.py \
+      tests/scripts/test_pre_commit_hooks.py
+
+test-all:
     uv run --group dev pytest -q
 
 perf:
@@ -67,7 +77,7 @@ wb prompt:
     design_audit={{ quote(design_audit) }}
     max_cost_usd_value={{ quote(max_cost_usd) }}
     if [ -z "$model" ]; then
-      model="gpt-5.4"
+      model="gpt-5.5-2026-04-23"
     fi
     if [ -z "$thinking" ]; then
       thinking="high"
@@ -114,7 +124,7 @@ wb-init prompt:
     design_audit={{ quote(design_audit) }}
     max_cost_usd_value={{ quote(max_cost_usd) }}
     if [ -z "$model" ]; then
-      model="gpt-5.4"
+      model="gpt-5.5-2026-04-23"
     fi
     if [ -z "$thinking" ]; then
       thinking="high"
@@ -168,7 +178,7 @@ wb-category prompt:
       exit 1
     fi
     if [ -z "$model" ]; then
-      model="gpt-5.4"
+      model="gpt-5.5-2026-04-23"
     fi
     if [ -z "$thinking" ]; then
       thinking="high"

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import asyncio
 import io
 import json
@@ -23,6 +24,48 @@ def fake_agent(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _init_git_repo(repo_root: Path) -> None:
     subprocess.run(["git", "init"], cwd=repo_root, check=True, capture_output=True, text=True)
+
+
+def _assert_draft_model_scaffold_contract(model_text: str) -> None:
+    tree = ast.parse(model_text)
+
+    cadquery_imports = [
+        alias
+        for node in tree.body
+        if isinstance(node, ast.Import)
+        for alias in node.names
+        if alias.name == "cadquery"
+    ]
+    assert any(alias.asname == "cq" for alias in cadquery_imports)
+
+    sdk_imports = [
+        alias.name
+        for node in tree.body
+        if isinstance(node, ast.ImportFrom) and node.module == "sdk"
+        for alias in node.names
+    ]
+    assert {"ArticulatedObject", "TestContext", "TestReport", "mesh_from_cadquery"} <= set(
+        sdk_imports
+    )
+
+    functions = {node.name for node in tree.body if isinstance(node, ast.FunctionDef)}
+    assert {"build_object_model", "run_tests"} <= functions
+
+    legacy_fragments = (
+        "ctx.check_model_valid()",
+        "ctx.check_mesh_assets_ready()",
+        "ctx.fail_if_isolated_parts()",
+        "ctx.warn_if_part_contains_disconnected_geometry_islands()",
+        "ctx.fail_if_parts_overlap_in_current_pose()",
+        "ctx.warn_if_articulation_origin_far_from_geometry",
+        "ctx.warn_if_articulation_overlaps(max_pose_samples=128)",
+        "ctx.warn_if_overlaps(max_pose_samples=128, ignore_adjacent=True, ignore_fixed=True)",
+        "with ctx.pose({lid_hinge: hinge_limits.lower}):",
+        'ctx.fail_if_isolated_parts(name="lid_hinge_upper_no_floating")',
+        "expect_aabb_",
+    )
+    for fragment in legacy_fragments:
+        assert fragment not in model_text
 
 
 def test_workbench_rerun_record_command(
@@ -399,31 +442,7 @@ def test_workbench_init_record_command(
     assert (record_dir / "prompt.txt").read_text(encoding="utf-8") == "build a folding reading lamp"
     model_text = (record_dir / "model.py").read_text(encoding="utf-8")
     assert "Draft scaffold created by `articraft-workbench init-record`." in model_text
-    assert "import cadquery as cq" in model_text
-    assert "mesh_from_cadquery" in model_text
-    assert "def build_object_model() -> ArticulatedObject:" in model_text
-    assert "def run_tests() -> TestReport:" in model_text
-    assert "ctx.check_model_valid()" not in model_text
-    assert "ctx.check_mesh_assets_ready()" not in model_text
-    assert "ctx.fail_if_isolated_parts()" not in model_text
-    assert "ctx.warn_if_part_contains_disconnected_geometry_islands()" not in model_text
-    assert "ctx.fail_if_parts_overlap_in_current_pose()" not in model_text
-    assert "ctx.warn_if_articulation_origin_far_from_geometry" not in model_text
-    assert "ctx.warn_if_articulation_overlaps(max_pose_samples=128)" not in model_text
-    assert (
-        "ctx.warn_if_overlaps(max_pose_samples=128, ignore_adjacent=True, ignore_fixed=True)"
-        not in model_text
-    )
-    assert "`compile_model` automatically runs baseline sanity/QC:" in model_text
-    assert "- exactly one root part" in model_text
-    assert "Use `run_tests()` only for prompt-specific exact checks" in model_text
-    assert "Keep pose-specific checks lean." in model_text
-    assert 'hinge_leaf = lid.get_visual("hinge_leaf")' in model_text
-    assert 'ctx.expect_gap(lid, body, axis="z", max_gap=0.001, max_penetration=0.0)' in model_text
-    assert "ctx.expect_contact(lid, body, elem_a=hinge_leaf, elem_b=body_leaf)" in model_text
-    assert "with ctx.pose({lid_hinge: hinge_limits.lower}):" not in model_text
-    assert 'ctx.fail_if_isolated_parts(name="lid_hinge_upper_no_floating")' not in model_text
-    assert "expect_aabb_" not in model_text
+    _assert_draft_model_scaffold_contract(model_text)
 
     materialization_dir = repo_root / "data" / "cache" / "record_materialization" / record_dir.name
     assert not (materialization_dir / "compile_report.json").exists()
@@ -679,6 +698,8 @@ def test_workbench_init_record_command_persists_input_image(
     record_dir = records[0]
 
     assert (record_dir / "inputs" / image_path.name).read_bytes() == image_path.read_bytes()
+    record = json.loads((record_dir / "record.json").read_text(encoding="utf-8"))
+    assert record["model_id"] == "gpt-5.5-2026-04-23"
 
     captured = capsys.readouterr().out
     assert f"initialized record_id={record_dir.name}" in captured

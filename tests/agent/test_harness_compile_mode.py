@@ -137,30 +137,6 @@ def test_execute_compile_model_reuses_cached_success_for_current_revision() -> N
     assert "Treat that compile result as authoritative" in str(second.output)
 
 
-def test_flash_model_disables_post_success_design_audit_by_default(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    class _FlashLLM:
-        model_id = "gemini-3-flash-preview"
-
-        def __init__(self, *args: object, **kwargs: object) -> None:
-            return None
-
-        async def close(self) -> None:
-            return None
-
-    monkeypatch.setattr(harness, "GeminiLLM", _FlashLLM)
-
-    agent = ArticraftAgent(
-        file_path=str(tmp_path / "model.py"),
-        provider="gemini",
-        display_enabled=False,
-    )
-
-    assert agent._post_success_design_audit_enabled is False
-
-
 def test_execute_compile_model_failure_leaves_latest_revision_stale() -> None:
     agent = ArticraftAgent.__new__(ArticraftAgent)
     agent._current_edit_revision = 1
@@ -376,7 +352,7 @@ def test_run_keeps_pasted_code_in_conversation_without_recovery_messages(
     )
 
 
-def test_mark_code_mutated_invalidates_fresh_compile_without_rearming_audit() -> None:
+def test_mark_code_mutated_invalidates_fresh_compile() -> None:
     agent = ArticraftAgent.__new__(ArticraftAgent)
     agent._current_edit_revision = 3
     agent._last_successful_compile_revision = 3
@@ -385,13 +361,11 @@ def test_mark_code_mutated_invalidates_fresh_compile_without_rearming_audit() ->
         warnings=[],
         signal_bundle=build_compile_signal_bundle(status="success"),
     )
-    agent._post_success_design_audit_sent = True
 
     agent._mark_code_mutated("replace")
 
     assert agent._current_edit_revision == 4
     assert agent._latest_code_is_fresh() is False
-    assert agent._post_success_design_audit_sent is True
 
 
 def test_run_requires_compile_model_before_concluding_without_design_audit(

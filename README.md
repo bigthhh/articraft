@@ -102,7 +102,7 @@ This saves a generated record into the local workbench.
 If you do not pass overrides, `just wb` defaults to:
 
 ```bash
-model=gpt-5.4
+model=gpt-5.5-2026-04-23
 thinking=high
 ```
 
@@ -113,7 +113,7 @@ To change either setting, pass overrides on the same command:
 just model=gemini-3-flash-preview wb "Create a compact desk fan with adjustable tilt."
 
 # Change both model and prompt together
-just model=gpt-5.4 wb "Create a compact desk fan with adjustable tilt."
+just model=gpt-5.5-2026-04-23 wb "Create a compact desk fan with adjustable tilt."
 ```
 
 To stop a run after it exceeds a USD budget, pass `max_cost_usd=...`:
@@ -139,7 +139,7 @@ uv run articraft-dataset --repo-root . run-single \
   "Create a backyard gas grill with a wheeled lower cart, a rectangular cookbox, side shelves, a front control panel, and a domed lid hinged along the rear edge of the cookbox." \
   --category-slug grill_with_hinged_lid \
   --provider openai \
-  --model-id gpt-5.4 \
+  --model-id gpt-5.5-2026-04-23 \
   --thinking-level high \
   --max-cost-usd 2.0
 ```
@@ -382,7 +382,7 @@ Generate with overrides:
 ```bash
 just model=gemini-3-flash-preview wb "Create a compact tabletop fan with an oscillating head and tilt adjustment."
 just image=reference.png wb "Create a weighted desk lamp with articulated arms."
-just model=gpt-5.4 thinking=high image=reference.png wb "Create a tower crane with a rotating top and suspended hook."
+just model=gpt-5.5-2026-04-23 thinking=high image=reference.png wb "Create a tower crane with a rotating top and suspended hook."
 ```
 
 Run a batch directly with `uv`:

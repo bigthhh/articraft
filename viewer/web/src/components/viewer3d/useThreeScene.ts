@@ -59,6 +59,7 @@ export function useThreeScene(
   const frameIdRef = useRef<number>(0);
   const lastFrameTimeRef = useRef<number | null>(null);
   const continuousRenderRef = useRef(Boolean(options.continuousRender));
+  const needsRenderRef = useRef(false);
   const invalidateRef = useRef<() => void>(() => {});
 
   useEffect(() => {
@@ -129,8 +130,10 @@ export function useThreeScene(
         lastFrameTimeRef.current == null ? null : (now - lastFrameTimeRef.current) / 1000;
       lastFrameTimeRef.current = now;
 
+      const hadInvalidation = needsRenderRef.current;
+      needsRenderRef.current = false;
       const controlsChanged = controls.update(deltaSeconds ?? undefined);
-      if (continuousRenderRef.current || controlsChanged) {
+      if (continuousRenderRef.current || hadInvalidation || controlsChanged) {
         renderScene();
       }
 
@@ -143,10 +146,8 @@ export function useThreeScene(
     };
 
     const invalidate = () => {
-      renderScene();
-      if (continuousRenderRef.current || controls.enableDamping) {
-        requestFrame();
-      }
+      needsRenderRef.current = true;
+      requestFrame();
     };
 
     invalidateRef.current = invalidate;
@@ -198,6 +199,7 @@ export function useThreeScene(
       gridGroupRef.current = null;
       axisGroupRef.current = null;
       lastFrameTimeRef.current = null;
+      needsRenderRef.current = false;
       invalidateRef.current = () => {};
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps

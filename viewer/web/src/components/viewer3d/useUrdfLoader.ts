@@ -163,7 +163,7 @@ export function useUrdfLoader(
             meshCount: meshCollisionCount,
             loadedMeshCount: 0,
             failedMeshCount: 0,
-            loading: meshCollisionCount > 0,
+            loading: false,
           });
         }
 
@@ -258,6 +258,9 @@ export function useUrdfLoader(
       0,
     );
     if (meshCollisionCount === 0) {
+      return;
+    }
+    if (!showCollisionMeshes) {
       return;
     }
     if (collisionMeshesLoadedKeyRef.current === assetKey || collisionMeshesLoadingKeyRef.current === assetKey) {

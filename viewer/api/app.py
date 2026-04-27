@@ -7,7 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
@@ -397,8 +397,8 @@ def create_app(*, repo_root: Path | None = None) -> FastAPI:
         return HealthResponse(status="ok")
 
     @app.get("/api/bootstrap", response_model=ViewerBootstrapResponse)
-    async def bootstrap() -> ViewerBootstrapResponse:
-        return app.state.viewer_store.bootstrap()
+    async def bootstrap(include_dataset_entries: bool = True) -> ViewerBootstrapResponse:
+        return app.state.viewer_store.bootstrap(include_dataset_entries=include_dataset_entries)
 
     @app.get("/api/stats", response_model=RepoStatsResponse)
     async def repo_stats() -> RepoStatsResponse:
@@ -722,7 +722,7 @@ def create_app(*, repo_root: Path | None = None) -> FastAPI:
         )
 
     @app.get("/api/records/{record_id}/files/{file_path:path}")
-    async def record_file(record_id: str, file_path: str) -> FileResponse:
+    async def record_file(record_id: str, file_path: str, request: Request) -> FileResponse:
         """Serve files from a record directory (URDF, assets, code, etc.)"""
         _, target = await resolve_record_target_with_materialization(record_id, file_path)
         suffix = target.suffix.lower()
@@ -731,7 +731,13 @@ def create_app(*, repo_root: Path | None = None) -> FastAPI:
         return FileResponse(
             target,
             media_type=media_type,
-            headers={"Cache-Control": "no-store"},
+            headers={
+                "Cache-Control": (
+                    "public, max-age=31536000, immutable"
+                    if request.query_params.get("rev")
+                    else "no-store"
+                )
+            },
         )
 
     @app.get(
@@ -767,7 +773,12 @@ def create_app(*, repo_root: Path | None = None) -> FastAPI:
         )
 
     @app.get("/api/staging/{run_id}/{record_id}/files/{file_path:path}")
-    async def staging_file(run_id: str, record_id: str, file_path: str) -> FileResponse:
+    async def staging_file(
+        run_id: str,
+        record_id: str,
+        file_path: str,
+        request: Request,
+    ) -> FileResponse:
         _, target = resolve_staging_target(run_id, record_id, file_path)
         suffix = target.suffix.lower()
         media_type = media_type_map.get(suffix, "application/octet-stream")
@@ -775,7 +786,13 @@ def create_app(*, repo_root: Path | None = None) -> FastAPI:
         return FileResponse(
             target,
             media_type=media_type,
-            headers={"Cache-Control": "no-store"},
+            headers={
+                "Cache-Control": (
+                    "public, max-age=31536000, immutable"
+                    if request.query_params.get("rev")
+                    else "no-store"
+                )
+            },
         )
 
     @app.get("/api/records/{record_id}/traces/{file_path:path}")
@@ -798,7 +815,10 @@ def create_app(*, repo_root: Path | None = None) -> FastAPI:
 
         @app.get("/", include_in_schema=False)
         async def frontend_index() -> FileResponse:
-            return FileResponse(resolved_dist_dir / "index.html")
+            return FileResponse(
+                resolved_dist_dir / "index.html",
+                headers={"Cache-Control": "no-cache"},
+            )
 
         @app.get("/{full_path:path}", include_in_schema=False)
         async def frontend_fallback(full_path: str) -> FileResponse:
@@ -817,8 +837,16 @@ def create_app(*, repo_root: Path | None = None) -> FastAPI:
             except ValueError as exc:
                 raise HTTPException(status_code=404) from exc
             if target.exists() and target.is_file():
-                return FileResponse(target)
-            return FileResponse(resolved_dist_dir / "index.html")
+                cache_control = (
+                    "public, max-age=31536000, immutable"
+                    if target.parts[-2:-1] == ("assets",)
+                    else "no-cache"
+                )
+                return FileResponse(target, headers={"Cache-Control": cache_control})
+            return FileResponse(
+                resolved_dist_dir / "index.html",
+                headers={"Cache-Control": "no-cache"},
+            )
     else:
 
         @app.get("/", include_in_schema=False)

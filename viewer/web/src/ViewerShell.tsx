@@ -550,6 +550,15 @@ export default function ViewerShell(): JSX.Element {
       };
     }
 
+    if (meshCount > 0 && failedMeshCount === 0) {
+      return {
+        available: true,
+        summary: `${meshCount} collision ${meshCount === 1 ? "mesh" : "meshes"} available`,
+        detail: "Collision meshes will load when collision rendering is enabled.",
+        compileCommand: null,
+      };
+    }
+
     const compileRecordId =
       selection.kind === "record"
         ? selection.recordId

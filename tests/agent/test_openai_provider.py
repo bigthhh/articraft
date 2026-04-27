@@ -184,6 +184,111 @@ def test_request_with_websocket_logs_full_context_fallback(
     assert "full-context fallback triggered" in caplog.text
 
 
+def test_generate_with_tools_keeps_prepare_appended_inputs_for_websocket_incremental() -> None:
+    provider = OpenAILLM(dry_run=True, transport="websocket")
+    provider._input_items = [
+        {"role": "user", "content": [{"type": "input_text", "text": "task"}]},
+        {
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": "calling tool"}],
+        },
+        {
+            "type": "function_call",
+            "call_id": "call_compile",
+            "name": "compile_model",
+            "arguments": "{}",
+        },
+    ]
+    provider._last_message_count = 2
+    provider._previous_response_id = "resp_prev"
+
+    messages = [
+        {"role": "user", "content": "task"},
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "call_compile",
+                    "type": "function",
+                    "function": {"name": "compile_model", "arguments": "{}"},
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call_compile",
+            "name": "compile_model",
+            "content": '{"result": "ok"}',
+        },
+    ]
+
+    asyncio.run(
+        provider.prepare_next_request(
+            system_prompt="system",
+            messages=messages,
+            tools=[],
+            completed_turns=1,
+        )
+    )
+
+    captured_incremental: dict[str, object] = {}
+
+    async def fake_request_with_transport(
+        *,
+        request_payload: dict,
+        incremental_request_payload: dict,
+        fallback_request_payload: dict,
+    ) -> dict:
+        captured_incremental.update(incremental_request_payload)
+        return {"id": "resp_next", "output": []}
+
+    provider._request_with_transport = fake_request_with_transport  # type: ignore[method-assign]
+
+    asyncio.run(
+        provider.generate_with_tools(
+            system_prompt="system",
+            messages=messages,
+            tools=[],
+        )
+    )
+
+    assert captured_incremental["previous_response_id"] == "resp_prev"
+    assert captured_incremental["input"] == [
+        {
+            "type": "function_call_output",
+            "call_id": "call_compile",
+            "output": '{"result": "ok"}',
+        }
+    ]
+    assert provider._pending_incremental_input_items == []
+
+
+def test_websocket_uses_full_payload_without_previous_response_id() -> None:
+    provider = OpenAILLM(dry_run=True, transport="websocket")
+    captured: list[dict[str, object]] = []
+
+    async def fake_request_with_websocket(
+        *,
+        request_payload: dict,
+        fallback_request_payload: dict,
+    ) -> dict:
+        captured.append(request_payload)
+        return {"output": []}
+
+    provider._request_with_websocket = fake_request_with_websocket  # type: ignore[method-assign]
+
+    asyncio.run(
+        provider._request_with_transport(
+            request_payload={"input": [{"role": "user"}]},
+            incremental_request_payload={"input": []},
+            fallback_request_payload={"input": [{"role": "user"}]},
+        )
+    )
+
+    assert captured == [{"input": [{"role": "user"}]}]
+
+
 def test_openai_client_disables_sdk_retries_and_uses_request_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

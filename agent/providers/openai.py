@@ -236,6 +236,7 @@ class OpenAILLM:
         # Responses API expects a list of structured items; we keep the canonical
         # conversation in this format to avoid lossy conversions.
         self._input_items: list[dict[str, Any]] = []
+        self._pending_incremental_input_items: list[dict[str, Any]] = []
         self._last_message_count: int = 0
         self._previous_response_id: Optional[str] = None
         self._last_response_start_index: Optional[int] = None
@@ -264,6 +265,7 @@ class OpenAILLM:
 
         # Build the canonical Responses input items exactly like generate_with_tools.
         self._input_items = []
+        self._pending_incremental_input_items = []
         self._last_message_count = 0
         self._previous_response_id = None
         self._last_response_start_index = None
@@ -398,6 +400,7 @@ class OpenAILLM:
         )
         compacted_items = self._serialize_response_output(compacted_response)
         self._input_items = [*immutable_prefix_items, *compacted_items, *raw_tail_items]
+        self._pending_incremental_input_items = []
         self._last_response_start_index = len(immutable_prefix_items) + len(compacted_items)
         self._previous_response_id = None
         self._last_compaction_turn_number = turn_number
@@ -464,7 +467,8 @@ class OpenAILLM:
         tools: list[dict],
     ) -> dict:
         converted_tools = self._convert_tools(tools)
-        new_input_items = self._append_new_inputs(messages)
+        self._append_new_inputs(messages)
+        incremental_input_items = list(self._pending_incremental_input_items)
 
         request_payload = self._build_request_payload(
             system_prompt=system_prompt,
@@ -474,7 +478,7 @@ class OpenAILLM:
         incremental_request_payload = self._build_request_payload(
             system_prompt=system_prompt,
             tools=converted_tools,
-            input_items=new_input_items,
+            input_items=incremental_input_items,
             previous_response_id=self._previous_response_id,
         )
         fallback_request_payload = self._build_request_payload(
@@ -527,6 +531,7 @@ class OpenAILLM:
         self._last_response_start_index = response_start_index
         self._previous_response_id = self._extract_response_id(response)
         self._last_usage = self._extract_usage(response)
+        self._pending_incremental_input_items = []
 
         return self._convert_response(response)
 
@@ -687,8 +692,13 @@ class OpenAILLM:
         fallback_request_payload: dict[str, Any],
     ) -> Any:
         if self.transport == "websocket":
+            websocket_payload = (
+                incremental_request_payload
+                if incremental_request_payload.get("previous_response_id")
+                else request_payload
+            )
             request_coro = self._request_with_websocket(
-                request_payload=incremental_request_payload,
+                request_payload=websocket_payload,
                 fallback_request_payload=fallback_request_payload,
             )
         else:
@@ -928,6 +938,7 @@ class OpenAILLM:
                     new_items.append(item)
 
         self._last_message_count = len(messages)
+        self._pending_incremental_input_items.extend(new_items)
         return new_items
 
     def _convert_message_content(self, content: Any) -> list[dict[str, Any]]:

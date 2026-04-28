@@ -126,7 +126,8 @@
         "rice_cooker",
         "top_load_washing_machine_with_hinged_lid",
         "tower_fan_with_rotary_controls",
-        "waffle_maker"
+        "waffle_maker",
+        "pepper_salt_mill_with_rotating_top"
       ]
     },
     {
@@ -188,7 +189,9 @@
         "camcorder_with_flipout_screen",
         "camera_flash",
         "desktop_monitor_with_tilt_swivel_stand",
-        "film_clapperboard_with_hinged_slate"
+        "film_clapperboard_with_hinged_slate",
+        "typewriter_with_return_carriage",
+        "midi_keyboard_controller_with_pitch_wheel_and_sliders"
       ]
     },
     {
@@ -318,7 +321,8 @@
         "undershot_waterwheel",
         "stationary_exercise_bike",
         "fidget_toy",
-        "adjustable_weight_bench_with_hinged_backrest"
+        "adjustable_weight_bench_with_hinged_backrest",
+        "seesaw_teeter_totter"
       ]
     },
     {

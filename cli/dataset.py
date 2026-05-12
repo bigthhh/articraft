@@ -12,6 +12,7 @@ from agent.cost import max_cost_usd_from_env, parse_max_cost_usd
 from agent.prompts import normalize_sdk_package
 from agent.runner import run_from_input
 from agent.tools import build_initial_user_content, resolve_image_path
+from articraft.values import PROVIDER_VALUES, THINKING_LEVEL_VALUES
 from cli.common import add_data_root_argument, warn_if_post_commit_hook_missing
 from storage.categories import CategoryStore
 from storage.collections import CollectionStore
@@ -661,7 +662,7 @@ def _build_parser() -> argparse.ArgumentParser:
     run_single.add_argument(
         "--provider",
         default="openai",
-        choices=("openai", "gemini", "openrouter", "anthropic"),
+        choices=PROVIDER_VALUES,
         help="LLM provider to use for the generation run.",
     )
     run_single.add_argument(
@@ -672,7 +673,7 @@ def _build_parser() -> argparse.ArgumentParser:
     run_single.add_argument(
         "--thinking-level",
         default="high",
-        choices=("low", "med", "high"),
+        choices=THINKING_LEVEL_VALUES,
         help="Thinking budget level for the generation run.",
     )
     run_single.add_argument(

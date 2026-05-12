@@ -30,6 +30,11 @@ from agent.runner import (
 from agent.runtime_limits import BatchRuntimeLimits
 from agent.tools import build_initial_user_content
 from agent.tui.batch_run import BatchRunDisplay
+from articraft.values import (
+    PROVIDER_VALUE_SET,
+    THINKING_LEVEL_VALUE_SET,
+    infer_provider_from_model_id,
+)
 from storage.batch_specs import BatchSpecStore
 from storage.categories import CategoryStore
 from storage.collections import CollectionStore
@@ -58,8 +63,8 @@ ResumeAction = Literal["run", "skip", "reuse_success"]
 BATCH_RUN_MODE = "dataset_batch"
 DEFAULT_RESUME_POLICY: ResumePolicy = "failed_or_pending"
 RESUME_POLICIES: set[ResumePolicy] = {"failed_or_pending", "failed_only", "all"}
-VALID_PROVIDERS = {"anthropic", "openai", "gemini", "openrouter"}
-VALID_THINKING_LEVELS = {"low", "med", "high"}
+VALID_PROVIDERS = PROVIDER_VALUE_SET
+VALID_THINKING_LEVELS = THINKING_LEVEL_VALUE_SET
 _SUPPORTED_HEADERS = {
     "row_id",
     "category_slug",
@@ -187,18 +192,8 @@ def _slugify(text: str) -> str:
 
 
 def _infer_provider_from_model_id(model_id: str) -> str | None:
-    model_norm = model_id.strip().lower()
-    if not model_norm:
-        return None
-    if model_norm.startswith(("gpt-", "o1", "o3", "o4")):
-        return "openai"
-    if model_norm.startswith("claude-"):
-        return "anthropic"
-    if model_norm.startswith("gemini-"):
-        return "gemini"
-    if "/" in model_norm or model_norm.startswith("openrouter/"):
-        return "openrouter"
-    return None
+    provider = infer_provider_from_model_id(model_id)
+    return provider.value if provider is not None else None
 
 
 def _summary_value(values: set[str]) -> str:

@@ -9,6 +9,8 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from articraft.values import ProviderName, normalize_provider_name
+
 MAX_COST_ENV_VAR = "ARTICRAFT_MAX_COST_USD"
 
 
@@ -358,26 +360,31 @@ def is_claude_haiku_4_5_model(model_id: str) -> bool:
 
 
 def pricing_for_provider_model(provider: str, model_id: str) -> dict[str, float] | None:
-    provider_norm = (provider or "").strip().lower()
-    if provider_norm == "anthropic" and is_claude_opus_4_7_model(model_id):
+    if not (provider or "").strip():
+        return None
+    try:
+        provider_norm = normalize_provider_name(provider)
+    except ValueError:
+        return None
+    if provider_norm is ProviderName.ANTHROPIC and is_claude_opus_4_7_model(model_id):
         return ANTHROPIC_OPUS_4_7_PRICING
-    if provider_norm == "anthropic" and is_claude_opus_4_6_model(model_id):
+    if provider_norm is ProviderName.ANTHROPIC and is_claude_opus_4_6_model(model_id):
         return ANTHROPIC_OPUS_4_6_PRICING
-    if provider_norm == "anthropic" and is_claude_opus_4_5_model(model_id):
+    if provider_norm is ProviderName.ANTHROPIC and is_claude_opus_4_5_model(model_id):
         return ANTHROPIC_OPUS_4_5_PRICING
-    if provider_norm == "anthropic" and is_claude_sonnet_4_model(model_id):
+    if provider_norm is ProviderName.ANTHROPIC and is_claude_sonnet_4_model(model_id):
         return ANTHROPIC_SONNET_4_PRICING
-    if provider_norm == "anthropic" and is_claude_haiku_4_5_model(model_id):
+    if provider_norm is ProviderName.ANTHROPIC and is_claude_haiku_4_5_model(model_id):
         return ANTHROPIC_HAIKU_4_5_PRICING
-    if provider_norm == "gemini" and is_flash_model(model_id):
+    if provider_norm is ProviderName.GEMINI and is_flash_model(model_id):
         return GEMINI_FLASH_PRICING
-    if provider_norm == "gemini" and is_gemini_3_pro_model(model_id):
+    if provider_norm is ProviderName.GEMINI and is_gemini_3_pro_model(model_id):
         return GEMINI_3_PRO_PRICING
-    if provider_norm == "openai" and is_gpt_5_5_model(model_id):
+    if provider_norm is ProviderName.OPENAI and is_gpt_5_5_model(model_id):
         return OPENAI_GPT_5_5_PRICING
-    if provider_norm == "openai" and is_gpt_5_4_model(model_id):
+    if provider_norm is ProviderName.OPENAI and is_gpt_5_4_model(model_id):
         return OPENAI_GPT_5_4_PRICING
-    if provider_norm == "openai" and (
+    if provider_norm is ProviderName.OPENAI and (
         is_gpt_5_3_codex_model(model_id) or is_gpt_5_2_model(model_id)
     ):
         return OPENAI_GPT_5_3_CODEX_PRICING

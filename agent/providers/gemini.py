@@ -27,6 +27,7 @@ from agent.providers.base import (
     build_context_window_pressure,
 )
 from agent.providers.compaction_policy import decide_compaction
+from articraft.values import reasoning_level_alias
 
 try:
     from dotenv import load_dotenv  # type: ignore
@@ -682,8 +683,7 @@ class GeminiLLM:
             return types.ThinkingConfig(thinking_level=normalized_level)
 
     def _normalize_thinking_level(self, level: str, model_id: str) -> str:
-        if level == "med":
-            level = "medium"
+        level = reasoning_level_alias(level)
 
         if level not in {"minimal", "low", "medium", "high"}:
             level = "high"
@@ -697,11 +697,12 @@ class GeminiLLM:
         return level
 
     def _thinking_budget_from_level(self, level: str, model_id: str) -> int:
+        level = reasoning_level_alias(level)
         min_budget, max_budget = self._thinking_budget_range(model_id)
 
         if level in {"low", "minimal"}:
             budget = min_budget
-        elif level in {"med", "medium"}:
+        elif level == "medium":
             budget = (min_budget + max_budget) // 2
         elif level in {"dynamic", "auto"}:
             budget = -1

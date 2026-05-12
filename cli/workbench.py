@@ -9,6 +9,7 @@ from agent.cost import max_cost_usd_from_env, parse_max_cost_usd
 from agent.prompts import normalize_sdk_package
 from agent.runner import create_workbench_draft_record, rerun_record_in_place
 from agent.tools import resolve_image_path
+from articraft.values import PROVIDER_VALUES
 from cli.common import add_data_root_argument, warn_if_post_commit_hook_missing
 from storage.collections import CollectionStore
 from storage.models import WorkbenchCollection
@@ -61,7 +62,7 @@ def _build_parser() -> argparse.ArgumentParser:
     init_record.add_argument(
         "--provider",
         default="openai",
-        choices=("openai", "gemini", "openrouter", "anthropic"),
+        choices=PROVIDER_VALUES,
         help="LLM provider metadata to attach to the draft record.",
     )
     init_record.add_argument(

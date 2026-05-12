@@ -34,6 +34,7 @@ from agent.run_context import (
     _utc_now,
 )
 from agent.tools import resolve_image_path as _resolve_image_path
+from articraft.values import ProviderName
 from storage.collections import CollectionStore
 from storage.datasets import DatasetStore
 from storage.materialize import (
@@ -430,8 +431,10 @@ def create_workbench_draft_record(
             provider=provider,
             model_id=selected_model_id,
             thinking_level=thinking_level,
-            openai_transport=openai_transport if provider == "openai" else None,
-            openai_reasoning_summary=openai_reasoning_summary if provider == "openai" else None,
+            openai_transport=openai_transport if provider == ProviderName.OPENAI.value else None,
+            openai_reasoning_summary=(
+                openai_reasoning_summary if provider == ProviderName.OPENAI.value else None
+            ),
             max_turns=resolved_max_turns,
             max_cost_usd=max_cost_usd,
         ),
@@ -638,8 +641,10 @@ def write_success_record(
             provider=provider,
             model_id=model_id,
             thinking_level=thinking_level,
-            openai_transport=openai_transport if provider == "openai" else None,
-            openai_reasoning_summary=openai_reasoning_summary if provider == "openai" else None,
+            openai_transport=openai_transport if provider == ProviderName.OPENAI.value else None,
+            openai_reasoning_summary=(
+                openai_reasoning_summary if provider == ProviderName.OPENAI.value else None
+            ),
             max_turns=max_turns,
             max_cost_usd=max_cost_usd,
         ),

@@ -55,6 +55,7 @@ from agent.tools.code_region import extract_editable_code
 from agent.traces import TraceWriter
 from agent.tui.single_run import SingleRunDisplay
 from agent.workspace_docs import build_virtual_workspace
+from articraft.values import ProviderName
 from sdk._profiles import get_sdk_profile
 
 logger = logging.getLogger(__name__)
@@ -391,7 +392,7 @@ class ArticraftAgent:
             repo_root,
             sdk_package=self.sdk_package,
         )
-        if self.provider == "openai":
+        if self.provider == ProviderName.OPENAI.value:
             prompt_cache_key, prompt_cache_retention = build_openai_prompt_cache_settings(
                 model_id=actual_model_id,
                 sdk_package=self.sdk_package,
@@ -862,7 +863,7 @@ class ArticraftAgent:
         return {}
 
     def _tool_calls_are_parallelizable(self, tool_calls: list[dict]) -> bool:
-        if self.provider != "gemini" or len(tool_calls) <= 1:
+        if self.provider != ProviderName.GEMINI.value or len(tool_calls) <= 1:
             return False
         return all(
             self._tool_call_name(tool_call) in _PARALLEL_SAFE_TOOL_NAMES for tool_call in tool_calls

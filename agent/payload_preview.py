@@ -18,6 +18,7 @@ from agent.tools import (
     build_first_turn_messages as _build_first_turn_messages,
 )
 from agent.tools import build_tool_registry
+from articraft.values import ProviderName
 
 
 def build_provider_payload_preview(
@@ -55,7 +56,7 @@ def build_provider_payload_preview(
     provider_norm = normalize_provider_name(provider)
     prompt_cache_key: str | None = None
     prompt_cache_retention: str | None = None
-    if provider_norm == "openai":
+    if provider_norm == ProviderName.OPENAI.value:
         prompt_cache_key, prompt_cache_retention = build_openai_prompt_cache_settings(
             model_id=model_id,
             sdk_package=sdk_package,

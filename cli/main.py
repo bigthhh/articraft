@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 
 from agent import runner as agent_runner
+from agent.providers.factory import infer_provider_from_model_id
+from articraft.values import PROVIDER_VALUES, THINKING_LEVEL_VALUES
 from cli import compile_all as compile_all_cli
 from cli import compile_record as compile_record_cli
 from cli import dataset as dataset_cli
@@ -21,15 +23,12 @@ DEFAULT_THINKING = "high"
 
 
 def _infer_provider(model_id: str) -> str:
-    if model_id.startswith(("gpt-", "o1", "o3", "o4")):
-        return "openai"
-    if model_id.startswith("gemini-"):
-        return "gemini"
-    if "/" in model_id or model_id.startswith("openrouter/"):
-        return "openrouter"
+    provider = infer_provider_from_model_id(model_id)
+    if provider is not None:
+        return provider
     raise ValueError(
         f"Unable to infer provider for model '{model_id}'. "
-        "Pass --provider explicitly or use a known OpenAI, Gemini, or OpenRouter model ID."
+        "Pass --provider explicitly or use a known OpenAI, Gemini, Anthropic, or OpenRouter model ID."
     )
 
 
@@ -395,13 +394,13 @@ def _add_repo_root(parser: argparse.ArgumentParser) -> None:
 
 
 def _add_generation_options(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--provider", choices=("openai", "gemini", "openrouter", "anthropic"))
+    parser.add_argument("--provider", choices=PROVIDER_VALUES)
     parser.add_argument("--model", default=DEFAULT_MODEL, help="Model ID to use.")
     parser.add_argument(
         "--thinking-level",
         "--thinking",
         default=DEFAULT_THINKING,
-        choices=("low", "med", "high"),
+        choices=THINKING_LEVEL_VALUES,
         help="Thinking budget level.",
     )
     parser.add_argument("--image", default=None, help="Optional reference image.")

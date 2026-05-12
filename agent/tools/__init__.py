@@ -21,28 +21,29 @@ from agent.tools.probe_model import ProbeModelTool
 from agent.tools.read_file import ReadFileTool
 from agent.tools.registry import ToolRegistry
 from agent.tools.write_code import WriteFileTool
+from articraft.values import ProviderName, normalize_provider_name
 
 SUPPORTED_IMAGE_MIME_TYPES_BY_PROVIDER: dict[str, set[str]] = {
-    "anthropic": {
+    ProviderName.ANTHROPIC.value: {
         "image/png",
         "image/jpeg",
         "image/webp",
         "image/gif",
     },
-    "openai": {
+    ProviderName.OPENAI.value: {
         "image/png",
         "image/jpeg",
         "image/webp",
         "image/gif",
     },
-    "gemini": {
+    ProviderName.GEMINI.value: {
         "image/png",
         "image/jpeg",
         "image/webp",
         "image/heic",
         "image/heif",
     },
-    "openrouter": {
+    ProviderName.OPENROUTER.value: {
         "image/png",
         "image/jpeg",
         "image/webp",
@@ -67,9 +68,9 @@ def build_tool_registry(
     sdk_package: str = "sdk",
     runtime_limits: BatchRuntimeLimits | None = None,
 ) -> ToolRegistry:
-    provider_norm = (provider or "openai").strip().lower()
+    provider_norm = normalize_provider_name(provider)
     package = normalize_sdk_package(sdk_package)
-    if provider_norm == "openai":
+    if provider_norm is ProviderName.OPENAI:
         tools: list[BaseDeclarativeTool] = [
             ReadFileTool(),
             ApplyPatchFreeformTool(),
@@ -84,7 +85,9 @@ def build_tool_registry(
             CompileModelTool(),
             ProbeModelTool(sdk_package=package, runtime_limits=runtime_limits),
         ]
-    tools.append(FindExamplesTool(sdk_package=package, include_paths=provider_norm == "openai"))
+    tools.append(
+        FindExamplesTool(sdk_package=package, include_paths=provider_norm is ProviderName.OPENAI)
+    )
     return ToolRegistry(tools)
 
 
@@ -171,17 +174,17 @@ def resolve_image_path(
         raise ValueError(f"Image path is not a file: {path}")
 
     mime_type, _ = mimetypes.guess_type(path.name)
-    provider_norm = (provider or "openai").strip().lower()
-    supported_mime_types = SUPPORTED_IMAGE_MIME_TYPES_BY_PROVIDER.get(provider_norm)
+    provider_norm = normalize_provider_name(provider)
+    supported_mime_types = SUPPORTED_IMAGE_MIME_TYPES_BY_PROVIDER.get(provider_norm.value)
     if supported_mime_types is None:
         raise ValueError(f"Unsupported provider for image validation: {provider}")
     if mime_type not in supported_mime_types:
         raise ValueError(
-            f"Unsupported image type for {provider_norm}: {path.name} ({mime_type or 'unknown'})"
+            f"Unsupported image type for {provider_norm.value}: {path.name} ({mime_type or 'unknown'})"
         )
 
     size_bytes = path.stat().st_size
-    if provider_norm == "gemini":
+    if provider_norm is ProviderName.GEMINI:
         if size_bytes >= 20 * 1024 * 1024:
             raise ValueError(
                 f"Image file exceeds Gemini inline request limit: {path} "

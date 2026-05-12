@@ -28,6 +28,7 @@ from agent.providers.base import (
     PrepareRequestResult,
     build_context_window_pressure,
 )
+from articraft.values import reasoning_level_alias
 
 try:
     from dotenv import load_dotenv  # type: ignore
@@ -699,7 +700,7 @@ def _extract_usage(response: Any) -> dict[str, int] | None:
 
 
 def _thinking_config_for_model(model_id: str, thinking_level: str) -> dict[str, str] | None:
-    level = (thinking_level or "").strip().lower()
+    level = reasoning_level_alias(thinking_level)
     if level in {"0", "false", "none", "off", "disabled"}:
         return None
     model_norm = model_id.strip().lower()
@@ -709,9 +710,7 @@ def _thinking_config_for_model(model_id: str, thinking_level: str) -> dict[str, 
 
 
 def _effort_from_thinking_level(thinking_level: str) -> str | None:
-    level = (thinking_level or "").strip().lower()
-    if level == "med":
-        level = "medium"
+    level = reasoning_level_alias(thinking_level)
     if level in {"low", "medium", "high", "xhigh", "max"}:
         return level
     return None

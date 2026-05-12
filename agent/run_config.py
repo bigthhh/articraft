@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from articraft.values import ProviderName, normalize_provider_name
+
 
 @dataclass(slots=True, frozen=True)
 class SingleRunSettings:
@@ -26,7 +28,7 @@ class SingleRunSettings:
             "system_prompt_path": self.system_prompt_path,
             "sdk_package": self.sdk_package,
         }
-        if self.provider == "openai":
+        if normalize_provider_name(self.provider) is ProviderName.OPENAI:
             summary["openai_transport"] = self.openai_transport
             summary["openai_reasoning_summary"] = self.openai_reasoning_summary
         return summary

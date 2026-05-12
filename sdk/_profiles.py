@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from articraft.values import ProviderName, normalize_provider_name
+
 OPENAI_DESIGNER_PROMPT_NAME = "designer_system_prompt_openai.txt"
 GEMINI_DESIGNER_PROMPT_NAME = "designer_system_prompt_gemini.txt"
 OPENROUTER_DESIGNER_PROMPT_NAME = "designer_system_prompt_openrouter.txt"
@@ -30,14 +32,19 @@ class SdkProfile:
         raise ValueError(f"Unsupported SDK docs mode: {docs_mode!r}")
 
     def prompt_name_for_provider(self, provider: str | None) -> str | None:
-        provider_norm = (provider or "").strip().lower()
-        if provider_norm == "openai":
+        if not (provider or "").strip():
+            return None
+        try:
+            provider_norm = normalize_provider_name(provider)
+        except ValueError:
+            return None
+        if provider_norm is ProviderName.OPENAI:
             return self.openai_prompt_name
-        if provider_norm == "gemini":
+        if provider_norm is ProviderName.GEMINI:
             return self.gemini_prompt_name
-        if provider_norm == "openrouter":
+        if provider_norm is ProviderName.OPENROUTER:
             return self.openrouter_prompt_name
-        if provider_norm == "anthropic":
+        if provider_norm is ProviderName.ANTHROPIC:
             return self.anthropic_prompt_name
         return None
 

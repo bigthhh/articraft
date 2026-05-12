@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from articraft.values import PROVIDER_VALUE_SET, THINKING_LEVEL_VALUE_SET
 from storage.records import WORKBENCH_RECORD_GITIGNORE_TEXT
 from storage.repo import StorageRepo
 
@@ -17,8 +18,8 @@ _SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
 _RECORD_ID_RE = re.compile(r"^rec_[A-Za-z0-9_.-]+$")
 _ALLOWED_COLLECTIONS = {"dataset", "workbench"}
 _ALLOWED_PROMPT_KINDS = {"single_prompt", "prompt_series"}
-_ALLOWED_PROVIDERS = {"anthropic", "openai", "gemini", "openrouter"}
-_ALLOWED_THINKING_LEVELS = {"low", "med", "high"}
+_ALLOWED_PROVIDERS = PROVIDER_VALUE_SET
+_ALLOWED_THINKING_LEVELS = THINKING_LEVEL_VALUE_SET
 _BATCH_REQUIRED_COLUMNS = {
     "category_slug",
     "prompt",

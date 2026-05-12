@@ -23,6 +23,7 @@ from agent.single_run import run_from_input
 from agent.tools import build_initial_user_content as _build_initial_user_content
 from agent.tools import resolve_image_path as _resolve_image_path
 from agent.tui.single_run import LLMWaitAwareStreamHandler
+from articraft.values import PROVIDER_VALUES, THINKING_LEVEL_VALUES, ProviderName
 
 
 def _load_qc_blurb_text(qc_blurb_path: Optional[str], *, repo_root: Path) -> Optional[str]:
@@ -79,7 +80,7 @@ def main(
     parser.add_argument(
         "--provider",
         default="openai",
-        choices=["anthropic", "gemini", "openai", "openrouter"],
+        choices=PROVIDER_VALUES,
         help="LLM provider.",
     )
     parser.add_argument(
@@ -123,7 +124,7 @@ def main(
     parser.add_argument(
         "--thinking",
         default="high",
-        choices=["low", "med", "high"],
+        choices=THINKING_LEVEL_VALUES,
         help="Thinking budget level.",
     )
     parser.add_argument("--max-turns", type=int, default=None)
@@ -189,7 +190,7 @@ def main(
 
     openai_reasoning_summary = "auto"
 
-    if args.provider != "openai" and args.openai_transport != "http":
+    if args.provider != ProviderName.OPENAI.value and args.openai_transport != "http":
         print("--openai-transport is only supported for --provider openai.", file=sys.stderr)
         return 1
 

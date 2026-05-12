@@ -27,6 +27,7 @@ from agent.providers.base import (
     build_context_window_pressure,
 )
 from agent.providers.compaction_policy import decide_compaction
+from articraft.values import ThinkingLevel, provider_reasoning_level
 
 try:
     from dotenv import load_dotenv  # type: ignore
@@ -955,12 +956,7 @@ def _normalize_prompt_cache_retention(value: Optional[str]) -> Optional[str]:
 
 
 def _effort_from_thinking_level(thinking_level: str) -> str:
-    level = (thinking_level or "").strip().lower()
-    if level == "med":
-        level = "medium"
-    if level not in {"low", "medium", "high"}:
-        level = "medium"
-    return level
+    return provider_reasoning_level(thinking_level, default=ThinkingLevel.MED)
 
 
 def _env_float(name: str, default: float) -> float:

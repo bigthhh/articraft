@@ -5,7 +5,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Sequence, Tuple
 
-from ..geometry_qc import part_local_aabbs, part_world_aabb as compute_part_world_aabb
+from ..geometry_qc import part_local_aabbs
+from ..geometry_qc import part_world_aabb as compute_part_world_aabb
 from .common import (
     AABB,
     AllowedOverlap,

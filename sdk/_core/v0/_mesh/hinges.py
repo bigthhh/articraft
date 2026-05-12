@@ -212,4 +212,3 @@ class PianoHingeGeometry(MeshGeometry):
             center=center,
         )
         _adopt_mesh_geometry(self, base)
-

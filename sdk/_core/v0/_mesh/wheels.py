@@ -487,4 +487,3 @@ class TireGeometry(MeshGeometry):
         if not center:
             geom = _mesh_geometry_shifted_to_axis0(geom, 0)
         _adopt_mesh_geometry(self, geom)
-

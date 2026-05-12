@@ -878,4 +878,3 @@ def _adopt_mesh_geometry(target: "MeshGeometry", geometry: "MeshGeometry") -> No
     target.vertices = [tuple(vertex) for vertex in geometry.vertices]
     target.faces = [tuple(face) for face in geometry.faces]
     _copy_manifold_provenance(geometry, target)
-

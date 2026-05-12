@@ -654,6 +654,7 @@ def _parse_batch_row(
     sdk_package = runner_normalize_sdk_package(sdk_package, row_index=row_index)
     if max_cost_usd is None:
         max_cost_usd = default_max_cost_usd
+
     category_title = _resolve_category_title(
         categories,
         row_index=row_index,

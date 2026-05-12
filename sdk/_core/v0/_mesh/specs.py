@@ -287,4 +287,3 @@ class FanRotorShroud:
     depth: Optional[float] = None
     clearance: float = 0.0
     lip_depth: float = 0.0
-

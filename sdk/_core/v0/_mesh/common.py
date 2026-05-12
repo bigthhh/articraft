@@ -1406,6 +1406,4 @@ def _triangulate_polygon_with_holes(
     return stitched, _triangulate_polygon(stitched)
 
 
-
-
 __all__ = [name for name in globals() if not name.startswith("__")]

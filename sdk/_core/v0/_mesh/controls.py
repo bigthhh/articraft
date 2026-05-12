@@ -809,4 +809,3 @@ class BezelGeometry(MeshGeometry):
         if not center:
             geom = _mesh_geometry_shifted_to_z0(geom)
         _adopt_mesh_geometry(self, geom)
-

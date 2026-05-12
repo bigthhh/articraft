@@ -399,6 +399,4 @@ def _named_ref(value: object, *, kind: str) -> str:
     return name
 
 
-
-
 __all__ = [name for name in globals() if not name.startswith("__")]

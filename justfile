@@ -64,6 +64,30 @@ lint:
     just uv-version-check
     uv run --frozen ruff check .
 
+compile record:
+    just uv-version-check
+    uv run --frozen articraft compile --target visual {{ quote(record) }}
+
+compile-full record:
+    just uv-version-check
+    uv run --frozen articraft compile --target full {{ quote(record) }}
+
+compile-all:
+    just uv-version-check
+    uv run --frozen articraft compile-all
+
+compile-all-force:
+    just uv-version-check
+    uv run --frozen articraft compile-all --target visual --force
+
+compile-all-force-limit limit:
+    just uv-version-check
+    uv run --frozen articraft compile-all --target visual --force --limit {{ quote(limit) }}
+
+compile-all-full-force:
+    just uv-version-check
+    uv run --frozen articraft compile-all --target full --force
+
 smoke-tests:
     just uv-version-check
     uv run --frozen --group dev pytest -q \

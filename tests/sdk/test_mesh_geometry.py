@@ -1061,11 +1061,33 @@ def test_new_mesh_geometry_helpers_export_clean_single_body_meshes(
         assert maxs[axis] == pytest.approx(expected, abs=tol)
 
 
+def test_slot_pattern_panel_exports_real_through_slot(tmp_path: Path) -> None:
+    geometry = sdk.SlotPatternPanelGeometry(
+        (0.10, 0.05),
+        0.004,
+        slot_size=(0.030, 0.010),
+        pitch=(0.20, 0.20),
+        frame=0.010,
+        corner_radius=0.0,
+    )
+
+    exported = _assert_clean_export(tmp_path, geometry, "single_slot_panel")
+
+    assert exported.euler_number == 0
+    assert exported.bounds[0] == pytest.approx((-0.05, -0.025, -0.002), abs=1e-6)
+    assert exported.bounds[1] == pytest.approx((0.05, 0.025, 0.002), abs=1e-6)
+
+
 @pytest.mark.parametrize(
     ("builder", "name"),
     [
         pytest.param(
             _build_perforated_panel_geometry, "PerforatedPanelGeometry", id="perforated-panel"
+        ),
+        pytest.param(
+            _build_slot_pattern_panel_geometry,
+            "SlotPatternPanelGeometry",
+            id="slot-pattern-panel",
         ),
         pytest.param(_build_knob_geometry, "KnobGeometry", id="knob"),
         pytest.param(_build_bezel_geometry, "BezelGeometry", id="bezel"),

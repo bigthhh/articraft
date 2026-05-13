@@ -70,7 +70,7 @@ def main(argv: list[str] | None = None) -> int:
     started_at = time.perf_counter()
     repo = StorageRepo(repo_root)
     try:
-        result = viewer_store.materialize_record_assets(
+        result = viewer_store.materialization.materialize_record_assets(
             record_dir.name,
             force=True,
             validate=bool(args.validate),

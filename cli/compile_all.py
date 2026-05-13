@@ -52,7 +52,7 @@ from storage.repo import StorageRepo
 
 _GIB = 1024**3
 _DEFAULT_MEM_PER_WORKER_GB = 3.0
-_DEFAULT_VISUAL_MEM_PER_WORKER_GB = 1.5
+_DEFAULT_VISUAL_MEM_PER_WORKER_GB = 1.25
 _DEFAULT_RESERVE_MEM_GB = 2.0
 _VISUAL_AUTO_WORKER_HARD_CAP = 512
 _OPEN_FILE_WORKER_RESERVE = 64
@@ -816,7 +816,7 @@ def _worker_loop(
             )
         )
         try:
-            result = viewer_store.materialize_record_assets(
+            result = viewer_store.materialization.materialize_record_assets(
                 candidate.record_id,
                 force=candidate.force,
                 ignore_geom_qc=not strict,

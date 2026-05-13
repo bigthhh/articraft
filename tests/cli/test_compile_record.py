@@ -22,6 +22,7 @@ def test_compile_record_prints_structured_compile_signals(
     class FakeViewerStore:
         def __init__(self, repo_root: Path) -> None:
             self.repo = StorageRepo(repo_root)
+            self.materialization = self
 
         def materialize_record_assets(self, record_id: str, **kwargs):
             del kwargs

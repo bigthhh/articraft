@@ -2,8 +2,6 @@
 
 Thank you for your interest in improving Articraft! We welcome contributions from everyone. Whether it's a bug report, a new feature, a fix, or better documentation, everything helps.
 
-Please review our [Code of Conduct](CODE_OF_CONDUCT.md) before participating to help us maintain a welcoming and safe community.
-
 ## Getting Started
 
 1. **Architecture & Project Layout:** To understand how the repository is structured, please read the [Architecture Guide](docs/architecture.md). It explains `agent/`, `storage/`, `sdk/`, `viewer/`, and more.

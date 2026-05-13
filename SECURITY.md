@@ -2,7 +2,7 @@
 
 Please do not open public issues for suspected secrets, credential exposure, or other security-sensitive reports.
 
-Report privately to repository maintainers by clicking "Report a vulnerability" on the repository's Security tab (GitHub Security Advisories). If advisories are unavailable, contact the repository owner (`mattzh72`) directly through their profile and include enough detail to reproduce or verify the issue.
+Report privately to repository maintainers by clicking "Report a vulnerability" on the repository's Security tab (GitHub Security Advisories). If advisories are unavailable, email the maintainer by assembling this address: `mattzh1314` + `@` + `gmail` + `.com`. Include enough detail to reproduce or verify the issue.
 
 Never include live API keys, private prompts, unreleased datasets, or raw credential material in a report.
 

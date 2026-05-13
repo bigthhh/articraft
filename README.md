@@ -91,7 +91,7 @@ Articraft scales to massive pipelines using CSV batch specifications. For detail
 - **[Security Policy](SECURITY.md)**
 
 ## Contributing
-We welcome improvements to Articraft! Please refer to the [Contributor Guidelines](CONTRIBUTING.md) to get started on setting up a dev environment and submitting Pull Requests. Be sure to review our [Code of Conduct](CODE_OF_CONDUCT.md).
+We welcome improvements to Articraft! Please refer to the [Contributor Guidelines](CONTRIBUTING.md) to get started on setting up a dev environment and submitting Pull Requests.
 
 ## Citation
 

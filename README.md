@@ -5,7 +5,9 @@
 
 **An Agentic System for Scalable Articulated 3D Asset Generation.**
 
-Articraft allows you to generate high-quality articulated 3D assets purely from natural language prompts, inspect them locally with a dedicated viewer, and systematically curate large-scale 3D asset datasets using major LLM providers (OpenAI, Anthropic, Gemini, OpenRouter).
+Articraft transforms the creation of articulated 3D assets into a programmatic, code-generation workflow. Instead of relying on manual 3D modeling tools, Articraft enables LLMs to write compact Python programs against an articulation-focused SDK (the Articraft SDK). The harness executes the generated program, validates the mechanical structure, and autonomously feeds errors back to the model for iterative refinement. The final output is an object complete with semantic parts, robust geometry, physical joints, and rigid motion limits.
+
+Engineered for scalable, high-throughput dataset generation, Articraft bypasses heavyweight graphics pipelines and slow visual-feedback loops. It natively integrates with major LLM providers (OpenAI, Anthropic, Gemini, OpenRouter) and features lightweight, comprehensive tooling for local storage, iterative compilation, visual inspection, and curation. This very stack powered the creation of **Articraft-10K**: a curated dataset comprising over 10,000 highly-articulated 3D assets spanning 245 everyday object categories.
 
 ### Security Note
 Articraft compiles and inspects generated records by executing their `model.py` files as Python code. Only run generated records and model scripts from trusted sources. Review them first, or run Articraft in an isolated container/disposable environment when working with untrusted inputs.
@@ -52,23 +54,27 @@ Then start the viewer API and React frontend:
 just viewer
 ```
 
-### 6. Contribute Data With Claude Code Or Codex
+### 6. Contribute Data
 
-You can use Claude Code or Codex to create Articraft records. Start the agent in this repo and ask it to follow [Data Authoring Guidelines](EXTERNAL_AGENT_DATA.md).
+A huge part of Articraft's mission is crowdsourcing a diverse, massive dataset of articulated 3D models. When you have generated objects that meet our quality bar, there are several pathways to contribute!
 
-For a dataset contribution, use a prompt like:
+**A. Targeted Generation (CLI)**
+If you want to author specific items directly into a dataset category, use the harness:
+```bash
+uv run articraft dataset run "Create a backyard gas grill..." --category-slug grill
+```
 
+**B. Large-Scale Batch Generation**
+For contributing hundreds or thousands of variations, we lean heavily on automated batch specs. See our [Dataset Generation Guide](docs/dataset_generation.md) to learn how to drive batch curation.
+
+**C. No API Keys? Crowdsource with Claude Code or Codex**
+If you don't have API keys set up, or prefer to use external AI agents, simply point Claude Code, Codex, or Cursor to this repository! Just ask the agent to follow our authoring guidelines:
 ```text
 Create a realistic articulated washing machine and add it to the Articraft dataset. Follow EXTERNAL_AGENT_DATA.md.
 ```
+Your external agent will automatically use the `articraft external` CLI to author, compile, validate, and promote the asset into the repository. Open a Pull Request with the finalized record directory to contribute it upstream!
 
-For local inspection only, ask for a workbench record instead:
-
-```text
-Create a realistic articulated washing machine for local workbench inspection. Follow EXTERNAL_AGENT_DATA.md.
-```
-
-To contribute data, open a pull request with the finalized dataset record. Include the prompt, category, external agent used, and the checks you ran. Workbench-only records are local drafts and should not be committed.
+Before submitting your PR, make sure to rate all assets that you generate in the viewer!
 
 ---
 
@@ -87,10 +93,11 @@ We welcome improvements to Articraft! Please refer to the [Contributor Guideline
 ## Citation
 
 ```bibtex
-@misc{articraft2026,
-  title={{Articraft}: An Agentic System for Scalable Articulated 3D Asset Generation},
-  author={{Articraft contributors}},
-  howpublished={\url{https://github.com/mattzh72/articraft}},
-  year={2026}
+@misc{zhou2026articraft,
+  title = {{Articraft}: An Agentic System for Scalable Articulated 3D Asset Generation},
+  author = {Zhou, Matt and Li, Ruining and Lyu, Xiaoyang and Song, Zhaomou and Huang, Zhening and Zheng, Chuanxia and Rupprecht, Christian and Vedaldi, Andrea and Wu, Shangzhe},
+  year = {2026},
+  note = {Preprint},
+  howpublished = {\url{https://github.com/mattzh72/articraft}}
 }
 ```

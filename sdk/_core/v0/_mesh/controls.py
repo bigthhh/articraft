@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import suppress
 from math import cos, pi, sin
 from typing import Literal, Optional, Sequence, Union
 
@@ -237,29 +238,23 @@ class KnobGeometry(MeshGeometry):
             )
             shape = shape.union(skirt_shape)
             if skirt.chamfer > 1e-6:
-                try:
+                with suppress(Exception):
                     shape = (
                         shape.faces("<Z")
                         .edges()
                         .chamfer(min(skirt.chamfer, skirt.height * 0.7, skirt_radius * 0.25))
                     )
-                except Exception:
-                    pass
 
         if edge_radius > 0.0:
-            try:
+            with suppress(Exception):
                 shape = shape.edges("|Z").fillet(min(edge_radius, max_radius * 0.35, height * 0.18))
-            except Exception:
-                pass
         if crown_radius > 0.0:
-            try:
+            with suppress(Exception):
                 shape = (
                     shape.faces(">Z")
                     .edges()
                     .fillet(min(crown_radius, max_radius * 0.25, height * 0.16))
                 )
-            except Exception:
-                pass
 
         if grip.style != "none" and grip.depth > 1e-6:
             grip_count = grip.count or (28 if grip.style in {"knurled", "diamond_knurl"} else 18)
@@ -529,19 +524,15 @@ class BezelGeometry(MeshGeometry):
         shape = _cq_ring_solid(cq, outer_points, opening_points, depth, center=True)
 
         if face.style in {"rounded", "radiused_step"} and face.fillet > 1e-6:
-            try:
+            with suppress(Exception):
                 shape = shape.edges("|Z").fillet(
                     min(face.fillet, depth * 0.25, min(outer_w, outer_h) * 0.1)
                 )
-            except Exception:
-                pass
         if face.style == "chamfered" and face.chamfer > 1e-6:
-            try:
+            with suppress(Exception):
                 shape = shape.edges("|Z").chamfer(
                     min(face.chamfer, depth * 0.25, min(outer_w, outer_h) * 0.1)
                 )
-            except Exception:
-                pass
 
         derived_wall = (
             (outer_w - opening_w) * 0.5,

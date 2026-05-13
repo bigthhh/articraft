@@ -10,6 +10,7 @@ import re
 import subprocess
 import time
 from collections import deque
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -871,10 +872,8 @@ def _spawn_worker(
         )
         process.start()
     except Exception:
-        try:
+        with suppress(Exception):
             task_queue.close()
-        except Exception:
-            pass
         raise
     return WorkerState(
         worker_id=worker_id,
@@ -924,34 +923,22 @@ def _spawn_initial_workers(
 
 def _shutdown_worker(worker: WorkerState, *, terminate: bool) -> None:
     if terminate and worker.process.is_alive():
-        try:
+        with suppress(Exception):
             worker.process.terminate()
-        except Exception:
-            pass
     else:
-        try:
+        with suppress(Exception):
             worker.task_queue.put_nowait(None)
-        except Exception:
-            pass
 
-    try:
+    with suppress(Exception):
         worker.process.join(timeout=2.0)
-    except Exception:
-        pass
     if worker.process.is_alive():
-        try:
+        with suppress(Exception):
             worker.process.terminate()
-        except Exception:
-            pass
-        try:
+        with suppress(Exception):
             worker.process.join(timeout=2.0)
-        except Exception:
-            pass
 
-    try:
+    with suppress(Exception):
         worker.task_queue.close()
-    except Exception:
-        pass
 
 
 def _dispatch_candidate(worker: WorkerState, pending: deque[CompileCandidate]) -> None:
@@ -1154,10 +1141,8 @@ def _run_compile_pool(
 
     for worker in workers.values():
         _shutdown_worker(worker, terminate=False)
-    try:
+    with suppress(Exception):
         result_queue.close()
-    except Exception:
-        pass
     return compiled, failures
 
 

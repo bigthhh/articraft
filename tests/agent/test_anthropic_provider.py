@@ -14,6 +14,7 @@ from agent.providers.anthropic import (
     AnthropicLLM,
     _api_error_from_sdk_exception,
     _async_retry,
+    _load_cwd_dotenv_override,
     _should_retry_anthropic_exception,
     anthropic_api_key_from_env,
     anthropic_api_keys_from_env,
@@ -65,10 +66,7 @@ def test_anthropic_provider_loads_dotenv_over_exported_key(monkeypatch, tmp_path
     monkeypatch.setenv(env_name, "test-exported")
     (tmp_path / ".env").write_text(f"{env_name}=test-dotenv\n", encoding="utf-8")
 
-    try:
-        AnthropicLLM()
-    except Exception:
-        pass
+    _load_cwd_dotenv_override()
 
     assert anthropic_api_key_from_env() == "test-dotenv"
 

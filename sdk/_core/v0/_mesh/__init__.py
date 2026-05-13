@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextlib import suppress
+
 from .booleans import (
     _boolean_union_many,
     _geometry_from_manifold,
@@ -187,9 +189,7 @@ _COMPAT_MODULE = "sdk._core.v0.mesh"
 for _name in __all__:
     _obj = globals().get(_name)
     if getattr(_obj, "__module__", "").startswith("sdk._core.v0._mesh"):
-        try:
+        with suppress(Exception):
             _obj.__module__ = _COMPAT_MODULE
-        except Exception:
-            pass
 
 del _COMPAT_MODULE, _name, _obj

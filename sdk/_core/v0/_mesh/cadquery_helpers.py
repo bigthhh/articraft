@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import suppress
 from math import cos, pi, sin
 from typing import Sequence, Union
 
@@ -164,10 +165,8 @@ def _mesh_geometry_from_cadquery_model(
 
     shape = model.val() if hasattr(model, "val") else model
     if hasattr(shape, "fix"):
-        try:
+        with suppress(Exception):
             shape = shape.fix()
-        except Exception:
-            pass
 
     try:
         vertices_raw, triangles_raw = shape.tessellate(

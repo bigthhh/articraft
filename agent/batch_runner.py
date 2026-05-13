@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import sys
 import threading
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -467,10 +467,8 @@ class PauseController:
                 if ch.decode("utf-8", errors="ignore").lower() == "p" and self._loop is not None:
                     self._loop.call_soon_threadsafe(self._toggle_from_keyboard)
         finally:
-            try:
+            with suppress(Exception):
                 termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-            except Exception:
-                pass
 
     def stop(self) -> None:
         self._stop_event.set()

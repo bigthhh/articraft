@@ -1568,14 +1568,7 @@ class ArticraftAgent:
 
             self.display.end_turn(success=True)
 
-        final_code = None
-        try:
-            import aiofiles
-
-            async with aiofiles.open(self.file_path, "r") as file:
-                final_code = await file.read()
-        except Exception:
-            pass
+        final_code = await self._read_final_code()
 
         self._persist_cost_tracking()
 

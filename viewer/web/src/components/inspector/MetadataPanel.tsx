@@ -1,13 +1,12 @@
 import { useEffect, useState, type JSX } from "react";
 
-import { useViewer } from "@/lib/viewer-context";
+import { useViewer, useViewerDispatch } from "@/lib/viewer-context";
 import {
   fetchRecordFile,
   fetchRecordHistory,
   fetchRecordTraceFile,
   fetchStagingFile,
   fetchStagingTraceFile,
-  recordRevisionTraceUrl,
 } from "@/lib/api";
 import type { RecordHistory, RecordHistoryRevision, RecordSummary } from "@/lib/types";
 import { findStagingEntryInBootstrap } from "@/lib/record-summary";
@@ -51,37 +50,45 @@ function formatCost(value: number | null | undefined): string {
 }
 
 function HistoryRevisionRow({ row }: { row: RecordHistoryRevision }): JSX.Element {
-  const modelLabel = [row.provider, row.model_id].filter(Boolean).join(" / ") || "--";
+  const dispatch = useViewerDispatch();
+  const modelLabel = [row.provider, row.model_id].filter(Boolean).join(" / ");
+  const statusLabel = row.status && row.status !== "unknown" ? row.status : null;
+  const costLabel = row.total_cost_usd != null ? formatCost(row.total_cost_usd) : null;
+  const promptLabel = row.prompt_preview?.trim() || null;
+
   return (
-    <li className="border-t border-[var(--border-subtle)] py-2 first:border-t-0 first:pt-0 last:pb-0">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <span className="truncate font-mono text-[10px] text-[var(--text-secondary)]">
-            {row.record_id}/{row.revision_id}
+    <li className="border-t border-[var(--border-subtle)] first:border-t-0">
+      <button
+        type="button"
+        onClick={() => dispatch({ type: "SELECT_RECORD", payload: row.record_id })}
+        className="-mx-2 block w-full rounded px-2 py-2 text-left transition-colors hover:bg-[var(--surface-2)]"
+        aria-label={`Select ${row.record_id}`}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <span
+            className="min-w-0 flex-1 font-mono text-[10px] text-[var(--text-secondary)]"
+            style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}
+          >
+            {row.record_id}
           </span>
-          {row.active ? <Badge variant="success">active</Badge> : null}
+          {costLabel ? (
+            <span className="shrink-0 font-mono text-[10px] text-[var(--text-tertiary)]">
+              {costLabel}
+            </span>
+          ) : null}
         </div>
-        <span className="shrink-0 font-mono text-[10px] text-[var(--text-tertiary)]">
-          {formatCost(row.total_cost_usd)}
-        </span>
-      </div>
-      <p className="mt-1 line-clamp-2 text-[11px] text-[var(--text-secondary)]">
-        {row.prompt_preview || "--"}
-      </p>
-      <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-[var(--text-tertiary)]">
-        <span className="min-w-0 truncate">{modelLabel}</span>
-        <span className="shrink-0">{row.status ?? "unknown"}</span>
-      </div>
-      {row.has_traces ? (
-        <a
-          className="mt-1 inline-flex text-[11px] text-[var(--accent)] hover:text-[var(--text-primary)]"
-          href={recordRevisionTraceUrl(row.record_id, row.revision_id)}
-          target="_blank"
-          rel="noreferrer"
-        >
-          View trajectory
-        </a>
-      ) : null}
+        {promptLabel ? (
+          <p className="mt-1 line-clamp-2 text-[11px] text-[var(--text-secondary)]">
+            {promptLabel}
+          </p>
+        ) : null}
+        {modelLabel || statusLabel ? (
+          <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-[var(--text-tertiary)]">
+            {modelLabel ? <span className="min-w-0 truncate">{modelLabel}</span> : <span />}
+            {statusLabel ? <span className="shrink-0">{statusLabel}</span> : null}
+          </div>
+        ) : null}
+      </button>
     </li>
   );
 }
@@ -93,30 +100,27 @@ function HistoryPanel({
   history: RecordHistory | null;
   selectedRecord: RecordSummary;
 }): JSX.Element | null {
+  const dispatch = useViewerDispatch();
   if (!history) return null;
   const hasAncestors = history.ancestors.length > 0;
   const hasDescendants = history.descendants.length > 0;
-  const hasRevisions = history.revisions.length > 0;
-  if (!hasAncestors && !hasDescendants && !hasRevisions) return null;
+  const hasOrigin =
+    !!selectedRecord.origin_record_id &&
+    selectedRecord.origin_record_id !== selectedRecord.record_id;
+  if (!hasAncestors && !hasDescendants && !hasOrigin) return null;
 
   return (
     <section>
       <SectionLabel>History</SectionLabel>
       <div className="space-y-3">
-        <div className="space-y-0">
-          <div className="prop-row">
-            <span className="prop-label">Active Revision</span>
-            <span className="prop-value font-mono text-[10px]">
-              {history.active_revision_id ?? selectedRecord.active_revision_id ?? "--"}
-            </span>
-          </div>
-          <div className="prop-row">
+        {hasOrigin ? (
+          <div className="prop-row-stacked">
             <span className="prop-label">Origin</span>
             <span className="prop-value font-mono text-[10px]">
-              {selectedRecord.origin_record_id ?? selectedRecord.record_id}
+              {selectedRecord.origin_record_id}
             </span>
           </div>
-        </div>
+        ) : null}
 
         {hasAncestors ? (
           <div>
@@ -134,19 +138,6 @@ function HistoryPanel({
           </div>
         ) : null}
 
-        {hasRevisions ? (
-          <div>
-            <p className="pb-1 text-[10px] font-medium uppercase tracking-[0.05em] text-[var(--text-tertiary)]">
-              Revisions
-            </p>
-            <ul>
-              {history.revisions.map((row) => (
-                <HistoryRevisionRow key={`${row.record_id}:${row.revision_id}`} row={row} />
-              ))}
-            </ul>
-          </div>
-        ) : null}
-
         {hasDescendants ? (
           <div>
             <p className="pb-1 text-[10px] font-medium uppercase tracking-[0.05em] text-[var(--text-tertiary)]">
@@ -156,19 +147,28 @@ function HistoryPanel({
               {history.descendants.map((descendant) => (
                 <li
                   key={descendant.record_id}
-                  className="border-t border-[var(--border-subtle)] py-2 first:border-t-0 first:pt-0 last:pb-0"
+                  className="border-t border-[var(--border-subtle)] first:border-t-0"
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="truncate font-mono text-[10px] text-[var(--text-secondary)]">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      dispatch({ type: "SELECT_RECORD", payload: descendant.record_id })
+                    }
+                    className="-mx-2 block w-full rounded px-2 py-2 text-left transition-colors hover:bg-[var(--surface-2)]"
+                    aria-label={`Select ${descendant.record_id}`}
+                  >
+                    <span
+                      className="block font-mono text-[10px] text-[var(--text-secondary)]"
+                      style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}
+                    >
                       {descendant.record_id}
                     </span>
-                    <span className="shrink-0 text-[10px] text-[var(--text-tertiary)]">
-                      {descendant.active_revision_id ?? "--"}
-                    </span>
-                  </div>
-                  <p className="mt-1 line-clamp-2 text-[11px] text-[var(--text-secondary)]">
-                    {descendant.title}
-                  </p>
+                    {descendant.title ? (
+                      <p className="mt-1 line-clamp-2 text-[11px] text-[var(--text-secondary)]">
+                        {descendant.title}
+                      </p>
+                    ) : null}
+                  </button>
                 </li>
               ))}
             </ul>
@@ -365,15 +365,15 @@ export function MetadataPanel(): JSX.Element {
           <section>
             <SectionLabel>Identity</SectionLabel>
             <div className="space-y-0">
-              <div className="prop-row">
+              <div className="prop-row-stacked">
                 <span className="prop-label">Run ID</span>
                 <span className="prop-value font-mono text-[10px]">{stagingEntry.run_id}</span>
               </div>
-              <div className="prop-row">
+              <div className="prop-row-stacked">
                 <span className="prop-label">Record ID</span>
                 <span className="prop-value font-mono text-[10px]">{stagingEntry.record_id}</span>
               </div>
-              <div className="prop-row">
+              <div className="prop-row-stacked">
                 <span className="prop-label">Staging Dir</span>
                 <span className="prop-value font-mono text-[10px]">{stagingEntry.staging_dir}</span>
               </div>
@@ -455,11 +455,11 @@ export function MetadataPanel(): JSX.Element {
         <section>
           <SectionLabel>Identity</SectionLabel>
           <div className="space-y-0">
-            <div className="prop-row">
+            <div className="prop-row-stacked">
               <span className="prop-label">Record ID</span>
               <span className="prop-value font-mono text-[10px]">{record.record_id}</span>
             </div>
-            <div className="prop-row">
+            <div className="prop-row-stacked">
               <span className="prop-label">Run ID</span>
               <span className="prop-value font-mono text-[10px]">{record.run_id ?? "--"}</span>
             </div>
@@ -549,7 +549,7 @@ export function MetadataPanel(): JSX.Element {
         ) : null}
 
         {!loadingExtras && (!isExternalRecord || recordHasTraces) ? (
-          <TracePanel cost={cost} traceText={traceText} />
+          <TracePanel cost={cost} traceText={traceText} record={record} />
         ) : null}
       </div>
     </ScrollArea>

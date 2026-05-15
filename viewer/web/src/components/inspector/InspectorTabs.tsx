@@ -1,8 +1,10 @@
 import { lazy, Suspense, useState, type JSX } from "react";
+import { GitFork } from "lucide-react";
 
 import type { InspectorTab } from "@/lib/types";
 import { useViewer, useViewerDispatch } from "@/lib/viewer-context";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { InspectPanel } from "@/components/inspector/InspectPanel";
 import { RenderOptionsPanel } from "@/components/inspector/RenderOptionsPanel";
 import { defaultRenderOptions, type RenderOptions } from "@/components/viewer3d/useRenderOptions";
@@ -55,8 +57,10 @@ export function InspectorTabs({
   onSnapshot = null,
   collisionSupport = null,
 }: InspectorTabsProps): JSX.Element {
-  const { selectedInspectorTab, selection } = useViewer();
+  const { selectedInspectorTab, selection, selectedRecordSummary } = useViewer();
   const dispatch = useViewerDispatch();
+  const forkedParent =
+    selection?.kind === "record" ? selectedRecordSummary?.parent_record_id ?? null : null;
 
   const [localOptions, setLocalOptions] = useState<RenderOptions>(defaultRenderOptions);
   const activeOptions = renderOptions ?? localOptions;
@@ -79,7 +83,7 @@ export function InspectorTabs({
       className="relative flex h-full flex-col gap-0"
     >
       {/* Tab bar */}
-      <div className="flex border-b border-[var(--border-default)] px-3">
+      <div className="flex items-center border-b border-[var(--border-default)] px-3">
         <TabsList className="flex h-auto gap-0 rounded-none border-none bg-transparent p-0">
           {tabs.map((tab) => (
             <TabsTrigger
@@ -89,6 +93,20 @@ export function InspectorTabs({
             >{tabLabels[tab]}</TabsTrigger>
           ))}
         </TabsList>
+        {forkedParent ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span
+                className="ml-auto inline-flex items-center gap-1 rounded-full border border-[var(--border-subtle)] px-1.5 py-0.5 text-[9.5px] font-medium uppercase tracking-[0.05em] text-[var(--text-tertiary)]"
+                aria-label="Forked record"
+              >
+                <GitFork className="size-[9px] text-[var(--accent)]" />
+                <span>Forked</span>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Forked from {forkedParent}</TooltipContent>
+          </Tooltip>
+        ) : null}
       </div>
 
       <TabsContent value="inspect" className="min-h-0 flex-1 overflow-hidden px-3 pb-3 pt-3">

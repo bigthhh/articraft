@@ -139,6 +139,10 @@ export async function fetchRecordAnimation(recordId: string): Promise<RecordAnim
   return fetchJson<RecordAnimation>(`/api/records/${encodeURIComponent(recordId)}/animation`);
 }
 
+export async function fetchRecordTurnAnimation(recordId: string): Promise<RecordAnimation> {
+  return fetchJson<RecordAnimation>(`/api/records/${encodeURIComponent(recordId)}/turn-animation`);
+}
+
 export async function browseRecords(params: {
   source: SourceFilter;
   query: string;

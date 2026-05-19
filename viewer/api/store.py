@@ -57,6 +57,7 @@ from viewer.api.schemas import (
     ViewerBootstrapResponse,
     WorkbenchEntryResponse,
 )
+from viewer.api.turn_animation import build_turn_animation_specs
 
 
 @dataclass(frozen=True)
@@ -1153,6 +1154,12 @@ class ViewerStore:
     def record_animation_frame_file_root(self, record_id: str, frame_index: int) -> Path:
         return self._record_animation_root(record_id) / "frames" / f"{frame_index:04d}"
 
+    def _record_turn_animation_root(self, record_id: str) -> Path:
+        return self.repo.root / "data" / "cache" / "record_turn_animation" / record_id
+
+    def record_turn_animation_frame_file_root(self, record_id: str, frame_index: int) -> Path:
+        return self._record_turn_animation_root(record_id) / "frames" / f"{frame_index:04d}"
+
     def _compile_animation_frame(
         self,
         record_id: str,
@@ -1160,8 +1167,9 @@ class ViewerStore:
         source: str,
         *,
         sdk_package: str,
+        frame_root: Path | None = None,
     ) -> _AnimationCompileResult:
-        frame_root = self.record_animation_frame_file_root(record_id, frame_index)
+        frame_root = frame_root or self.record_animation_frame_file_root(record_id, frame_index)
         model_path = frame_root / "model.py"
         compile_report_path = frame_root / "compile_report.json"
         source_sha = _sha256_text(source)
@@ -1334,6 +1342,60 @@ class ViewerStore:
                     code_snippet=snippet,
                     model_sha256=_sha256_text(frame_source),
                     file_base_url=(f"/api/records/{record_id}/animation/frames/{index}/files"),
+                    compile_status=compile_result.status,
+                    compile_error=compile_result.error,
+                )
+            )
+
+        return RecordAnimationResponse(
+            record_id=record_id,
+            frame_count=len(frames),
+            skipped_count=skipped_count,
+            frames=frames,
+        )
+
+    def build_record_turn_animation(self, record_id: str) -> RecordAnimationResponse:
+        record = self.records.load_record(record_id)
+        if not isinstance(record, dict):
+            raise FileNotFoundError(f"Record not found: {record_id}")
+
+        from agent.runner import _draft_model_template
+        from storage.trajectories import unroll_record_trajectory
+
+        trajectory_path = unroll_record_trajectory(self.repo, record_id)
+        rows = self._read_jsonl(trajectory_path)
+        sdk_package = _normalize_sdk_package_value(record.get("sdk_package")) or "sdk"
+        initial_source = _initial_model_source_from_trace(rows) or _draft_model_template(
+            sdk_package=sdk_package
+        )
+        specs, skipped_count = build_turn_animation_specs(
+            rows,
+            initial_source,
+            apply_patch_to_text=_apply_unified_patch_to_text,
+        )
+
+        frames: list[RecordAnimationFrameResponse] = []
+        for index, spec in enumerate(specs, start=1):
+            compile_result = self._compile_animation_frame(
+                record_id,
+                index,
+                spec.source,
+                sdk_package=sdk_package,
+                frame_root=self.record_turn_animation_frame_file_root(record_id, index),
+            )
+            if not compile_result.rendered:
+                skipped_count += 1
+                continue
+            frames.append(
+                RecordAnimationFrameResponse(
+                    index=index,
+                    trace_line=spec.trace_line,
+                    timestamp=spec.timestamp,
+                    tool_name="agent_turn",
+                    patch="",
+                    code_snippet=spec.summary,
+                    model_sha256=_sha256_text(spec.source),
+                    file_base_url=(f"/api/records/{record_id}/turn-animation/frames/{index}/files"),
                     compile_status=compile_result.status,
                     compile_error=compile_result.error,
                 )

@@ -631,6 +631,313 @@ def test_record_animation_renders_unvalidated_fallback_frames(
     assert "fallback" in frame_file.text
 
 
+def test_record_turn_animation_builds_one_frame_per_agent_turn(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = StorageRepo(tmp_path)
+    repo.ensure_layout()
+
+    RecordStore(repo).write_record(
+        Record(
+            schema_version=1,
+            record_id="rec_turn_animation_001",
+            created_at="2026-03-17T19:24:12Z",
+            updated_at="2026-03-17T19:25:24Z",
+            rating=None,
+            kind="generated_model",
+            prompt_kind="single_prompt",
+            category_slug=None,
+            source=SourceRef(run_id="run_001"),
+            sdk_package="sdk",
+            provider="openai",
+            model_id="gpt-5.4",
+            display=DisplayMetadata(
+                title="Turn animation record",
+                prompt_preview="create a turn animation object",
+            ),
+            artifacts=RecordArtifacts(
+                prompt_txt="prompt.txt",
+                prompt_series_json=None,
+                model_py="model.py",
+                provenance_json="provenance.json",
+                cost_json=None,
+            ),
+            collections=["workbench"],
+        )
+    )
+    initial_source = "\n".join(
+        [
+            "from sdk import ArticulatedObject, Box, Cylinder, Origin",
+            "",
+            "",
+            "def build_object_model():",
+            '    model = ArticulatedObject(name="animation_object")',
+            '    base = model.part("base")',
+            "    return model",
+            "",
+            "",
+            "object_model = build_object_model()",
+            "",
+        ]
+    )
+    read_result = "\n".join(
+        f"L{index}: {line}" for index, line in enumerate(initial_source.splitlines(), start=1)
+    )
+    first_patch = """*** Begin Patch
+*** Update File: model.py
+@@
+     model = ArticulatedObject(name="animation_object")
+     base = model.part("base")
++    base.visual(
++        Box((0.20, 0.10, 0.04)),
++        origin=Origin(xyz=(0.0, 0.0, 0.02)),
++        name="base_box",
++    )
+     return model
+*** End Patch"""
+    second_patch = """*** Begin Patch
+*** Update File: model.py
+@@
+     base.visual(
+         Box((0.20, 0.10, 0.04)),
+         origin=Origin(xyz=(0.0, 0.0, 0.02)),
+         name="base_box",
+     )
++    base.visual(
++        Cylinder(radius=0.03, length=0.18),
++        origin=Origin(xyz=(0.0, 0.0, 0.10)),
++        name="base_pin",
++    )
+     return model
+*** End Patch"""
+    trajectory_path = repo.layout.record_traces_dir("rec_turn_animation_001") / "trajectory.jsonl"
+    trajectory_path.parent.mkdir(parents=True, exist_ok=True)
+    trajectory_path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "message": {
+                            "role": "tool",
+                            "name": "read_file",
+                            "content": json.dumps({"result": read_result}),
+                        }
+                    }
+                ),
+                json.dumps(
+                    {
+                        "ts": 1.0,
+                        "message": {
+                            "role": "assistant",
+                            "content": "I added the base block.",
+                            "tool_calls": [
+                                {
+                                    "id": "call_read_1",
+                                    "function": {
+                                        "name": "read_file",
+                                        "arguments": json.dumps({"path": "model.py"}),
+                                    },
+                                },
+                                {
+                                    "id": "call_patch_1",
+                                    "custom": {
+                                        "name": "apply_patch",
+                                        "input": first_patch,
+                                    },
+                                },
+                            ],
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "message": {
+                            "role": "tool",
+                            "tool_call_id": "call_read_1",
+                            "name": "read_file",
+                            "content": json.dumps({"result": read_result}),
+                        }
+                    }
+                ),
+                json.dumps(
+                    {
+                        "message": {
+                            "role": "tool",
+                            "tool_call_id": "call_patch_1",
+                            "name": "apply_patch",
+                            "content": json.dumps(
+                                {
+                                    "result": "Patch applied successfully (1 hunks)",
+                                    "compilation": {"status": "success", "error": None},
+                                }
+                            ),
+                        }
+                    }
+                ),
+                json.dumps(
+                    {
+                        "ts": 2.0,
+                        "message": {
+                            "role": "assistant",
+                            "thought_summary": "Added the vertical pin detail.",
+                            "tool_calls": [
+                                {
+                                    "id": "call_patch_2",
+                                    "custom": {
+                                        "name": "apply_patch",
+                                        "input": second_patch,
+                                    },
+                                },
+                                {
+                                    "id": "call_compile_2",
+                                    "function": {
+                                        "name": "compile_model",
+                                        "arguments": "{}",
+                                    },
+                                },
+                            ],
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "message": {
+                            "role": "tool",
+                            "tool_call_id": "call_patch_2",
+                            "name": "apply_patch",
+                            "content": json.dumps(
+                                {
+                                    "result": "Patch applied successfully (1 hunks)",
+                                    "compilation": {"status": "success", "error": None},
+                                }
+                            ),
+                        }
+                    }
+                ),
+                json.dumps(
+                    {
+                        "message": {
+                            "role": "tool",
+                            "tool_call_id": "call_compile_2",
+                            "name": "compile_model",
+                            "content": json.dumps(
+                                {
+                                    "result": (
+                                        "<compile_signals>\n"
+                                        "<summary>Compile and tests passed.</summary>\n"
+                                        "</compile_signals>"
+                                    ),
+                                    "compilation": {"status": "success", "error": None},
+                                }
+                            ),
+                        }
+                    }
+                ),
+                json.dumps(
+                    {
+                        "ts": 3.0,
+                        "message": {
+                            "role": "assistant",
+                            "content": "I ran another validation pass.",
+                            "tool_calls": [
+                                {
+                                    "id": "call_compile_3",
+                                    "function": {
+                                        "name": "compile_model",
+                                        "arguments": "{}",
+                                    },
+                                },
+                            ],
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "message": {
+                            "role": "tool",
+                            "tool_call_id": "call_compile_3",
+                            "name": "compile_model",
+                            "content": json.dumps(
+                                {
+                                    "result": (
+                                        "<compile_signals>\n"
+                                        "<summary>Primary issue: collision check failed.</summary>\n"
+                                        "</compile_signals>"
+                                    ),
+                                    "compilation": {
+                                        "status": "error",
+                                        "error": "Primary issue: collision check failed.",
+                                    },
+                                }
+                            ),
+                        }
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    compiled_sources: list[str] = []
+
+    def fake_compile_urdf_report(model_path: Path, **_: object) -> SimpleNamespace:
+        source = model_path.read_text(encoding="utf-8")
+        compiled_sources.append(source)
+        return SimpleNamespace(
+            urdf_xml=f"<robot name='turn_frame_{len(compiled_sources)}'><link name='base'/></robot>",
+            warnings=[],
+        )
+
+    monkeypatch.setattr("agent.compiler.compile_urdf_report", fake_compile_urdf_report)
+
+    client = TestClient(create_app(repo_root=tmp_path))
+    response = client.get("/api/records/rec_turn_animation_001/turn-animation")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["frame_count"] == 3
+    assert payload["skipped_count"] == 0
+    assert payload["frames"][0]["tool_name"] == "agent_turn"
+    assert payload["frames"][0]["code_snippet"].startswith("I added the base block.")
+    assert "Tool calls:\n- read_file\n- apply_patch" in payload["frames"][0]["code_snippet"]
+    assert "Reads:\n- model.py" in payload["frames"][0]["code_snippet"]
+    assert "Read snippets:\n- model.py\n-     L1: from sdk" in payload["frames"][0]["code_snippet"]
+    assert "Writes:\n- model.py via apply_patch (1 hunk)" in payload["frames"][0]["code_snippet"]
+    assert (
+        "Write snippets:\n- apply_patch\n-     *** Begin Patch"
+        in payload["frames"][0]["code_snippet"]
+    )
+    assert (
+        "Results:\n- passed: syntax check after apply_patch" in payload["frames"][0]["code_snippet"]
+    )
+    assert "Box((0.20, 0.10, 0.04))" in payload["frames"][0]["code_snippet"]
+    assert payload["frames"][1]["trace_line"] == 5
+    assert payload["frames"][1]["timestamp"] == 2.0
+    assert payload["frames"][1]["code_snippet"].startswith("Added the vertical pin detail.")
+    assert (
+        "Validations:\n- compile_model: compile + QC/tests" in payload["frames"][1]["code_snippet"]
+    )
+    assert (
+        "Results:\n- passed: syntax check after apply_patch" in payload["frames"][1]["code_snippet"]
+    )
+    assert (
+        "passed: compile_model - Compile and tests passed." in payload["frames"][1]["code_snippet"]
+    )
+    assert (
+        "failed: compile_model - Primary issue: collision check failed."
+        in payload["frames"][2]["code_snippet"]
+    )
+    assert "Box((0.20, 0.10, 0.04))" in compiled_sources[0]
+    assert "Cylinder(radius=0.03, length=0.18)" not in compiled_sources[0]
+    assert "Cylinder(radius=0.03, length=0.18)" in compiled_sources[1]
+
+    frame_file = client.get(f"{payload['frames'][1]['file_base_url']}/model.urdf")
+    assert frame_file.status_code == 200
+    assert "turn_frame_2" in frame_file.text
+
+
 def test_viewer_api_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_dataset_tokens(monkeypatch, "0001")
     fixed_now = datetime(2026, 4, 11, 0, 0, tzinfo=timezone.utc)

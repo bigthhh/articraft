@@ -55,6 +55,12 @@ const optionRows: OptionRow[] = [
     section: "display",
   },
   {
+    key: "showExplodedView",
+    label: "Exploded view",
+    description: "Separate the model by segmented parts",
+    section: "display",
+  },
+  {
     key: "showSurfaceSamples",
     label: "Surface samples",
     description: "Sample point clouds across visible mesh surfaces",

@@ -8,6 +8,7 @@ export interface RenderOptions {
   showGrid: boolean;
   showCollisions: boolean;
   showSegmentColors: boolean;
+  showExplodedView: boolean;
   showSurfaceSamples: boolean;
   doubleSided: boolean;
   autoAnimate: boolean;
@@ -26,6 +27,7 @@ const RENDER_OPTION_KEYS: Array<keyof RenderOptions> = [
   'autoAnimate',
   'showJointOverlay',
   'showSurfaceSamples',
+  'showExplodedView',
   'fancyGraphics',
 ];
 
@@ -35,6 +37,7 @@ export const defaultRenderOptions: RenderOptions = {
   showGrid: true,
   showCollisions: false,
   showSegmentColors: false,
+  showExplodedView: false,
   showSurfaceSamples: false,
   doubleSided: true,
   autoAnimate: false,
@@ -66,6 +69,7 @@ function loadOptions(): RenderOptions {
           ...defaultRenderOptions,
           ...parsed,
           showSegmentColors: false,
+          showExplodedView: false,
           doubleSided: true,
           fancyGraphics: false,
         };

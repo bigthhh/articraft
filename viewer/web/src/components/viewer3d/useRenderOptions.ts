@@ -12,6 +12,7 @@ export interface RenderOptions {
   doubleSided: boolean;
   autoAnimate: boolean;
   showJointOverlay: boolean;
+  useTexturedUsd: boolean;
 }
 
 const STORAGE_KEY = 'articraft-render-options';
@@ -26,6 +27,7 @@ const RENDER_OPTION_KEYS: Array<keyof RenderOptions> = [
   'autoAnimate',
   'showJointOverlay',
   'showSurfaceSamples',
+  'useTexturedUsd',
   'fancyGraphics',
 ];
 
@@ -39,6 +41,7 @@ export const defaultRenderOptions: RenderOptions = {
   doubleSided: true,
   autoAnimate: false,
   showJointOverlay: false,
+  useTexturedUsd: true,
 };
 
 const DEFAULT_RENDER_QUERY_VALUE = serializeOptions(defaultRenderOptions);
@@ -66,6 +69,7 @@ function loadOptions(): RenderOptions {
           ...defaultRenderOptions,
           ...parsed,
           showSegmentColors: false,
+          useTexturedUsd: true,
           doubleSided: true,
           fancyGraphics: false,
         };

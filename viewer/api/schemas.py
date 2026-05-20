@@ -78,6 +78,7 @@ class RecordSummaryResponse(BaseModel):
     has_history: bool = False
     collections: list[str] = Field(default_factory=list)
     materialization_status: str | None = None
+    textured_usdz_path: str | None = None
     has_compile_report: bool = False
     has_provenance: bool = False
     has_cost: bool = False

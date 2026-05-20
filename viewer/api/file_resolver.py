@@ -87,6 +87,9 @@ class ViewerFileResolver:
             target = self.repo.layout.record_materialization_compile_report_path(
                 record_id
             ).resolve()
+        elif len(requested_path.parts) == 1 and requested_path.suffix.lower() == ".usdz":
+            root = self.repo.layout.record_materialization_dir(record_id).resolve()
+            target = (root / requested_path.name).resolve()
         elif len(requested_path.parts) >= 2 and requested_path.parts[0] == "assets":
             root = self.repo.layout.record_materialization_dir(record_id).resolve()
             target = (root / requested_path).resolve()

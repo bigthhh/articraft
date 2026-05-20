@@ -35,6 +35,7 @@ export type RecordSummary = {
   has_history: boolean;
   collections: string[];
   materialization_status: string | null;
+  textured_usdz_path: string | null;
   has_compile_report: boolean;
   has_provenance: boolean;
   has_cost: boolean;

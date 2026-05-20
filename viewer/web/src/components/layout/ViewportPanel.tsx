@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 interface ViewportPanelProps {
   baseFileUrl: string | null;
   assetRevisionKey: string | null;
+  texturedUsdPath: string | null;
   selectionKey: string | null;
   jointPoseSignal: Map<string, number>;
   renderOptions: RenderOptions;
@@ -35,6 +36,7 @@ interface ViewportPanelProps {
 export function ViewportPanel({
   baseFileUrl,
   assetRevisionKey,
+  texturedUsdPath,
   selectionKey,
   jointPoseSignal,
   renderOptions,
@@ -56,6 +58,7 @@ export function ViewportPanel({
     doubleSided: renderOptions.doubleSided,
     autoAnimate: renderOptions.autoAnimate,
     showJointOverlay: renderOptions.showJointOverlay,
+    useTexturedUsd: renderOptions.useTexturedUsd,
   };
 
   return (
@@ -70,6 +73,7 @@ export function ViewportPanel({
           <SceneCanvas
             baseFileUrl={baseFileUrl}
             assetRevisionKey={assetRevisionKey}
+            texturedUsdPath={texturedUsdPath}
             selectionKey={selectionKey}
             jointPoseSignal={jointPoseSignal}
             renderOptions={sceneRenderOptions}

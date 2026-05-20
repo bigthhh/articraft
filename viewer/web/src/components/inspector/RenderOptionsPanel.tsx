@@ -61,6 +61,12 @@ const optionRows: OptionRow[] = [
     section: "display",
   },
   {
+    key: "useTexturedUsd",
+    label: "Textured USDZ",
+    description: "Use textured USDZ visuals when a matching file is available",
+    section: "display",
+  },
+  {
     key: "doubleSided",
     label: "Double-sided",
     description: "Render front & back faces",

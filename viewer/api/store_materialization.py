@@ -69,6 +69,18 @@ class ViewerMaterializationStore(ViewerStoreComponent):
             ]
         )
 
+    def _textured_usdz_path_for_record(self, record_id: str) -> str | None:
+        materialization_dir = self.repo.layout.record_materialization_dir(record_id)
+        if not materialization_dir.exists():
+            return None
+
+        candidates = sorted(
+            path.name
+            for path in materialization_dir.iterdir()
+            if path.is_file() and path.suffix.lower() == ".usdz"
+        )
+        return candidates[0] if candidates else None
+
     def _clear_derived_asset_outputs(
         self,
         record_id: str,

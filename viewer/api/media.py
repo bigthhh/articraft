@@ -19,6 +19,7 @@ MEDIA_TYPE_MAP = {
     ".gltf": "model/gltf+json",
     ".stl": "model/stl",
     ".obj": "model/obj",
+    ".usdz": "model/vnd.usdz+zip",
 }
 
 TRACE_MEDIA_TYPE_MAP = {

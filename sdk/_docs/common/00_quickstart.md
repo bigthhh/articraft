@@ -190,15 +190,62 @@ makes positive angles open upward.
 
 ## Recommended Workflow
 
-1. Build parts with `model.part(...)`.
-2. Add visuals with `part.visual(...)`.
-3. Add motion with `model.articulation(...)`.
-4. Add prompt-specific `expect_*` assertions in `run_tests()`.
-5. Use `allow_overlap(...)` and `allow_isolated_part(...)` only when the
+1. Derive a compact internal Articraft brief from the prompt.
+2. Build parts with `model.part(...)`.
+3. Add visuals with `part.visual(...)`.
+4. Add motion with `model.articulation(...)`.
+5. Add prompt-specific `expect_*` assertions in `run_tests()`.
+6. Use `allow_overlap(...)` and `allow_isolated_part(...)` only when the
    intended mechanism genuinely requires those exceptions.
 
 `part.inertial` is optional. Add it only when a downstream simulation or
 export consumer needs explicit mass properties.
+
+## Articraft Brief
+
+Before coding, translate the user's prose into a short internal Articraft brief.
+Do not ask the user to provide this structure. Use it to make the first
+implementation pass coherent and to choose tests that prove the requested object,
+not just that the model compiles.
+
+Use only the fields that matter for the prompt:
+
+```text
+Articraft brief:
+- Object: real object identity and approximate real-world scale.
+- Root/support: fixed body or frame that carries the assembly.
+- Parts: major authored parts and why they are separate or fused.
+- Articulations: joint name, parent, child, type, frame/origin idea, axis,
+  positive motion, and limits.
+- Visible geometry: prompt-critical shapes, openings, cavities, controls,
+  materials, and colors.
+- Support/fit: how separate parts mount, contact, clear, nest, or retain.
+- Intentional overlaps: none, or exact local embeddings that need allowances.
+- Tests: prompt-specific checks and decisive pose checks.
+- Assumptions: meaningful inferred choices.
+```
+
+For simple static objects, the brief may only need object, root/support, visible
+geometry, tests, and assumptions. For mechanism-heavy objects, explicitly name
+each moving part and what positive motion should do before writing the joint.
+
+Example:
+
+```text
+Articraft brief:
+- Object: 13-inch laptop, about 0.30 x 0.21 m footprint.
+- Root/support: base chassis is root; screen is carried by rear hinge barrels.
+- Parts: base chassis, screen lid, keyboard keys or rows, trackpad.
+- Articulation: base_to_screen, REVOLUTE, rear hinge line, axis chosen so
+  positive q opens the screen upward/backward, limits 0 to about 2.1 rad.
+- Visible geometry: thin base shell, raised keys, dark display inset, hinge
+  cylinders, restrained metal/plastic materials.
+- Support/fit: hinge barrels contact the rear base edge and lower display edge.
+- Intentional overlaps: small hinge-pin/barrel embedding only if simplified.
+- Tests: screen exists, hinge positive pose raises display, closed pose seats
+  near base, hinge support remains connected.
+- Assumptions: generic laptop proportions, no port-level detail.
+```
 
 ## Authoring Habits
 

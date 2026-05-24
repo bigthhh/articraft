@@ -6,6 +6,7 @@ from pathlib import Path
 from articraft.values import ProviderName, normalize_provider_name
 
 OPENAI_DESIGNER_PROMPT_NAME = "designer_system_prompt_openai.txt"
+CODEX_CLI_DESIGNER_PROMPT_NAME = "designer_system_prompt_codex_cli.txt"
 GEMINI_DESIGNER_PROMPT_NAME = "designer_system_prompt_gemini.txt"
 OPENROUTER_DESIGNER_PROMPT_NAME = "designer_system_prompt_openrouter.txt"
 ANTHROPIC_DESIGNER_PROMPT_NAME = "designer_system_prompt_anthropic.txt"
@@ -18,6 +19,7 @@ class SdkProfile:
     docs_full: tuple[Path, ...]
     docs_core: tuple[Path, ...]
     openai_prompt_name: str
+    codex_cli_prompt_name: str
     gemini_prompt_name: str
     openrouter_prompt_name: str
     anthropic_prompt_name: str
@@ -41,7 +43,7 @@ class SdkProfile:
         if provider_norm is ProviderName.OPENAI:
             return self.openai_prompt_name
         if provider_norm is ProviderName.CODEX_CLI:
-            return self.gemini_prompt_name
+            return self.codex_cli_prompt_name
         if provider_norm is ProviderName.GEMINI:
             return self.gemini_prompt_name
         if provider_norm is ProviderName.OPENROUTER:
@@ -105,6 +107,7 @@ SDK_PROFILES: dict[str, SdkProfile] = {
             Path("sdk/_docs/common/80_testing.md"),
         ),
         openai_prompt_name=OPENAI_DESIGNER_PROMPT_NAME,
+        codex_cli_prompt_name=CODEX_CLI_DESIGNER_PROMPT_NAME,
         gemini_prompt_name=GEMINI_DESIGNER_PROMPT_NAME,
         openrouter_prompt_name=OPENROUTER_DESIGNER_PROMPT_NAME,
         anthropic_prompt_name=ANTHROPIC_DESIGNER_PROMPT_NAME,

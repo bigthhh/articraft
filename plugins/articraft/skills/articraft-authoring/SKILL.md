@@ -63,19 +63,19 @@ uv run articraft generate "<prompt>"
 For no-key Codex generation with Articraft loop parity, use the Codex CLI provider:
 
 ```bash
-uv run articraft generate --provider codex-cli "<prompt>"
+uv run articraft generate --provider codex-cli --model <codex-model-id> "<prompt>"
 ```
 
-Use an explicit Codex model only when requested or already configured:
+You can set `ARTICRAFT_CODEX_MODEL=<codex-model-id>` instead of passing `--model`:
 
 ```bash
-uv run articraft generate --provider codex-cli --model <codex-model-id> "<prompt>"
+uv run articraft generate --provider codex-cli "<prompt>"
 ```
 
 For image-conditioned no-key Codex generation:
 
 ```bash
-uv run articraft generate --provider codex-cli --image <reference-image> "<prompt>"
+uv run articraft generate --provider codex-cli --model <codex-model-id> --image <reference-image> "<prompt>"
 ```
 
 For legacy external Codex drafting, create the record through the external CLI and identify Codex:

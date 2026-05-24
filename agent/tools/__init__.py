@@ -6,7 +6,7 @@ from typing import Any
 
 from agent.prompts import normalize_sdk_package
 from agent.runtime_limits import BatchRuntimeLimits
-from agent.tools.apply_patch import ApplyPatchFreeformTool
+from agent.tools.apply_patch import ApplyPatchFreeformTool, ApplyPatchJsonTool
 from agent.tools.base import (
     BaseDeclarativeTool,
     BaseToolInvocation,
@@ -80,6 +80,15 @@ def build_tool_registry(
         tools: list[BaseDeclarativeTool] = [
             ReadFileTool(),
             ApplyPatchFreeformTool(),
+            CompileModelTool(),
+            ProbeModelTool(sdk_package=package, runtime_limits=runtime_limits),
+        ]
+    elif provider_norm is ProviderName.CODEX_CLI:
+        tools = [
+            ReadFileTool(editable_model_only=True),
+            ApplyPatchJsonTool(),
+            ReplaceTool(),
+            WriteFileTool(),
             CompileModelTool(),
             ProbeModelTool(sdk_package=package, runtime_limits=runtime_limits),
         ]
@@ -209,6 +218,7 @@ __all__ = [
     "ToolSchema",
     "make_tool_schema",
     "ApplyPatchFreeformTool",
+    "ApplyPatchJsonTool",
     "CompileModelTool",
     "FindExamplesTool",
     "ProbeModelTool",

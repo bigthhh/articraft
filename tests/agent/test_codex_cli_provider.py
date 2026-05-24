@@ -6,12 +6,53 @@ from pathlib import Path
 
 import pytest
 
+from agent.payload_preview import build_provider_payload_preview
+from agent.prompts import (
+    CODEX_CLI_DESIGNER_PROMPT_NAME,
+    DESIGNER_PROMPT_NAME,
+    resolve_system_prompt_path,
+)
 from agent.providers.codex_cli import CodexCliExecResult, CodexCliLLM
 from agent.providers.factory import ProviderConfig, create_provider_client, default_model_id
 
 
-def test_codex_cli_default_model_is_no_key_sentinel() -> None:
-    assert default_model_id(ProviderConfig(provider="codex-cli")) == "codex-cli-default"
+def test_codex_cli_requires_explicit_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ARTICRAFT_CODEX_MODEL", raising=False)
+
+    with pytest.raises(ValueError, match="requires an explicit model"):
+        default_model_id(ProviderConfig(provider="codex-cli"))
+
+
+def test_codex_cli_uses_env_model_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ARTICRAFT_CODEX_MODEL", "codex/gpt-5.5")
+
+    assert default_model_id(ProviderConfig(provider="codex-cli")) == "codex/gpt-5.5"
+
+
+def test_codex_cli_prompt_resolution_and_payload_preview() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+
+    codex_cli_resolved = resolve_system_prompt_path(
+        DESIGNER_PROMPT_NAME,
+        provider="codex-cli",
+        repo_root=repo_root,
+    )
+    assert codex_cli_resolved.name == CODEX_CLI_DESIGNER_PROMPT_NAME
+
+    payload = build_provider_payload_preview(
+        "a pair of scissors",
+        provider="codex-cli",
+        model_id="codex/gpt-5.5",
+        thinking_level="high",
+        system_prompt_path=DESIGNER_PROMPT_NAME,
+    )
+
+    assert payload["transport"] == "codex-cli"
+    assert "Codex CLI behind Articraft's internal harness" in payload["prompt"]
+    assert (
+        "Available tools: `read_file`, `apply_patch`, `replace`, `write_file`, `compile_model`, `probe_model`, and `find_examples`."
+        in payload["prompt"]
+    )
 
 
 def test_codex_cli_request_preview_describes_subprocess_transport() -> None:
@@ -122,6 +163,91 @@ def test_codex_cli_generate_converts_schema_payload_to_tool_calls() -> None:
     assert response["extra_content"]["codex_cli"]["raw_response"]["tool_calls"]
 
 
+def test_codex_cli_generate_reuses_seen_images_on_later_turns() -> None:
+    commands: list[list[str]] = []
+
+    async def fake_runner(
+        command: list[str],
+        prompt: str,
+        timeout_seconds: float,
+        output_path: Path,
+    ) -> CodexCliExecResult:
+        commands.append(command)
+        return CodexCliExecResult(
+            returncode=0,
+            stdout="",
+            stderr="",
+            last_message=json.dumps(
+                {
+                    "content": "Done.",
+                    "thought_summary": "",
+                    "tool_calls": [],
+                }
+            ),
+        )
+
+    provider = CodexCliLLM(runner=fake_runner)
+    tools: list[dict[str, object]] = []
+
+    asyncio.run(
+        provider.generate_with_tools(
+            system_prompt="system",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": "make a hinge"},
+                        {"type": "input_image", "image_path": "/tmp/reference.png"},
+                    ],
+                }
+            ],
+            tools=tools,
+        )
+    )
+    asyncio.run(
+        provider.generate_with_tools(
+            system_prompt="system",
+            messages=[{"role": "user", "content": "continue"}],
+            tools=tools,
+        )
+    )
+
+    assert commands[0].count("--image") == 1
+    assert commands[1].count("--image") == 1
+    assert "/tmp/reference.png" in commands[1]
+
+
+def test_codex_cli_prepare_next_request_reuses_seen_images_in_trace_metadata() -> None:
+    provider = CodexCliLLM(dry_run=True)
+
+    asyncio.run(
+        provider.prepare_next_request(
+            system_prompt="system",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": "make a hinge"},
+                        {"type": "input_image", "image_path": "/tmp/reference.png"},
+                    ],
+                }
+            ],
+            tools=[],
+            completed_turns=0,
+        )
+    )
+    result = asyncio.run(
+        provider.prepare_next_request(
+            system_prompt="system",
+            messages=[{"role": "user", "content": "continue"}],
+            tools=[],
+            completed_turns=1,
+        )
+    )
+
+    assert result.trace_events[0].payload["image_paths"] == ["/tmp/reference.png"]
+
+
 def test_codex_cli_prepare_next_request_emits_trace_metadata() -> None:
     provider = CodexCliLLM(dry_run=True)
 
@@ -156,6 +282,90 @@ def test_codex_cli_prepare_next_request_emits_trace_metadata() -> None:
     assert event.payload["last_compile_failure_sig"] == "abc123"
 
 
+def test_codex_cli_compacts_old_history_before_later_request() -> None:
+    prompts: list[str] = []
+
+    async def fake_runner(
+        command: list[str],
+        prompt: str,
+        timeout_seconds: float,
+        output_path: Path,
+    ) -> CodexCliExecResult:
+        prompts.append(prompt)
+        if "Summarize Articraft Codex CLI harness history" in prompt:
+            return CodexCliExecResult(
+                returncode=0,
+                stdout="tokens used\n321\n",
+                stderr="",
+                last_message=json.dumps(
+                    {
+                        "summary": (
+                            "The object is a folding chair. Earlier attempts fixed the hinge axis; "
+                            "continue from the current editable code and compile before finishing."
+                        )
+                    }
+                ),
+            )
+        return CodexCliExecResult(
+            returncode=0,
+            stdout="",
+            stderr="",
+            last_message=json.dumps(
+                {
+                    "content": "Done.",
+                    "thought_summary": "",
+                    "tool_calls": [],
+                }
+            ),
+        )
+
+    provider = CodexCliLLM(runner=fake_runner)
+    provider.compaction_threshold_chars = 100
+    provider.compaction_tail_messages = 2
+    messages = [
+        {"role": "user", "content": "SDK docs"},
+        {"role": "user", "content": "make a folding chair"},
+        *[
+            {
+                "role": "tool",
+                "tool_call_id": f"call_{index}",
+                "name": "compile_model",
+                "content": f"old compile failure {index}: hinge axis wrong",
+            }
+            for index in range(8)
+        ],
+    ]
+
+    prepare_result = asyncio.run(
+        provider.prepare_next_request(
+            system_prompt="system",
+            messages=messages,
+            tools=[],
+            completed_turns=5,
+        )
+    )
+    response = asyncio.run(
+        provider.generate_with_tools(
+            system_prompt="system",
+            messages=messages,
+            tools=[],
+        )
+    )
+
+    compaction_events = [
+        event for event in prepare_result.trace_events if event.event_type == "codex_cli_compaction"
+    ]
+    assert compaction_events
+    assert compaction_events[0].payload["usage"] == {"total_tokens": 321}
+    assert response["content"] == "Done."
+    assert len(prompts) == 2
+    assert "old compile failure 0" in prompts[0]
+    assert "<codex_cli_compacted_history>" in prompts[1]
+    assert "Earlier attempts fixed the hinge axis" in prompts[1]
+    assert "old compile failure 0" not in prompts[1]
+    assert "old compile failure 7" in prompts[1]
+
+
 def test_codex_cli_generate_surfaces_subprocess_failure() -> None:
     async def fake_runner(
         command: list[str],
@@ -182,7 +392,146 @@ def test_codex_cli_generate_surfaces_subprocess_failure() -> None:
         )
 
 
+def test_codex_cli_generate_rejects_invalid_last_message_json() -> None:
+    async def fake_runner(
+        command: list[str],
+        prompt: str,
+        timeout_seconds: float,
+        output_path: Path,
+    ) -> CodexCliExecResult:
+        return CodexCliExecResult(
+            returncode=0,
+            stdout="",
+            stderr="",
+            last_message="not json",
+        )
+
+    provider = CodexCliLLM(runner=fake_runner)
+
+    with pytest.raises(RuntimeError, match="not valid JSON"):
+        asyncio.run(
+            provider.generate_with_tools(
+                system_prompt="system",
+                messages=[{"role": "user", "content": "make a hinge"}],
+                tools=[],
+            )
+        )
+
+
+def test_codex_cli_generate_rejects_missing_required_response_field() -> None:
+    async def fake_runner(
+        command: list[str],
+        prompt: str,
+        timeout_seconds: float,
+        output_path: Path,
+    ) -> CodexCliExecResult:
+        return CodexCliExecResult(
+            returncode=0,
+            stdout="",
+            stderr="",
+            last_message=json.dumps({"content": "", "tool_calls": []}),
+        )
+
+    provider = CodexCliLLM(runner=fake_runner)
+
+    with pytest.raises(RuntimeError, match="missing required field\\(s\\): thought_summary"):
+        asyncio.run(
+            provider.generate_with_tools(
+                system_prompt="system",
+                messages=[{"role": "user", "content": "make a hinge"}],
+                tools=[],
+            )
+        )
+
+
+def test_codex_cli_generate_rejects_non_list_tool_calls() -> None:
+    async def fake_runner(
+        command: list[str],
+        prompt: str,
+        timeout_seconds: float,
+        output_path: Path,
+    ) -> CodexCliExecResult:
+        return CodexCliExecResult(
+            returncode=0,
+            stdout="",
+            stderr="",
+            last_message=json.dumps(
+                {
+                    "content": "",
+                    "thought_summary": "",
+                    "tool_calls": {"name": "read_file", "arguments": "{}"},
+                }
+            ),
+        )
+
+    provider = CodexCliLLM(runner=fake_runner)
+
+    with pytest.raises(RuntimeError, match="'tool_calls' must be a list"):
+        asyncio.run(
+            provider.generate_with_tools(
+                system_prompt="system",
+                messages=[{"role": "user", "content": "make a hinge"}],
+                tools=[],
+            )
+        )
+
+
+def test_codex_cli_generate_passes_tool_call_payloads_like_openai_codec() -> None:
+    async def fake_runner(
+        command: list[str],
+        prompt: str,
+        timeout_seconds: float,
+        output_path: Path,
+    ) -> CodexCliExecResult:
+        return CodexCliExecResult(
+            returncode=0,
+            stdout="",
+            stderr="",
+            last_message=json.dumps(
+                {
+                    "content": "",
+                    "thought_summary": "",
+                    "tool_calls": [
+                        {
+                            "name": "delete_everything",
+                            "arguments": "{not json",
+                            "extra": "preserved in raw response only",
+                        }
+                    ],
+                }
+            ),
+        )
+
+    provider = CodexCliLLM(runner=fake_runner)
+
+    response = asyncio.run(
+        provider.generate_with_tools(
+            system_prompt="system",
+            messages=[{"role": "user", "content": "make a hinge"}],
+            tools=[
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "read_file",
+                        "description": "Read a file",
+                        "parameters": {"type": "object", "properties": {}},
+                    },
+                }
+            ],
+        )
+    )
+
+    assert response["tool_calls"][0]["function"] == {
+        "name": "delete_everything",
+        "arguments": "{not json",
+    }
+    assert response["extra_content"]["codex_cli"]["raw_response"]["tool_calls"][0]["extra"]
+
+
 def test_factory_creates_codex_cli_provider() -> None:
-    provider = create_provider_client(ProviderConfig(provider="codex-cli"), dry_run=True)
+    provider = create_provider_client(
+        ProviderConfig(provider="codex-cli", model_id="codex/gpt-5.5"),
+        dry_run=True,
+    )
 
     assert isinstance(provider, CodexCliLLM)

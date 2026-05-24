@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent.prompts import (
+    CODEX_CLI_DESIGNER_PROMPT_NAME,
     DESIGNER_PROMPT_NAME,
     GEMINI_DESIGNER_PROMPT_NAME,
     OPENAI_DESIGNER_PROMPT_NAME,
@@ -47,7 +48,7 @@ def test_system_prompt_resolution_variants() -> None:
         provider="codex-cli",
         repo_root=repo_root,
     )
-    assert codex_cli_resolved.name == GEMINI_DESIGNER_PROMPT_NAME
+    assert codex_cli_resolved.name == CODEX_CLI_DESIGNER_PROMPT_NAME
 
 
 def test_first_turn_runtime_guidance_is_shared() -> None:

@@ -59,7 +59,7 @@ Supported providers:
 openai, gemini, anthropic, openrouter, codex-cli
 ```
 
-Use `codex-cli` when the user wants no-key Codex generation while keeping Articraft's internal harness loop. For `codex-cli`, use `model_id=codex-cli-default` unless the user requests a specific Codex model.
+Use `codex-cli` when the user wants no-key Codex generation while keeping Articraft's internal harness loop. For `codex-cli`, set an explicit Codex model in `model_id`; do not use the legacy `codex-cli-default` sentinel in new batch specs.
 
 Supported thinking levels:
 

@@ -73,13 +73,24 @@ def infer_provider_from_model_id(model_id: str | None) -> str | None:
 
 
 def default_model_id(config: ProviderConfig) -> str:
-    if config.model_id:
-        return config.model_id
     provider = _normalize_provider_name(config.provider)
+    if config.model_id:
+        if provider is ProviderName.CODEX_CLI and config.model_id == DEFAULT_CODEX_CLI_MODEL:
+            raise ValueError(
+                "Codex CLI provider requires an explicit model. Pass `--model <codex-model-id>` "
+                "or set ARTICRAFT_CODEX_MODEL; `codex-cli-default` is only a legacy sentinel."
+            )
+        return config.model_id
     if provider is ProviderName.ANTHROPIC:
         return DEFAULT_ANTHROPIC_MODEL
     if provider is ProviderName.CODEX_CLI:
-        return os.environ.get("ARTICRAFT_CODEX_MODEL", "").strip() or DEFAULT_CODEX_CLI_MODEL
+        env_model = os.environ.get("ARTICRAFT_CODEX_MODEL", "").strip()
+        if env_model:
+            return env_model
+        raise ValueError(
+            "Codex CLI provider requires an explicit model. Pass `--model <codex-model-id>` "
+            "or set ARTICRAFT_CODEX_MODEL so runs do not silently inherit the local Codex CLI default."
+        )
     if provider is ProviderName.GEMINI:
         return DEFAULT_GEMINI_MODEL
     if provider is ProviderName.OPENROUTER:

@@ -30,7 +30,15 @@ def test_provider_tool_registry_schemas() -> None:
         "probe_model",
         "find_examples",
     }
-    assert set(codex_cli_registry.get_all_tool_names()) == set(gemini_registry.get_all_tool_names())
+    assert set(codex_cli_registry.get_all_tool_names()) == {
+        "read_file",
+        "apply_patch",
+        "replace",
+        "write_file",
+        "compile_model",
+        "probe_model",
+        "find_examples",
+    }
     openai_schemas = openai_registry.get_tool_schemas()
     apply_patch_schema = next(s for s in openai_schemas if s.get("name") == "apply_patch")
     read_file_schema = next(
@@ -46,6 +54,7 @@ def test_provider_tool_registry_schemas() -> None:
         s for s in openai_schemas if s.get("function", {}).get("name") == "find_examples"
     )
     gemini_schemas = gemini_registry.get_tool_schemas()
+    codex_cli_schemas = codex_cli_registry.get_tool_schemas()
     replace_schema = next(
         s for s in gemini_schemas if s.get("function", {}).get("name") == "replace"
     )
@@ -53,6 +62,12 @@ def test_provider_tool_registry_schemas() -> None:
         s for s in gemini_schemas if s.get("function", {}).get("name") == "write_file"
     )
     assert apply_patch_schema.get("type") == "custom"
+    codex_apply_patch_schema = next(
+        s for s in codex_cli_schemas if s.get("function", {}).get("name") == "apply_patch"
+    )
+    assert codex_apply_patch_schema.get("type") == "function"
+    assert set(codex_apply_patch_schema["function"]["parameters"]["properties"].keys()) == {"input"}
+    assert codex_apply_patch_schema["function"]["parameters"]["required"] == ["input"]
     apply_patch_description = apply_patch_schema["description"]
     assert "current bound file" in apply_patch_description
     assert "Single-file mode only" in apply_patch_description

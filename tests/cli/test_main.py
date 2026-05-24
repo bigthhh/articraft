@@ -194,9 +194,10 @@ def test_generate_uses_env_model_and_thinking_defaults(
     ]
 
 
-def test_generate_with_codex_cli_provider_uses_provider_default_model(
+def test_generate_with_codex_cli_provider_requires_explicit_model(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     calls: list[list[str]] = []
 
@@ -218,6 +219,37 @@ def test_generate_with_codex_cli_provider_uses_provider_default_model(
         ]
     )
 
+    assert exit_code == 1
+    assert calls == []
+    assert "requires an explicit model" in capsys.readouterr().out
+
+
+def test_generate_with_codex_cli_provider_accepts_explicit_model(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[list[str]] = []
+
+    def _fake_agent_runner(argv: list[str]) -> int:
+        calls.append(argv)
+        return 0
+
+    monkeypatch.setattr(articraft_cli.agent_runner, "main", _fake_agent_runner)
+    monkeypatch.delenv("ARTICRAFT_CODEX_MODEL", raising=False)
+
+    exit_code = articraft_cli.main(
+        [
+            "generate",
+            "make a folding chair",
+            "--provider",
+            "codex-cli",
+            "--model",
+            "codex/gpt-5.5",
+            "--repo-root",
+            str(tmp_path),
+        ]
+    )
+
     assert exit_code == 0
     assert calls == [
         [
@@ -228,7 +260,7 @@ def test_generate_with_codex_cli_provider_uses_provider_default_model(
             "--provider",
             "codex-cli",
             "--model",
-            "codex-cli-default",
+            "codex/gpt-5.5",
             "--thinking",
             "high",
         ]

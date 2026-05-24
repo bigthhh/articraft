@@ -7,8 +7,10 @@ Do not manually create `data/records/<id>` folders, invent record metadata, writ
 If the user wants no-key Codex generation with Articraft-managed turns, tools, compile feedback, and trajectory, use the internal Codex CLI provider instead of this external workflow:
 
 ```bash
-uv run articraft generate --provider codex-cli "<prompt>"
+uv run articraft generate --provider codex-cli --model <codex-model-id> "<prompt>"
 ```
+
+You can also set `ARTICRAFT_CODEX_MODEL=<codex-model-id>` instead of passing `--model`.
 
 ## Read This First
 

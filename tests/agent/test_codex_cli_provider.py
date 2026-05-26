@@ -163,6 +163,149 @@ def test_codex_cli_generate_converts_schema_payload_to_tool_calls() -> None:
     assert response["extra_content"]["codex_cli"]["raw_response"]["tool_calls"]
 
 
+def test_codex_cli_output_schema_enumerates_available_tool_names() -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_runner(
+        command: list[str],
+        prompt: str,
+        timeout_seconds: float,
+        output_path: Path,
+    ) -> CodexCliExecResult:
+        schema_path = Path(command[command.index("--output-schema") + 1])
+        captured["schema"] = json.loads(schema_path.read_text(encoding="utf-8"))
+        return CodexCliExecResult(
+            returncode=0,
+            stdout="",
+            stderr="",
+            last_message=json.dumps(
+                {
+                    "content": "",
+                    "thought_summary": "",
+                    "tool_calls": [
+                        {
+                            "name": "compile_model",
+                            "arguments": "{}",
+                        }
+                    ],
+                }
+            ),
+        )
+
+    provider = CodexCliLLM(model_id="codex/gpt-5.5", runner=fake_runner)
+
+    asyncio.run(
+        provider.generate_with_tools(
+            system_prompt="system",
+            messages=[{"role": "user", "content": "make a hinge"}],
+            tools=[
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "compile_model",
+                        "description": "Compile current model",
+                        "parameters": {"type": "object", "properties": {}},
+                    },
+                }
+            ],
+        )
+    )
+
+    name_schema = captured["schema"]["properties"]["tool_calls"]["items"]["properties"]["name"]
+    arguments_schema = captured["schema"]["properties"]["tool_calls"]["items"]["properties"][
+        "arguments"
+    ]
+    assert name_schema["enum"] == ["compile_model"]
+    assert arguments_schema["type"] == "string"
+
+
+def test_codex_cli_rejects_invalid_tool_call_schema() -> None:
+    async def fake_runner(
+        command: list[str],
+        prompt: str,
+        timeout_seconds: float,
+        output_path: Path,
+    ) -> CodexCliExecResult:
+        return CodexCliExecResult(
+            returncode=0,
+            stdout="",
+            stderr="",
+            last_message=json.dumps(
+                {
+                    "content": "",
+                    "thought_summary": "",
+                    "tool_calls": [
+                        {
+                            "name": "compile_model",
+                            "arguments": "{not json}",
+                        }
+                    ],
+                }
+            ),
+        )
+
+    provider = CodexCliLLM(model_id="codex/gpt-5.5", runner=fake_runner)
+
+    with pytest.raises(RuntimeError, match=r"tool_call\[1\] field 'arguments' must be valid JSON"):
+        asyncio.run(
+            provider.generate_with_tools(
+                system_prompt="system",
+                messages=[{"role": "user", "content": "make a hinge"}],
+                tools=[
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "compile_model",
+                            "description": "Compile current model",
+                            "parameters": {"type": "object", "properties": {}},
+                        },
+                    }
+                ],
+            )
+        )
+
+
+def test_codex_cli_rejects_non_object_tool_call() -> None:
+    async def fake_runner(
+        command: list[str],
+        prompt: str,
+        timeout_seconds: float,
+        output_path: Path,
+    ) -> CodexCliExecResult:
+        return CodexCliExecResult(
+            returncode=0,
+            stdout="",
+            stderr="",
+            last_message=json.dumps(
+                {
+                    "content": "",
+                    "thought_summary": "",
+                    "tool_calls": ["bad"],
+                }
+            ),
+        )
+
+    provider = CodexCliLLM(model_id="codex/gpt-5.5", runner=fake_runner)
+
+    with pytest.raises(RuntimeError, match=r"tool_call\[1\] must be a JSON object"):
+        asyncio.run(
+            provider.generate_with_tools(
+                system_prompt="system",
+                messages=[{"role": "user", "content": "make a hinge"}],
+                tools=[
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "compile_model",
+                            "description": "Compile current model",
+                            "parameters": {"type": "object", "properties": {}},
+                        },
+                    }
+                ],
+            )
+        )
+
+
 def test_codex_cli_generate_reuses_seen_images_on_later_turns() -> None:
     commands: list[list[str]] = []
 
@@ -504,28 +647,23 @@ def test_codex_cli_generate_passes_tool_call_payloads_like_openai_codec() -> Non
 
     provider = CodexCliLLM(runner=fake_runner)
 
-    response = asyncio.run(
-        provider.generate_with_tools(
-            system_prompt="system",
-            messages=[{"role": "user", "content": "make a hinge"}],
-            tools=[
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "read_file",
-                        "description": "Read a file",
-                        "parameters": {"type": "object", "properties": {}},
-                    },
-                }
-            ],
+    with pytest.raises(RuntimeError, match=r"tool_call\[1\] field 'arguments' must be valid JSON"):
+        asyncio.run(
+            provider.generate_with_tools(
+                system_prompt="system",
+                messages=[{"role": "user", "content": "make a hinge"}],
+                tools=[
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "read_file",
+                            "description": "Read a file",
+                            "parameters": {"type": "object", "properties": {}},
+                        },
+                    }
+                ],
+            )
         )
-    )
-
-    assert response["tool_calls"][0]["function"] == {
-        "name": "delete_everything",
-        "arguments": "{not json",
-    }
-    assert response["extra_content"]["codex_cli"]["raw_response"]["tool_calls"][0]["extra"]
 
 
 def test_factory_creates_codex_cli_provider() -> None:

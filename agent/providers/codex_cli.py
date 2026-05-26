@@ -176,7 +176,10 @@ class CodexCliLLM:
             tmp_dir = Path(tmp)
             schema_path = tmp_dir / "assistant_turn.schema.json"
             output_path = tmp_dir / "assistant_turn.json"
-            schema_path.write_text(json.dumps(_OUTPUT_SCHEMA, indent=2) + "\n", encoding="utf-8")
+            schema_path.write_text(
+                json.dumps(_output_schema(tools), indent=2) + "\n",
+                encoding="utf-8",
+            )
             command = self._base_command(
                 schema_path=schema_path,
                 output_path=output_path,
@@ -699,7 +702,72 @@ def _validate_assistant_turn(
     if not isinstance(raw_tool_calls, list):
         raise RuntimeError("Codex CLI assistant response field 'tool_calls' must be a list")
 
+    normalized_tool_calls = _normalize_tool_calls(raw_tool_calls)
+
+    payload = dict(payload)
+    payload["tool_calls"] = normalized_tool_calls
+
     return payload
+
+
+def _normalize_tool_calls(tool_calls: list[Any]) -> list[dict[str, str]]:
+    normalized: list[dict[str, str]] = []
+
+    for index, tool_call in enumerate(tool_calls, start=1):
+        if not isinstance(tool_call, dict):
+            raise RuntimeError(
+                f"Codex CLI assistant response tool_call[{index}] must be a JSON object"
+            )
+        name = tool_call.get("name")
+        if not isinstance(name, str) or not name:
+            raise RuntimeError(
+                f"Codex CLI assistant response tool_call[{index}] field 'name' must be a non-empty string"
+            )
+        if "arguments" not in tool_call:
+            raise RuntimeError(
+                f"Codex CLI assistant response tool_call[{index}] missing required field 'arguments'"
+            )
+
+        normalized_arguments = _normalize_tool_call_arguments(
+            tool_call.get("arguments"),
+            tool_call_index=index,
+        )
+
+        normalized.append(
+            {
+                "name": str(name),
+                "arguments": normalized_arguments,
+            }
+        )
+
+    return normalized
+
+
+def _normalize_tool_call_arguments(arguments: Any, *, tool_call_index: int) -> str:
+    if isinstance(arguments, dict):
+        return json.dumps(arguments, ensure_ascii=False)
+    if not isinstance(arguments, str):
+        raise RuntimeError(
+            f"Codex CLI assistant response tool_call[{tool_call_index}]"
+            " field 'arguments' must be a JSON object string or object"
+        )
+
+    if not arguments.strip():
+        return "{}"
+
+    try:
+        parsed = json.loads(arguments)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            f"Codex CLI assistant response tool_call[{tool_call_index}] field 'arguments'"
+            f" must be valid JSON: {exc}"
+        ) from exc
+    if not isinstance(parsed, dict):
+        raise RuntimeError(
+            f"Codex CLI assistant response tool_call[{tool_call_index}] field 'arguments'"
+            " must decode to a JSON object"
+        )
+    return arguments
 
 
 def _validate_summary_payload(payload: dict[str, Any]) -> str:
@@ -728,17 +796,15 @@ def _convert_payload_to_provider_response(
 ) -> ProviderResponse:
     tool_calls: list[dict[str, Any]] = []
     for item in assistant_turn["tool_calls"]:
-        if not isinstance(item, dict):
-            continue
-        name = item.get("name")
-        arguments = item.get("arguments")
+        name = item["name"]
+        serialized_arguments = item["arguments"]
         tool_calls.append(
             {
                 "id": f"call_codex_{uuid.uuid4().hex}",
                 "type": "function",
                 "function": {
                     "name": str(name or ""),
-                    "arguments": str(arguments or ""),
+                    "arguments": serialized_arguments,
                 },
             }
         )
@@ -879,6 +945,20 @@ _OUTPUT_SCHEMA: dict[str, Any] = {
     },
     "required": ["content", "thought_summary", "tool_calls"],
 }
+
+
+def _output_schema(tools: list[ToolSchema]) -> dict[str, Any]:
+    schema = json.loads(json.dumps(_OUTPUT_SCHEMA))
+    tool_names = _tool_names(tools)
+    if not tool_names:
+        return schema
+    tool_call_properties = schema["properties"]["tool_calls"]["items"]["properties"]
+    tool_call_properties["name"] = {
+        "type": "string",
+        "enum": tool_names,
+        "description": "Name of one available Articraft harness tool.",
+    }
+    return schema
 
 
 _SUMMARY_SCHEMA: dict[str, Any] = {

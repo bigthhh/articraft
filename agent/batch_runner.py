@@ -33,6 +33,7 @@ from agent.tui.batch_run import BatchRunDisplay
 from articraft.values import (
     PROVIDER_VALUE_SET,
     THINKING_LEVEL_VALUE_SET,
+    ProviderName,
     infer_provider_from_model_id,
 )
 from storage.batch_specs import BatchSpecStore
@@ -635,7 +636,11 @@ def _parse_batch_row(
         raise ValueError(f"Row {row_index} is missing model_id")
 
     inferred_provider = _infer_provider_from_model_id(model_id)
-    if inferred_provider is not None and inferred_provider != provider:
+    if (
+        inferred_provider is not None
+        and inferred_provider != provider
+        and provider != ProviderName.CODEX_CLI.value
+    ):
         raise ValueError(
             f"Row {row_index} has provider/model mismatch: provider={provider} model_id={model_id}"
         )

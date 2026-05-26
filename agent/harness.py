@@ -222,6 +222,7 @@ class ArticraftAgent:
         )
         self.guidance_injector = GuidanceInjector(
             file_path=self.file_path,
+            provider=self.provider,
             trace_writer=self.trace_writer,
             tool_call_name=self.message_codec.tool_call_name,
         )
@@ -356,6 +357,7 @@ class ArticraftAgent:
 
         injector = GuidanceInjector(
             file_path=str(getattr(self, "file_path", "")),
+            provider=str(getattr(self, "provider", "")),
             trace_writer=getattr(self, "trace_writer", None),
             tool_call_name=self._tool_call_name,
         )
@@ -368,6 +370,16 @@ class ArticraftAgent:
         injector._seen_baseline_qc_guidance_sigs = getattr(
             self,
             "_seen_baseline_qc_guidance_sigs",
+            set(),
+        )
+        injector._seen_compile_repair_guidance_sigs = getattr(
+            self,
+            "_seen_compile_repair_guidance_sigs",
+            set(),
+        )
+        injector._seen_api_error_guidance_sigs = getattr(
+            self,
+            "_seen_api_error_guidance_sigs",
             set(),
         )
         self.guidance_injector = injector
@@ -440,6 +452,32 @@ class ArticraftAgent:
         tool_results: list[ToolResult],
     ) -> None:
         self._ensure_guidance_injector().maybe_inject_code_contract_guidance(
+            conversation,
+            tool_calls=tool_calls,
+            tool_results=tool_results,
+        )
+
+    def _maybe_inject_compile_repair_guidance(
+        self,
+        conversation: list[dict],
+        *,
+        tool_calls: list[dict],
+        tool_results: list[ToolResult],
+    ) -> None:
+        self._ensure_guidance_injector().maybe_inject_compile_repair_guidance(
+            conversation,
+            tool_calls=tool_calls,
+            tool_results=tool_results,
+        )
+
+    def _maybe_inject_api_error_guidance(
+        self,
+        conversation: list[dict],
+        *,
+        tool_calls: list[dict],
+        tool_results: list[ToolResult],
+    ) -> None:
+        self._ensure_guidance_injector().maybe_inject_api_error_guidance(
             conversation,
             tool_calls=tool_calls,
             tool_results=tool_results,
@@ -1318,6 +1356,16 @@ class ArticraftAgent:
                     logger.warning("Tool %s failed: %s", func_name, result.error)
 
             self._maybe_inject_edit_code_guidance(
+                conversation,
+                tool_calls=tool_calls,
+                tool_results=turn_tool_results,
+            )
+            self._maybe_inject_compile_repair_guidance(
+                conversation,
+                tool_calls=tool_calls,
+                tool_results=turn_tool_results,
+            )
+            self._maybe_inject_api_error_guidance(
                 conversation,
                 tool_calls=tool_calls,
                 tool_results=turn_tool_results,

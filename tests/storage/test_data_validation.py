@@ -248,6 +248,30 @@ def test_validate_data_format_skips_unhydrated_index_records_by_default(
     assert result.skipped_unhydrated_record_count == 1
 
 
+def test_validate_data_format_skips_partial_lfs_pointer_payload_by_default(
+    tmp_path: Path,
+) -> None:
+    repo = StorageRepo(tmp_path)
+    repo.ensure_layout()
+    prompt_sha = _write_system_prompt(repo)
+    _write_category(repo)
+    _write_batch_spec(repo)
+    _write_record(repo, "rec_hinge_0001", prompt_sha, "ds_hinge_0001")
+    repo.layout.record_dataset_entry_path("rec_hinge_0001").write_text(
+        f"{LFS_POINTER_HEADER}\n"
+        "oid sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+        "size 123\n",
+        encoding="utf-8",
+    )
+
+    result = validate_data_format(repo)
+
+    assert result.errors == []
+    assert result.record_count == 0
+    assert result.dataset_entry_count == 0
+    assert result.skipped_unhydrated_record_count == 1
+
+
 def test_validate_data_format_require_record_fails_when_unhydrated(tmp_path: Path) -> None:
     repo = StorageRepo(tmp_path)
     repo.ensure_layout()

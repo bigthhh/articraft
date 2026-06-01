@@ -256,6 +256,12 @@ def test_viewer_api_filters_dataset_by_agent_harness(tmp_path: Path) -> None:
             "claude_washers",
             CreatorMetadata(mode="external_agent", agent="claude-code", trace_available=False),
         ),
+        (
+            "rec_cursor_001",
+            "Cursor washer",
+            "cursor_washers",
+            CreatorMetadata(mode="external_agent", agent="cursor", trace_available=False),
+        ),
     ]
     for index, (record_id, title, category_slug, creator) in enumerate(records, start=1):
         _write_record(
@@ -278,11 +284,12 @@ def test_viewer_api_filters_dataset_by_agent_harness(tmp_path: Path) -> None:
     client = TestClient(create_app(repo_root=tmp_path))
 
     dataset_browse = client.get("/api/records/browse?source=dataset").json()
-    assert dataset_browse["total"] == 3
+    assert dataset_browse["total"] == 4
     assert dataset_browse["facets"]["agent_harnesses"] == [
         "articraft",
         "codex",
         "claude-code",
+        "cursor",
     ]
 
     articraft_browse = client.get(
@@ -304,6 +311,11 @@ def test_viewer_api_filters_dataset_by_agent_harness(tmp_path: Path) -> None:
     assert browse_ids["total"] == 1
     assert browse_ids["record_ids"] == ["rec_claude_001"]
 
+    cursor_browse = client.get("/api/records/browse?source=dataset&agent_harness=cursor").json()
+    assert cursor_browse["total"] == 1
+    assert cursor_browse["record_ids"] == ["rec_cursor_001"]
+    assert cursor_browse["records"][0]["external_agent"] == "cursor"
+
     search_results = client.get(
         "/api/records/search?q=washer&source=dataset&agent_harness=codex"
     ).json()
@@ -314,6 +326,7 @@ def test_viewer_api_filters_dataset_by_agent_harness(tmp_path: Path) -> None:
         "articraft",
         "codex",
         "claude-code",
+        "cursor",
     ]
     assert dashboard["overview"]["total_records"] == 1
     assert dashboard["overview"]["is_filtered"] is True

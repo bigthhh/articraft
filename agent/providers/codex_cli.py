@@ -884,7 +884,7 @@ def _redacted_command(command: list[str]) -> list[str]:
             skip_next = False
             continue
         redacted.append(arg)
-        if arg in {"--output-schema", "--output-last-message"}:
+        if arg in {"--output-schema", "--output-last-message", "--image"}:
             skip_next = True
     return redacted
 

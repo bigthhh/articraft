@@ -310,6 +310,22 @@ def test_build_batch_config_validates_csv_rows(tmp_path: Path) -> None:
             ],
             "max_turns > 0",
         ),
+        (
+            [
+                {
+                    "row_id": "a",
+                    "category_slug": "hinge",
+                    "category_title": "Hinge",
+                    "prompt": "x",
+                    "provider": "codex-cli",
+                    "model_id": "codex-cli-default",
+                    "thinking_level": "high",
+                    "max_turns": "10",
+                    "sdk_package": "sdk",
+                }
+            ],
+            "legacy codex-cli-default",
+        ),
     ]
 
     for index, (rows, message) in enumerate(cases, start=1):

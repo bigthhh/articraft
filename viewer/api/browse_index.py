@@ -893,7 +893,7 @@ def _maximum_cost(rows: list[BrowseIndexRecord] | tuple[BrowseIndexRecord, ...])
 
 
 def _sorted_agent_harnesses(values: set[str]) -> list[str]:
-    order = {"articraft": 0, "codex": 1, "claude-code": 2}
+    order = {"articraft": 0, "codex": 1, "claude-code": 2, "cursor": 3}
     return sorted(values, key=lambda value: (order.get(value, len(order)), value))
 
 

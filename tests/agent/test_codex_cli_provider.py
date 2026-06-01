@@ -12,7 +12,7 @@ from agent.prompts import (
     DESIGNER_PROMPT_NAME,
     resolve_system_prompt_path,
 )
-from agent.providers.codex_cli import CodexCliExecResult, CodexCliLLM
+from agent.providers.codex_cli import CodexCliExecResult, CodexCliLLM, _redacted_command
 from agent.providers.factory import ProviderConfig, create_provider_client, default_model_id
 
 
@@ -91,6 +91,32 @@ def test_codex_cli_request_preview_describes_subprocess_transport() -> None:
     assert '"name": "compile_model"' in preview["prompt"]
     assert "JSON-encoded object string" in preview["prompt"]
     assert "make a hinge" in preview["prompt"]
+
+
+def test_codex_cli_redacts_local_paths_from_persisted_command_metadata() -> None:
+    assert _redacted_command(
+        [
+            "codex",
+            "exec",
+            "--output-schema",
+            "/var/folders/private/schema.json",
+            "--image",
+            "/Users/example/private/reference.png",
+            "--output-last-message",
+            "/var/folders/private/assistant.json",
+            "-",
+        ]
+    ) == [
+        "codex",
+        "exec",
+        "--output-schema",
+        "<path>",
+        "--image",
+        "<path>",
+        "--output-last-message",
+        "<path>",
+        "-",
+    ]
 
 
 def test_codex_cli_generate_converts_schema_payload_to_tool_calls() -> None:

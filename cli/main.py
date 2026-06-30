@@ -14,7 +14,12 @@ from agent.edit import edit_record
 from agent.record_persistence import create_draft_record
 from agent.rerun import rerun_record_in_place
 from agent.tools import resolve_image_path
-from articraft.config import default_model_from_env, default_thinking_level_from_env, load_repo_env
+from articraft.config import (
+    default_model_from_env,
+    default_thinking_level_from_env,
+    load_repo_env,
+    resolve_viewer_host,
+)
 from articraft.values import PROVIDER_VALUES, THINKING_LEVEL_VALUE_SET, THINKING_LEVEL_VALUES
 from cli import compile_record as compile_record_cli
 from cli import env as env_cli
@@ -277,6 +282,8 @@ def _viewer_url(args: argparse.Namespace, *, dev_frontend: bool = False) -> str:
 
 
 def _run_viewer(args: argparse.Namespace) -> int:
+    if args.host is None:
+        args.host = resolve_viewer_host()
     if not which("npm"):
         print("npm is required for viewer/web. Install Node.js and npm first.")
         return 1
@@ -480,7 +487,7 @@ def _build_parser() -> argparse.ArgumentParser:
     viewer = subparsers.add_parser("viewer", help="Start the local viewer.")
     _add_repo_root(viewer)
     viewer.add_argument("--dev", action="store_true")
-    viewer.add_argument("--host", default="127.0.0.1")
+    viewer.add_argument("--host", default=None)
     viewer.add_argument("--port", default="8765")
     viewer.add_argument("--target", default="/")
     viewer.set_defaults(func=_run_viewer)
@@ -489,7 +496,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_repo_root(view)
     view.add_argument("record")
     view.add_argument("--dev", action="store_true")
-    view.add_argument("--host", default="127.0.0.1")
+    view.add_argument("--host", default=None)
     view.add_argument("--port", default="8765")
     view.set_defaults(func=_run_view)
 

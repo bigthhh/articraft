@@ -14,11 +14,13 @@ ARTICRAFT_THINKING_LEVEL_ENV_VAR = "ARTICRAFT_THINKING_LEVEL"
 ARTICRAFT_MAX_COST_USD_ENV_VAR = "ARTICRAFT_MAX_COST_USD"
 ARTICRAFT_VIEWER_USERNAME_ENV_VAR = "ARTICRAFT_VIEWER_USERNAME"
 ARTICRAFT_VIEWER_PASSWORD_ENV_VAR = "ARTICRAFT_VIEWER_PASSWORD"
+ARTICRAFT_VIEWER_HOST_ENV_VAR = "ARTICRAFT_VIEWER_HOST"
 
 DEFAULT_GENERATION_MODEL = "gpt-5.5-2026-04-23"
 DEFAULT_THINKING_LEVEL = "high"
 DEFAULT_VIEWER_USERNAME = "admin"
 DEFAULT_VIEWER_PASSWORD = "wanaka@123"
+DEFAULT_VIEWER_HOST = "127.0.0.1"
 
 SUPPORTED_ENV_KEYS = (
     "OPENAI_API_KEYS",
@@ -39,6 +41,7 @@ SUPPORTED_ENV_KEYS = (
     ARTICRAFT_MAX_COST_USD_ENV_VAR,
     ARTICRAFT_VIEWER_USERNAME_ENV_VAR,
     ARTICRAFT_VIEWER_PASSWORD_ENV_VAR,
+    ARTICRAFT_VIEWER_HOST_ENV_VAR,
     "GOOGLE_CLOUD_PROJECT",
     "GOOGLE_APPLICATION_CREDENTIALS",
     "GOOGLE_CLOUD_LOCATION",
@@ -90,6 +93,11 @@ def resolve_viewer_credentials(environ: Mapping[str, str] | None = None) -> tupl
     raw_password = values.get(ARTICRAFT_VIEWER_PASSWORD_ENV_VAR)
     password = raw_password if raw_password else DEFAULT_VIEWER_PASSWORD
     return username, password
+
+
+def resolve_viewer_host(environ: Mapping[str, str] | None = None) -> str:
+    """Return the viewer bind host, falling back to the loopback default."""
+    return _env_default(environ, ARTICRAFT_VIEWER_HOST_ENV_VAR, DEFAULT_VIEWER_HOST)
 
 
 def bootstrap_env(

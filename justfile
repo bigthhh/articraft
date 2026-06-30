@@ -1,7 +1,7 @@
 default:
     @just --list
 
-host := "127.0.0.1"
+host := env_var_or_default("ARTICRAFT_VIEWER_HOST", "127.0.0.1")
 port := "8765"
 
 uv-version-check:

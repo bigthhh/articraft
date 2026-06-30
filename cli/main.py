@@ -148,6 +148,8 @@ def _run_generate(args: argparse.Namespace) -> int:
         argv.extend(["--tag", tag])
     if args.category:
         argv.extend(["--category", args.category])
+    if getattr(args, "run_id", None):
+        argv.extend(["--run-id", args.run_id])
     return agent_runner.main(argv)
 
 
@@ -424,6 +426,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_repo_root(generate)
     generate.add_argument("prompt")
     _add_generation_options(generate)
+    generate.add_argument("--run-id", default=None)
     generate.set_defaults(func=_run_generate)
 
     draft = subparsers.add_parser("draft", help="Create a draft local library record.")

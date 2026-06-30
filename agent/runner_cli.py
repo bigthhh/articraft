@@ -161,6 +161,11 @@ def main(
     )
     parser.add_argument("--max-turns", type=int, default=None)
     parser.add_argument(
+        "--run-id",
+        default=None,
+        help="Use this run id instead of generating one (lets callers track the run upfront).",
+    )
+    parser.add_argument(
         "--max-cost-usd",
         type=float,
         default=None,
@@ -306,5 +311,6 @@ def main(
             label=args.label,
             tags=list(args.tag or []),
             category_slug=args.category,
+            run_id=args.run_id,
         )
     )

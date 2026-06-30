@@ -11,8 +11,10 @@ from articraft.config import resolve_viewer_credentials
 from viewer.api.auth import BasicAuthMiddleware
 from viewer.api.file_resolver import ViewerFileResolver
 from viewer.api.frontend import install_frontend_routes
+from viewer.api.generation import GenerationManager
 from viewer.api.routes import (
     files_router,
+    generation_router,
     records_router,
     runs_router,
     status_router,
@@ -67,12 +69,16 @@ def create_app(*, repo_root: Path | None = None, data_root: Path | None = None) 
     app.state.data_root = store.repo.layout.data_root
     app.state.viewer_store = store
     app.state.file_resolver = ViewerFileResolver(store.materialization)
+    app.state.generation_manager = GenerationManager(
+        resolved_repo_root, store.repo.layout.data_root
+    )
 
     _install_middleware(app)
     app.include_router(status_router)
     app.include_router(records_router)
     app.include_router(runs_router)
     app.include_router(files_router)
+    app.include_router(generation_router)
     install_frontend_routes(app)
     return app
 

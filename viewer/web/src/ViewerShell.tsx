@@ -14,6 +14,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { Inspector } from "@/components/layout/Inspector";
 import { ViewportPanel } from "@/components/layout/ViewportPanel";
 import { InspectorTabs } from "@/components/inspector/InspectorTabs";
+import { TaskLogPanel } from "@/components/inspector/TaskLogPanel";
 import type { RenderOptions as InspectorRenderOptions } from "@/components/viewer3d/useRenderOptions";
 import { RecordBrowser } from "@/components/browser/RecordBrowser";
 import { Button } from "@/components/ui/button";
@@ -295,7 +296,7 @@ function previewJointValue(joint: UrdfJoint, phase: number): number {
 }
 
 export default function ViewerShell(): JSX.Element {
-  const { bootstrap, selectedRecordId, selectedRecordSummary, selection } = useViewer();
+  const { bootstrap, selectedRecordId, selectedRecordSummary, selection, browserTab } = useViewer();
   const { options: renderOptions, setOption: setRenderOption } = useRenderOptions();
 
   const [urdfSpec, setUrdfSpec] = useState<UrdfSpec | null>(null);
@@ -671,16 +672,23 @@ export default function ViewerShell(): JSX.Element {
               ) : undefined
             }
           >
-            <InspectorTabs
-              urdfSpec={inspectorUrdfSpec}
-              jointValues={displayedJointValues}
-              onJointChange={setJointValue}
-              onResetAll={resetAll}
-              renderOptions={inspectorRenderOptions}
-              onRenderOptionChange={handleRenderOptionChange}
-              onSnapshot={snapshotExporter}
-              collisionSupport={collisionSupport}
-            />
+            <div className="flex h-full min-h-0 flex-col">
+              <div className="min-h-0 flex-1 overflow-hidden">
+                <InspectorTabs
+                  urdfSpec={inspectorUrdfSpec}
+                  jointValues={displayedJointValues}
+                  onJointChange={setJointValue}
+                  onResetAll={resetAll}
+                  renderOptions={inspectorRenderOptions}
+                  onRenderOptionChange={handleRenderOptionChange}
+                  onSnapshot={snapshotExporter}
+                  collisionSupport={collisionSupport}
+                />
+              </div>
+              {browserTab === "staging" ? (
+                <TaskLogPanel runId={selection?.kind === "staging" ? selection.runId : null} />
+              ) : null}
+            </div>
           </Inspector>
         </ResizablePanel>
       </ResizablePanelGroup>

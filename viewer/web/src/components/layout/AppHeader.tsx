@@ -1,6 +1,6 @@
-import { type JSX } from "react";
+import { useState, type JSX } from "react";
 import { useIsFetching, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw } from "lucide-react";
+import { Plus, RefreshCw } from "lucide-react";
 
 import { viewerQueryKeys } from "@/lib/viewer-queries";
 import { useViewer } from "@/lib/viewer-context";
@@ -8,6 +8,7 @@ import { findStagingEntryInBootstrap } from "@/lib/record-summary";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { NewTaskDialog } from "@/components/browser/NewTaskDialog";
 
 const TRAILING_PUNCTUATION = /[\s,.;:!?)]*$/;
 
@@ -24,6 +25,7 @@ function truncateWithEllipsis(value: string, maxLength = 88): string {
 export function AppHeader(): JSX.Element {
   const state = useViewer();
   const queryClient = useQueryClient();
+  const [taskDialogOpen, setTaskDialogOpen] = useState(false);
   const activeFetchCount = useIsFetching({ queryKey: viewerQueryKeys.root() });
   const isStagingSelection = state.selection?.kind === "staging";
   const stagingEntry =
@@ -60,6 +62,16 @@ export function AppHeader(): JSX.Element {
         )}
       </div>
 
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => setTaskDialogOpen(true)}
+        className="h-7 gap-1.5 px-2.5 text-[11px]"
+      >
+        <Plus className="size-3.5" />
+        New Task
+      </Button>
+
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
@@ -74,6 +86,8 @@ export function AppHeader(): JSX.Element {
         </TooltipTrigger>
         <TooltipContent side="bottom">Refresh</TooltipContent>
       </Tooltip>
+
+      <NewTaskDialog open={taskDialogOpen} onOpenChange={setTaskDialogOpen} />
     </header>
   );
 }

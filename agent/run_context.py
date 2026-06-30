@@ -108,10 +108,14 @@ def _read_logged_cost_totals(cost_path: Path) -> tuple[dict[str, int] | None, fl
 
 
 def _slugify(text: str) -> str:
+    # Keep only ASCII alphanumerics: record ids must satisfy RECORD_ID_RE
+    # (ASCII-only), and str.isalnum() is Unicode-aware so it would otherwise let
+    # CJK/accented characters into the id. The human-readable prompt is preserved
+    # on the record's title/display, not the slug.
     cleaned: list[str] = []
     last_dash = False
     for ch in text.lower():
-        if ch.isalnum():
+        if ch.isascii() and ch.isalnum():
             cleaned.append(ch)
             last_dash = False
         elif not last_dash:

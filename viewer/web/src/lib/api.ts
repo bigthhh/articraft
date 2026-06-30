@@ -68,8 +68,87 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+export interface GenerationProviderInfo {
+  value: string;
+  label: string;
+  available: boolean;
+  models: string[];
+  default_model: string;
+}
+
+export interface GenerationOptions {
+  providers: GenerationProviderInfo[];
+  thinking_levels: string[];
+  default_provider: string | null;
+  default_thinking_level: string;
+  default_max_cost_usd: number;
+}
+
+export interface GenerationTaskStatus {
+  run_id: string | null;
+  running: boolean;
+  prompt: string | null;
+  provider: string | null;
+  model: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  returncode: number | null;
+  error: string | null;
+}
+
+export interface GenerationSummary {
+  running_count: number;
+  max_concurrent: number;
+  running: GenerationTaskStatus[];
+}
+
+export interface CreateGenerationTaskRequest {
+  prompt: string;
+  provider: string;
+  model: string;
+  thinking_level: string;
+  max_cost_usd: number | null;
+}
+
 export async function fetchBootstrap(): Promise<ViewerBootstrap> {
   return fetchJson<ViewerBootstrap>("/api/bootstrap");
+}
+
+export async function fetchGenerationOptions(): Promise<GenerationOptions> {
+  return fetchJson<GenerationOptions>("/api/generation/providers");
+}
+
+export async function fetchGenerationStatus(): Promise<GenerationSummary> {
+  return fetchJson<GenerationSummary>("/api/generate/status");
+}
+
+export async function createGenerationTask(
+  body: CreateGenerationTaskRequest,
+): Promise<GenerationTaskStatus> {
+  return fetchJson<GenerationTaskStatus>("/api/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export interface GenerationLog {
+  run_id: string | null;
+  running: boolean;
+  returncode: number | null;
+  prompt: string | null;
+  provider: string | null;
+  model: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  has_log: boolean;
+  truncated: boolean;
+  log: string;
+}
+
+export async function fetchGenerationLog(runId?: string | null): Promise<GenerationLog> {
+  const query = runId ? `?run_id=${encodeURIComponent(runId)}` : "";
+  return fetchJson<GenerationLog>(`/api/generate/log${query}`);
 }
 
 export async function fetchRepoStats(): Promise<RepoStats> {

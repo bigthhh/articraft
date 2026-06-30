@@ -1,7 +1,6 @@
 default:
     @just --list
 
-host := env_var_or_default("ARTICRAFT_VIEWER_HOST", "127.0.0.1")
 port := "8765"
 
 uv-version-check:
@@ -79,11 +78,11 @@ test-all:
 
 viewer:
     just uv-version-check
-    uv run --frozen articraft viewer --host {{ quote(host) }} --port {{ quote(port) }}
+    uv run --frozen articraft viewer --port {{ quote(port) }}
 
 viewer-dev:
     just uv-version-check
-    uv run --frozen articraft viewer --dev --host {{ quote(host) }} --port {{ quote(port) }}
+    uv run --frozen articraft viewer --dev --port {{ quote(port) }}
 
 dashscope-test:
     bash scripts/dashscope_run.sh official-test

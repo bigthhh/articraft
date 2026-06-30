@@ -94,6 +94,10 @@ def _resolve_record_id(repo: StorageRepo, record_ref: str) -> str:
     return record_id
 
 
+def _run_env_bootstrap(args: argparse.Namespace) -> int:
+    return env_cli.main([str(args.repo_root)])
+
+
 def _run_init(args: argparse.Namespace) -> int:
     env_cli.main([str(args.repo_root)])
     repo = storage_repo_from_args(args)
@@ -417,6 +421,12 @@ def _build_parser() -> argparse.ArgumentParser:
     init = subparsers.add_parser("init", help="Initialize local Articraft storage and env.")
     _add_repo_root(init)
     init.set_defaults(func=_run_init)
+
+    env = subparsers.add_parser("env", help="Environment helpers.")
+    env_sub = env.add_subparsers(dest="env_command", required=True)
+    bootstrap = env_sub.add_parser("bootstrap", help="Create .env from .env.example.")
+    _add_repo_root(bootstrap)
+    bootstrap.set_defaults(func=_run_env_bootstrap)
 
     status = subparsers.add_parser("status", help="Show local library status.")
     _add_repo_root(status)

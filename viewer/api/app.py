@@ -7,6 +7,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
+from articraft.config import resolve_viewer_credentials
+from viewer.api.auth import BasicAuthMiddleware
 from viewer.api.file_resolver import ViewerFileResolver
 from viewer.api.frontend import install_frontend_routes
 from viewer.api.routes import (
@@ -37,6 +39,9 @@ def _resolve_data_root(data_root: Path | None) -> Path | None:
 
 
 def _install_middleware(app: FastAPI) -> None:
+    username, password = resolve_viewer_credentials()
+    # Added before CORS so CORS stays outermost and answers preflight before auth runs.
+    app.add_middleware(BasicAuthMiddleware, username=username, password=password)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[

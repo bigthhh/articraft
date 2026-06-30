@@ -1,13 +1,22 @@
 from __future__ import annotations
 
+import base64
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from articraft.config import DEFAULT_VIEWER_PASSWORD, DEFAULT_VIEWER_USERNAME
 from storage.library_manifest import rebuild_manifest
 from storage.repo import StorageRepo
 from storage.revisions import INITIAL_REVISION_ID, revision_artifacts_payload
 from viewer.api.app import create_app
+
+
+def _auth_headers() -> dict[str, str]:
+    token = base64.b64encode(
+        f"{DEFAULT_VIEWER_USERNAME}:{DEFAULT_VIEWER_PASSWORD}".encode()
+    ).decode()
+    return {"Authorization": f"Basic {token}"}
 
 
 def _write_record(
@@ -64,7 +73,7 @@ def _write_record(
 def _client(tmp_path: Path) -> tuple[TestClient, StorageRepo]:
     repo = StorageRepo(tmp_path)
     repo.ensure_layout()
-    return TestClient(create_app(repo_root=tmp_path)), repo
+    return TestClient(create_app(repo_root=tmp_path), headers=_auth_headers()), repo
 
 
 def test_bootstrap_and_browse_records_from_manifest(tmp_path: Path) -> None:

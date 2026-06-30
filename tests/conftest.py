@@ -14,5 +14,11 @@ if str(REPO_ROOT) not in sys.path:
 @pytest.fixture(autouse=True)
 def _isolate_articraft_env(monkeypatch: pytest.MonkeyPatch) -> None:
     # CLI tests call entry points in-process, so dotenv-loaded defaults must not leak.
-    for name in ("ARTICRAFT_MODEL", "ARTICRAFT_THINKING_LEVEL", "ARTICRAFT_MAX_COST_USD"):
+    for name in (
+        "ARTICRAFT_MODEL",
+        "ARTICRAFT_THINKING_LEVEL",
+        "ARTICRAFT_MAX_COST_USD",
+        "ARTICRAFT_VIEWER_USERNAME",
+        "ARTICRAFT_VIEWER_PASSWORD",
+    ):
         monkeypatch.delenv(name, raising=False)

@@ -232,3 +232,7 @@ assets/
 
 .npm-cache/
 .local-dev
+
+# Local debug captures and Playwright MCP scratch output
+/*.png
+.playwright-mcp/

@@ -12,9 +12,13 @@ logger = logging.getLogger(__name__)
 ARTICRAFT_MODEL_ENV_VAR = "ARTICRAFT_MODEL"
 ARTICRAFT_THINKING_LEVEL_ENV_VAR = "ARTICRAFT_THINKING_LEVEL"
 ARTICRAFT_MAX_COST_USD_ENV_VAR = "ARTICRAFT_MAX_COST_USD"
+ARTICRAFT_VIEWER_USERNAME_ENV_VAR = "ARTICRAFT_VIEWER_USERNAME"
+ARTICRAFT_VIEWER_PASSWORD_ENV_VAR = "ARTICRAFT_VIEWER_PASSWORD"
 
 DEFAULT_GENERATION_MODEL = "gpt-5.5-2026-04-23"
 DEFAULT_THINKING_LEVEL = "high"
+DEFAULT_VIEWER_USERNAME = "admin"
+DEFAULT_VIEWER_PASSWORD = "wanaka@123"
 
 SUPPORTED_ENV_KEYS = (
     "OPENAI_API_KEYS",
@@ -33,6 +37,8 @@ SUPPORTED_ENV_KEYS = (
     ARTICRAFT_MODEL_ENV_VAR,
     ARTICRAFT_THINKING_LEVEL_ENV_VAR,
     ARTICRAFT_MAX_COST_USD_ENV_VAR,
+    ARTICRAFT_VIEWER_USERNAME_ENV_VAR,
+    ARTICRAFT_VIEWER_PASSWORD_ENV_VAR,
     "GOOGLE_CLOUD_PROJECT",
     "GOOGLE_APPLICATION_CREDENTIALS",
     "GOOGLE_CLOUD_LOCATION",
@@ -75,6 +81,15 @@ def default_model_from_env(environ: Mapping[str, str] | None = None) -> str:
 
 def default_thinking_level_from_env(environ: Mapping[str, str] | None = None) -> str:
     return _env_default(environ, ARTICRAFT_THINKING_LEVEL_ENV_VAR, DEFAULT_THINKING_LEVEL)
+
+
+def resolve_viewer_credentials(environ: Mapping[str, str] | None = None) -> tuple[str, str]:
+    """Return the viewer Basic-auth (username, password), falling back to defaults."""
+    values = os.environ if environ is None else environ
+    username = _env_default(values, ARTICRAFT_VIEWER_USERNAME_ENV_VAR, DEFAULT_VIEWER_USERNAME)
+    raw_password = values.get(ARTICRAFT_VIEWER_PASSWORD_ENV_VAR)
+    password = raw_password if raw_password else DEFAULT_VIEWER_PASSWORD
+    return username, password
 
 
 def bootstrap_env(

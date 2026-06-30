@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from agent import runner
 from agent.edit import edit_record as edit_record_impl
 from agent.prompts import DESIGNER_PROMPT_NAME
 from agent.run_context import RunExecutionOutcome
+from articraft.config import DEFAULT_VIEWER_PASSWORD, DEFAULT_VIEWER_USERNAME
 from storage.library_manifest import manifest_by_id
 from storage.repo import StorageRepo
 from storage.revisions import active_model_path, active_provenance_path
@@ -252,7 +254,13 @@ def test_history_api_and_revision_file_routes_traverse_lineage(
     assert manifest_rows["rec_child_one"]["parent_record_id"] == parent_record_id
     assert manifest_rows["rec_child_two"]["parent_record_id"] == parent_record_id
 
-    client = TestClient(create_app(repo_root=repo_root))
+    auth_token = base64.b64encode(
+        f"{DEFAULT_VIEWER_USERNAME}:{DEFAULT_VIEWER_PASSWORD}".encode()
+    ).decode()
+    client = TestClient(
+        create_app(repo_root=repo_root),
+        headers={"Authorization": f"Basic {auth_token}"},
+    )
     model_response = client.get(f"/api/records/{first.record_id}/files/model.py")
     assert model_response.status_code == 200
     assert "object_model" in model_response.text

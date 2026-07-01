@@ -14,6 +14,7 @@ from agent.compiler import (
 from agent.feedback import (
     compile_signal_bundle_from_exception,
     render_compile_signals,
+    render_complexity_mirror,
 )
 from agent.harness_guidance import MUTATING_TOOL_NAMES
 from agent.models import CompileReport, CompileSignalBundle
@@ -182,7 +183,8 @@ class CompileFeedbackLoop:
         cached_report = self._last_successful_compile_report
         if self.latest_code_is_fresh() and cached_report is not None:
             return ToolResult(
-                output=self._render_reused_compile_tool_output(cached_report.signal_bundle),
+                output=self._render_reused_compile_tool_output(cached_report.signal_bundle)
+                + render_complexity_mirror(cached_report.urdf_xml),
                 compilation={"status": "success", "error": None},
                 tool_call_id=tool_call_id,
             )
@@ -195,7 +197,8 @@ class CompileFeedbackLoop:
             self._last_successful_compile_report = report
             self._last_successful_compile_revision = self._current_edit_revision
             return ToolResult(
-                output=self._render_compile_tool_output(report.signal_bundle),
+                output=self._render_compile_tool_output(report.signal_bundle)
+                + render_complexity_mirror(report.urdf_xml),
                 compilation={"status": "success", "error": None},
                 tool_call_id=tool_call_id,
             )

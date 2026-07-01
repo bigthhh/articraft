@@ -5,6 +5,7 @@ import linecache
 import math
 import re
 import traceback
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Literal, Protocol, TypeAlias, runtime_checkable
@@ -1171,6 +1172,44 @@ def _render_signal_lines(signals: Iterable[CompileSignal]) -> str:
 
 def _render_signal_section(heading: str, signals: Iterable[CompileSignal]) -> str:
     return f"{heading}\n{_render_signal_lines(signals)}"
+
+
+def render_complexity_mirror(urdf_xml: str) -> str:
+    """Post-compile complexity snapshot: let the model see how detailed its assembly
+    actually is, so it does not conclude at the first thing that compiles."""
+    try:
+        root = ET.fromstring(urdf_xml)
+    except (ET.ParseError, TypeError, ValueError):
+        return ""
+    links = root.findall("link")
+    if not links:
+        return ""
+    moving = [j for j in root.findall("joint") if (j.get("type") or "").lower() != "fixed"]
+    joint_types = sorted({(j.get("type") or "?").lower() for j in moving})
+    primitive = mesh = 0
+    for link in links:
+        for visual in link.findall("visual"):
+            geometry = visual.find("geometry")
+            shapes = list(geometry) if geometry is not None else []
+            if not shapes:
+                continue
+            if shapes[0].tag == "mesh":
+                mesh += 1
+            else:
+                primitive += 1
+    joints_desc = f"{len(moving)} articulated joint{'' if len(moving) == 1 else 's'}"
+    if joint_types:
+        joints_desc += f" (types: {', '.join(joint_types)})"
+    return (
+        "\n<complexity_check>\n"
+        f"Assembly so far: {len(links)} parts, {joints_desc}, "
+        f"visible geometry {primitive} primitive / {mesh} mesh surfaces.\n"
+        "Before concluding, compare this against the real object: does it have more distinct "
+        "moving parts, mechanisms, or finer surfaces than captured here? If so, keep building — "
+        "add the missing parts and articulations, or replace placeholder primitives with CadQuery. "
+        "If the object is genuinely this simple, ignore this note.\n"
+        "</complexity_check>"
+    )
 
 
 def render_compile_signals(

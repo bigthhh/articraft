@@ -615,6 +615,21 @@ def _compile_worker(
             conn.close()  # type: ignore[attr-defined]
 
 
+def _resolve_compile_timeout_seconds(script_path: Path) -> float:
+    """Adaptive compile timeout: scale the ceiling with source size so a complex
+    model is not killed just for being big (more meshes and overlap pairs compile
+    slower). `URDF_COMPILE_TIMEOUT_SECONDS` sets the base (default 300, 0 disables)."""
+    base = float(_env_float("URDF_COMPILE_TIMEOUT_SECONDS", 300.0))
+    if base <= 0:
+        return 0.0
+    try:
+        line_count = script_path.read_text(encoding="utf-8").count("\n") + 1
+    except OSError:
+        return base
+    extra = max(0, line_count - 200) / 200.0 * base * 0.5
+    return min(base * 3.0, base + extra)
+
+
 def compile_urdf_report_maybe_timeout(
     script_path: Path,
     *,
@@ -627,9 +642,10 @@ def compile_urdf_report_maybe_timeout(
     """
     Run `compile_urdf_report` with a hard timeout to prevent indefinite hangs.
 
-    Controlled by `URDF_COMPILE_TIMEOUT_SECONDS` (default: 300). Set to 0 to disable.
+    The timeout base is `URDF_COMPILE_TIMEOUT_SECONDS` (default: 300, 0 disables) and
+    is scaled up for larger scripts so complex models are not killed for being big.
     """
-    timeout_seconds = float(_env_float("URDF_COMPILE_TIMEOUT_SECONDS", 300.0))
+    timeout_seconds = _resolve_compile_timeout_seconds(script_path)
     if timeout_seconds <= 0:
         return compile_urdf_report(
             script_path,

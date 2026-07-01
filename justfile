@@ -70,6 +70,8 @@ smoke-tests:
       tests/storage \
       tests/viewer/test_api.py \
       tests/sdk/test_imports.py \
+      tests/sdk/test_geometry_qc_overlap.py \
+      tests/agent/test_prompting_compile.py \
       tests/cli
 
 test-all:

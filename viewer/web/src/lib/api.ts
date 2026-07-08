@@ -428,3 +428,46 @@ export async function saveRecordSecondaryRating(
   }
   return (await response.json()) as RecordSecondaryRatingResponse;
 }
+
+export interface BundleManifest {
+  record_id?: string | null;
+  provider?: string | null;
+  model_id?: string | null;
+  created_at?: string | null;
+  exported_at?: string | null;
+  files?: { path: string; sha256: string }[];
+}
+
+export interface BundleVerifyResult {
+  valid: boolean;
+  signature_valid: boolean;
+  files_intact: boolean;
+  is_own: boolean;
+  public_key: string | null;
+  reason: string | null;
+  manifest: BundleManifest | null;
+}
+
+export async function downloadRecordBundle(recordId: string): Promise<void> {
+  const response = await fetch(`/api/records/${encodeURIComponent(recordId)}/export.artcraft`);
+  if (!response.ok) {
+    throw new HttpError(response.status, await readErrorMessage(response));
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `${recordId}.artcraft`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+export async function verifyBundle(file: Blob): Promise<BundleVerifyResult> {
+  const response = await fetch("/api/verify", { method: "POST", body: file });
+  if (!response.ok) {
+    throw new HttpError(response.status, await readErrorMessage(response));
+  }
+  return (await response.json()) as BundleVerifyResult;
+}

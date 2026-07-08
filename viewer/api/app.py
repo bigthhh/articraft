@@ -13,6 +13,7 @@ from viewer.api.file_resolver import ViewerFileResolver
 from viewer.api.frontend import install_frontend_routes
 from viewer.api.generation import GenerationManager
 from viewer.api.routes import (
+    export_router,
     files_router,
     generation_router,
     records_router,
@@ -79,6 +80,7 @@ def create_app(*, repo_root: Path | None = None, data_root: Path | None = None) 
     app.include_router(runs_router)
     app.include_router(files_router)
     app.include_router(generation_router)
+    app.include_router(export_router)
     install_frontend_routes(app)
     return app
 

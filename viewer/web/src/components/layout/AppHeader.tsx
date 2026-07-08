@@ -1,6 +1,6 @@
 import { useState, type JSX } from "react";
 import { useIsFetching, useQueryClient } from "@tanstack/react-query";
-import { Plus, RefreshCw } from "lucide-react";
+import { Download, Plus, RefreshCw, ShieldCheck } from "lucide-react";
 
 import { viewerQueryKeys } from "@/lib/viewer-queries";
 import { useViewer } from "@/lib/viewer-context";
@@ -9,6 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { NewTaskDialog } from "@/components/browser/NewTaskDialog";
+import { VerifyBundleDialog } from "@/components/browser/VerifyBundleDialog";
+import { downloadRecordBundle } from "@/lib/api";
 
 const TRAILING_PUNCTUATION = /[\s,.;:!?)]*$/;
 
@@ -26,6 +28,8 @@ export function AppHeader(): JSX.Element {
   const state = useViewer();
   const queryClient = useQueryClient();
   const [taskDialogOpen, setTaskDialogOpen] = useState(false);
+  const [verifyOpen, setVerifyOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const activeFetchCount = useIsFetching({ queryKey: viewerQueryKeys.root() });
   const isStagingSelection = state.selection?.kind === "staging";
   const stagingEntry =
@@ -39,6 +43,18 @@ export function AppHeader(): JSX.Element {
 
   const handleRefresh = async () => {
     await queryClient.invalidateQueries({ queryKey: viewerQueryKeys.root() });
+  };
+
+  const handleExport = async () => {
+    if (!state.selectedRecordId || exporting) return;
+    setExporting(true);
+    try {
+      await downloadRecordBundle(state.selectedRecordId);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "导出失败");
+    } finally {
+      setExporting(false);
+    }
   };
 
   return (
@@ -61,6 +77,31 @@ export function AppHeader(): JSX.Element {
           <p className="text-[12px] text-[var(--text-quaternary)]">No record selected</p>
         )}
       </div>
+
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={handleExport}
+        disabled={!state.selectedRecordId || exporting}
+        className="h-7 gap-1.5 px-2.5 text-[11px]"
+      >
+        <Download className="size-3.5" />
+        Export
+      </Button>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setVerifyOpen(true)}
+            className="h-7 w-7 rounded-md p-0 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+          >
+            <ShieldCheck className="size-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">Verify .artcraft</TooltipContent>
+      </Tooltip>
 
       <Button
         variant="outline"
@@ -88,6 +129,7 @@ export function AppHeader(): JSX.Element {
       </Tooltip>
 
       <NewTaskDialog open={taskDialogOpen} onOpenChange={setTaskDialogOpen} />
+      <VerifyBundleDialog open={verifyOpen} onOpenChange={setVerifyOpen} />
     </header>
   );
 }

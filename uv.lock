@@ -7,7 +7,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
+exclude-newer = "2026-07-01T04:22:08.870491Z"
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
@@ -154,6 +154,7 @@ dependencies = [
     { name = "anthropic" },
     { name = "bm25s" },
     { name = "cadquery" },
+    { name = "cryptography" },
     { name = "fastapi" },
     { name = "google-genai" },
     { name = "manifold3d" },
@@ -187,6 +188,7 @@ requires-dist = [
     { name = "anthropic", specifier = ">=0.101.0" },
     { name = "bm25s", specifier = ">=0.3.2.post1" },
     { name = "cadquery", specifier = ">=2.5" },
+    { name = "cryptography", specifier = ">=44.0.0" },
     { name = "fastapi", specifier = ">=0.111.0" },
     { name = "google-genai" },
     { name = "manifold3d", specifier = ">=3.3.2" },

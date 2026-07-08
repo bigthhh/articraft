@@ -100,7 +100,7 @@ export function AppHeader(): JSX.Element {
             <ShieldCheck className="size-3.5" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent side="bottom">Verify .artcraft</TooltipContent>
+        <TooltipContent side="bottom">Verify .artc</TooltipContent>
       </Tooltip>
 
       <Button

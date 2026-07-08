@@ -1,13 +1,13 @@
-# The `.artcraft` Bundle Format — Specification v1
+# The `.artc` Bundle Format — Specification v1
 
 > This document is self-contained and language-agnostic. Any agent or program can
-> read it and fully support `.artcraft` (produce, read, and verify) without access
+> read it and fully support `.artc` (produce, read, and verify) without access
 > to the Articraft codebase. It can be used directly as a prompt: "Implement support
-> for the `.artcraft` format as specified below."
+> for the `.artc` format as specified below."
 
 ## 1. Purpose
 
-An `.artcraft` file is a **signed, provenance-carrying container** for one
+An `.artc` file is a **signed, provenance-carrying container** for one
 Articraft-generated articulated asset (its URDF, meshes, and compile report). The
 embedded Ed25519 signature lets anyone confirm two things with only the file and a
 public key:
@@ -20,7 +20,7 @@ by any zip tool. Security comes from the signature, not from obscurity.
 
 ## 2. Container
 
-- The file is a standard **ZIP** archive (DEFLATE is fine). Recommended extension: `.artcraft`.
+- The file is a standard **ZIP** archive (DEFLATE is fine). Recommended extension: `.artc`.
 - **Required entries** (exact names, at the archive root):
   - `manifest.json` — provenance + integrity metadata (see §3).
   - `signature.json` — the detached signature over the manifest (see §5).
@@ -35,7 +35,7 @@ A single JSON object. Fields:
 
 | Field            | Type                | Meaning |
 |------------------|---------------------|---------|
-| `format`         | string              | Constant `"artcraft"`. |
+| `format`         | string              | Constant `"artc"`. |
 | `format_version` | integer             | Constant `1` for this spec. |
 | `record_id`      | string \| null      | Source record identifier. |
 | `provider`       | string \| null      | Generation provider (e.g. `"openai"`). |
@@ -130,7 +130,7 @@ Input: bundle bytes; optionally a trusted `own_public_key` (base64) to decide `i
 
 `manifest.json` (shown pretty; **stored canonically/minified**):
 ```json
-{"created_at":null,"exported_at":"2026-07-08T00:00:00+00:00","files":[{"path":"model.urdf","sha256":"b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c"}],"format":"artcraft","format_version":1,"lineage":null,"model_id":"gpt-5.5","provider":"openai","record_id":"rec_x"}
+{"created_at":null,"exported_at":"2026-07-08T00:00:00+00:00","files":[{"path":"model.urdf","sha256":"b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c"}],"format":"artc","format_version":1,"lineage":null,"model_id":"gpt-5.5","provider":"openai","record_id":"rec_x"}
 ```
 `signature.json`:
 ```json

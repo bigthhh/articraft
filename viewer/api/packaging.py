@@ -1,6 +1,6 @@
-"""Sign and verify `.artcraft` export bundles.
+"""Sign and verify `.artc` export bundles.
 
-An `.artcraft` file is a plain zip carrying the record's `model.urdf`, meshes and
+An `.artc` file is a plain zip carrying the record's `model.urdf`, meshes and
 compile report, plus a `manifest.json` (provenance + per-file sha256) and a
 `signature.json` (Ed25519 signature over the manifest bytes). The signature proves
 the bundle came from this project's private key and that no file was altered.
@@ -22,7 +22,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PublicKey,
 )
 
-FORMAT = "artcraft"
+FORMAT = "artc"
 FORMAT_VERSION = 1
 MANIFEST_NAME = "manifest.json"
 SIGNATURE_NAME = "signature.json"
@@ -72,8 +72,8 @@ def build_manifest(*, record_meta: dict, files: dict[str, bytes], exported_at: s
     }
 
 
-def pack_artcraft(*, manifest: dict, files: dict[str, bytes], key: Ed25519PrivateKey) -> bytes:
-    """Build a signed `.artcraft` zip from the manifest and file payloads."""
+def pack_artc(*, manifest: dict, files: dict[str, bytes], key: Ed25519PrivateKey) -> bytes:
+    """Build a signed `.artc` zip from the manifest and file payloads."""
     manifest_bytes = _canonical(manifest)
     signature = {
         "algorithm": "ed25519",
@@ -90,7 +90,7 @@ def pack_artcraft(*, manifest: dict, files: dict[str, bytes], key: Ed25519Privat
     return buffer.getvalue()
 
 
-def verify_artcraft(data: bytes, *, own_public_key_b64: str | None = None) -> dict:
+def verify_artc(data: bytes, *, own_public_key_b64: str | None = None) -> dict:
     """Verify a bundle's signature and file integrity.
 
     Returns a report; ``valid`` means signature checks out AND every payload file
@@ -138,5 +138,5 @@ def verify_artcraft(data: bytes, *, own_public_key_b64: str | None = None) -> di
             if not intact:
                 report["reason"] = "a payload file does not match its manifest hash"
     except (zipfile.BadZipFile, KeyError, ValueError, json.JSONDecodeError) as exc:
-        report["reason"] = f"not a readable artcraft bundle: {exc}"
+        report["reason"] = f"not a readable artc bundle: {exc}"
     return report

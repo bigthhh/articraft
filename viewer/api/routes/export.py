@@ -9,9 +9,9 @@ from viewer.api.dependencies import ViewerStoreDep
 from viewer.api.packaging import (
     build_manifest,
     load_signing_key,
-    pack_artcraft,
+    pack_artc,
     public_key_b64,
-    verify_artcraft,
+    verify_artc,
 )
 
 router = APIRouter()
@@ -19,7 +19,7 @@ router = APIRouter()
 _MAX_BUNDLE_BYTES = 200 * 1024 * 1024
 
 
-@router.get("/api/records/{record_id}/export.artcraft")
+@router.get("/api/records/{record_id}/export.artc")
 async def export_record(record_id: str, store: ViewerStoreDep) -> Response:
     record = store.record_store.load_record(record_id)
     if not isinstance(record, dict):
@@ -45,12 +45,12 @@ async def export_record(record_id: str, store: ViewerStoreDep) -> Response:
         exported_at=datetime.now(timezone.utc).isoformat(),
     )
     key = load_signing_key(store.repo.layout.data_root)
-    bundle = pack_artcraft(manifest=manifest, files=files, key=key)
+    bundle = pack_artc(manifest=manifest, files=files, key=key)
 
     return Response(
         content=bundle,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{record_id}.artcraft"'},
+        headers={"Content-Disposition": f'attachment; filename="{record_id}.artc"'},
     )
 
 
@@ -66,4 +66,4 @@ async def verify_bundle(request: Request, store: ViewerStoreDep) -> dict:
     if len(data) > _MAX_BUNDLE_BYTES:
         raise HTTPException(status_code=413, detail="Bundle exceeds the size limit.")
     own = public_key_b64(load_signing_key(store.repo.layout.data_root))
-    return verify_artcraft(data, own_public_key_b64=own)
+    return verify_artc(data, own_public_key_b64=own)

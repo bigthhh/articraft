@@ -449,7 +449,7 @@ export interface BundleVerifyResult {
 }
 
 export async function downloadRecordBundle(recordId: string): Promise<void> {
-  const response = await fetch(`/api/records/${encodeURIComponent(recordId)}/export.artcraft`);
+  const response = await fetch(`/api/records/${encodeURIComponent(recordId)}/export.artc`);
   if (!response.ok) {
     throw new HttpError(response.status, await readErrorMessage(response));
   }
@@ -457,7 +457,7 @@ export async function downloadRecordBundle(recordId: string): Promise<void> {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = `${recordId}.artcraft`;
+  anchor.download = `${recordId}.artc`;
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();

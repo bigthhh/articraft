@@ -113,7 +113,7 @@ export function VerifyBundleDialog({
     >
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>校验 .artcraft 产出包</DialogTitle>
+          <DialogTitle>校验 .artc 产出包</DialogTitle>
           <DialogDescription>确认文件是否由本项目签名、且未被篡改。</DialogDescription>
         </DialogHeader>
 
@@ -125,12 +125,12 @@ export function VerifyBundleDialog({
           className="flex w-full flex-col items-center gap-2 rounded-lg border border-dashed border-[var(--border-strong)] bg-[var(--surface-1)] px-4 py-6 text-[12px] text-[var(--text-tertiary)] transition hover:border-[var(--border-default)] hover:text-[var(--text-secondary)]"
         >
           <Upload className="size-5 opacity-70" />
-          <span>{fileName ? fileName : "点击选择，或拖入 .artcraft 文件"}</span>
+          <span>{fileName ? fileName : "点击选择，或拖入 .artc 文件"}</span>
         </button>
         <input
           ref={inputRef}
           type="file"
-          accept=".artcraft,application/zip"
+          accept=".artc,application/zip"
           className="hidden"
           onChange={handlePick}
         />

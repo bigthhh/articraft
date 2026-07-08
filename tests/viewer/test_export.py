@@ -37,7 +37,7 @@ def _own_bundle(key: Ed25519PrivateKey) -> bytes:
         files=files,
         exported_at="2026-07-08T00:00:00Z",
     )
-    return packaging.pack_artcraft(manifest=manifest, files=files, key=key)
+    return packaging.pack_artc(manifest=manifest, files=files, key=key)
 
 
 def test_public_key_endpoint(tmp_path: Path, monkeypatch) -> None:
